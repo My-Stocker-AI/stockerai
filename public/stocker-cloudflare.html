@@ -1,0 +1,1545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Stocker AI">
+  <meta name="theme-color" content="#0d1117">
+  <title>Stocker AI - Voice-Guided Stocking Assistant</title>
+  <meta name="description" content="Voice-first PWA for warehouse workers. Hands-free voice commands for pre-kitting vending machine routes.">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="icons/icon-32.png">
+  <!-- Supabase JS Client -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <!-- Supabase Auth Module -->
+  <script src="auth.js"></script>
+  <style>
+    /* ============================================
+       STOCKER AI - PREMIUM DARK DESIGN SYSTEM
+       Inspired by Linear, Raycast, Arc
+       ============================================ */
+    
+    :root {
+      /* Base colors - Deep space dark theme */
+      --background: #0d1117;
+      --background-secondary: #161b22;
+      --foreground: #e6edf3;
+      --foreground-muted: #7d8590;
+      
+      /* Card surfaces - Glass effect */
+      --card: rgba(22, 27, 34, 0.8);
+      --card-solid: #161b22;
+      --border: rgba(48, 54, 61, 0.6);
+      --border-subtle: rgba(48, 54, 61, 0.3);
+      
+      /* Primary - Electric Teal */
+      --primary: #4ecca3;
+      --primary-dim: rgba(78, 204, 163, 0.15);
+      --primary-glow: rgba(78, 204, 163, 0.4);
+      
+      /* Zone colors */
+      --zone-route: #3b82f6;
+      --zone-route-dim: rgba(59, 130, 246, 0.15);
+      --zone-pick: #4ecca3;
+      --zone-pick-dim: rgba(78, 204, 163, 0.15);
+      --zone-mic: #f59e0b;
+      --zone-mic-dim: rgba(245, 158, 11, 0.15);
+      --zone-ai: #a855f7;
+      --zone-ai-dim: rgba(168, 85, 247, 0.15);
+      --zone-done: #6b7280;
+      --zone-done-dim: rgba(107, 114, 128, 0.15);
+      
+      /* Status colors */
+      --speaking: #fbbf24;
+      --thinking: #a855f7;
+      --error: #ef4444;
+      --success: #22c55e;
+      
+      /* Shadows */
+      --shadow-sm: 0 2px 8px -2px rgba(0, 0, 0, 0.5);
+      --shadow-md: 0 8px 24px -4px rgba(0, 0, 0, 0.6);
+      --shadow-glow: 0 0 40px -10px var(--primary-glow);
+      
+      /* Timing */
+      --transition-fast: 150ms ease;
+      --transition-normal: 250ms ease;
+      --transition-slow: 400ms ease;
+      
+      /* Radius */
+      --radius-sm: 6px;
+      --radius-md: 10px;
+      --radius-lg: 14px;
+      --radius-xl: 20px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(145deg, #0d1117 0%, #161b22 50%, #0d1117 100%);
+      color: var(--foreground);
+      height: 100vh;
+      height: 100dvh;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* ============================================
+       UTILITY CLASSES
+       ============================================ */
+    
+    .hidden { display: none !important; }
+    
+    .glass {
+      background: var(--card);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid var(--border);
+    }
+    
+    .glass-strong {
+      background: rgba(22, 27, 34, 0.95);
+      backdrop-filter: blur(30px);
+      -webkit-backdrop-filter: blur(30px);
+      border: 1px solid var(--border);
+    }
+
+    /* Zone accent - colored left border */
+    .zone-accent {
+      position: relative;
+    }
+    .zone-accent::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 3px;
+      border-radius: 3px 0 0 3px;
+    }
+    .zone-route::before { background: var(--zone-route); }
+    .zone-pick::before { background: var(--zone-pick); }
+    .zone-mic::before { background: var(--zone-mic); }
+    .zone-ai::before { background: var(--zone-ai); }
+    .zone-done::before { background: var(--zone-done); }
+
+    /* Zone labels */
+    .zone-label {
+      display: inline-flex;
+      align-items: center;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      padding: 3px 8px;
+      border-radius: var(--radius-sm);
+      flex-shrink: 0;
+    }
+    .zone-label-route { background: var(--zone-route-dim); color: var(--zone-route); }
+    .zone-label-pick { background: var(--zone-pick-dim); color: var(--zone-pick); }
+    .zone-label-mic { background: var(--zone-mic-dim); color: var(--zone-mic); }
+    .zone-label-ai { background: var(--zone-ai-dim); color: var(--zone-ai); }
+    .zone-label-done { background: var(--zone-done-dim); color: var(--zone-done); }
+
+    /* ============================================
+       ANIMATIONS
+       ============================================ */
+    
+    @keyframes pulse-dot {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.4); opacity: 0.6; }
+    }
+    
+    @keyframes pulse-ring {
+      0% { transform: scale(1); opacity: 0.6; }
+      100% { transform: scale(2.5); opacity: 0; }
+    }
+    
+    @keyframes thinking-pulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.3); opacity: 0.5; }
+    }
+    
+    @keyframes speaking-wave {
+      0%, 100% { transform: scaleY(0.4); }
+      50% { transform: scaleY(1); }
+    }
+    
+    @keyframes slide-up {
+      from { transform: translateY(20px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+    
+    @keyframes fade-in {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    
+    @keyframes scale-in {
+      from { transform: scale(0.95); opacity: 0; }
+      to { transform: scale(1); opacity: 1; }
+    }
+
+    .animate-slide-up { animation: slide-up 0.4s ease-out; }
+    .animate-fade-in { animation: fade-in 0.3s ease-out; }
+    .animate-scale-in { animation: scale-in 0.25s ease-out; }
+
+    /* ============================================
+       HEADER - ZONE 1: ROUTE
+       ============================================ */
+    
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 20px;
+      padding-top: max(12px, env(safe-area-inset-top));
+      background: var(--card);
+      backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .route-name {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--primary);
+      max-width: 160px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .progress-badge {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--foreground-muted);
+      background: var(--background-secondary);
+      padding: 6px 14px;
+      border-radius: 20px;
+    }
+
+    .logout-btn {
+      background: none;
+      border: none;
+      color: var(--foreground-muted);
+      cursor: pointer;
+      padding: 6px;
+      border-radius: var(--radius-sm);
+      transition: color var(--transition-fast);
+    }
+    .logout-btn:hover { color: var(--foreground); }
+    .logout-btn svg { width: 18px; height: 18px; }
+
+    /* ============================================
+       MAIN CONTENT AREA
+       ============================================ */
+    
+    .main-content {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      padding-bottom: 80px; /* Space for nav */
+    }
+
+    /* ============================================
+       CURRENT ITEM CARD - ZONE 2: PICK ITEM
+       ============================================ */
+    
+    .current-item-card {
+      margin: 12px 16px 0;
+      padding: 20px;
+      border-radius: var(--radius-lg);
+      background: var(--card);
+      backdrop-filter: blur(20px);
+      border: 1px solid rgba(78, 204, 163, 0.3);
+      position: relative;
+      box-shadow: 0 0 40px -10px var(--primary-glow);
+    }
+    .current-item-card::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 3px;
+      background: var(--zone-pick);
+      border-radius: 3px 0 0 3px;
+    }
+
+    .current-item-card .zone-label {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+    }
+
+    .current-item-card.empty {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 32px 20px;
+      text-align: center;
+      border-color: var(--border);
+      box-shadow: none;
+    }
+
+    .empty-icon {
+      width: 56px;
+      height: 56px;
+      border-radius: var(--radius-lg);
+      background: var(--background-secondary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 16px;
+    }
+    .empty-icon svg { width: 28px; height: 28px; color: var(--foreground-muted); }
+
+    .empty-text {
+      font-size: 16px;
+      color: var(--foreground-muted);
+    }
+
+    .item-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 16px;
+    }
+
+    .item-indicator {
+      width: 48px;
+      height: 48px;
+      border-radius: var(--radius-md);
+      background: var(--zone-pick-dim);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .item-indicator svg { width: 24px; height: 24px; color: var(--primary); }
+
+    .item-details { flex: 1; min-width: 0; }
+
+    .item-qty-product {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      margin-bottom: 8px;
+      flex-wrap: wrap;
+    }
+
+    .item-qty {
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--primary);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .item-product {
+      font-size: 22px;
+      font-weight: 600;
+      color: var(--foreground);
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .item-slot {
+      font-size: 20px;
+      font-weight: 600;
+      color: var(--primary);
+      margin-bottom: 4px;
+    }
+
+    .item-machine {
+      font-size: 13px;
+      color: var(--foreground-muted);
+    }
+
+    /* Route complete state */
+    .current-item-card.complete .empty-icon {
+      background: var(--zone-pick-dim);
+    }
+    .current-item-card.complete .empty-icon svg {
+      color: var(--primary);
+    }
+    .current-item-card.complete .empty-text {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--primary);
+    }
+
+    /* ============================================
+       VOICE STATUS - ZONE 3: MIC
+       ============================================ */
+    
+    .voice-status {
+      margin: 12px 16px 0;
+      padding: 14px 16px;
+      border-radius: var(--radius-lg);
+      background: var(--card);
+      backdrop-filter: blur(20px);
+      border: 1px solid rgba(245, 158, 11, 0.25);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      position: relative;
+    }
+    .voice-status::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 3px;
+      background: var(--zone-mic);
+      border-radius: 3px 0 0 3px;
+    }
+
+    /* Status dot */
+    .status-dot-wrapper {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 20px;
+      height: 20px;
+    }
+
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--foreground-muted);
+      transition: background var(--transition-fast);
+    }
+
+    .status-dot.listening {
+      background: var(--primary);
+      animation: pulse-dot 1.5s ease-in-out infinite;
+    }
+
+    .status-dot.listening + .pulse-ring {
+      position: absolute;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--primary);
+      animation: pulse-ring 1.5s ease-out infinite;
+    }
+
+    .status-dot.speaking {
+      background: var(--speaking);
+    }
+
+    .status-dot.thinking {
+      background: var(--thinking);
+      animation: thinking-pulse 0.8s ease-in-out infinite;
+    }
+
+    .status-dot.paused {
+      background: transparent;
+      border: 2px solid var(--foreground-muted);
+    }
+
+    .status-dot.error {
+      background: var(--error);
+    }
+
+    /* Speaking bars animation */
+    .speaking-bars {
+      display: none;
+      gap: 2px;
+      align-items: center;
+      height: 14px;
+    }
+    .speaking-bars.active { display: flex; }
+    .speaking-bars span {
+      width: 3px;
+      height: 10px;
+      background: var(--speaking);
+      border-radius: 2px;
+      animation: speaking-wave 0.4s ease-in-out infinite;
+    }
+    .speaking-bars span:nth-child(2) { animation-delay: 0.1s; }
+    .speaking-bars span:nth-child(3) { animation-delay: 0.2s; }
+
+    .status-label {
+      font-size: 13px;
+      color: var(--foreground-muted);
+      flex-shrink: 0;
+    }
+
+    .last-input {
+      font-size: 13px;
+      color: var(--speaking);
+      flex: 1;
+      text-align: right;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .voice-controls {
+      display: flex;
+      gap: 8px;
+      margin-left: auto;
+    }
+
+    .control-btn {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: var(--background-secondary);
+      border: none;
+      color: var(--foreground-muted);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all var(--transition-fast);
+    }
+    .control-btn:hover {
+      background: var(--border);
+      color: var(--foreground);
+      transform: scale(1.05);
+    }
+    .control-btn:active { transform: scale(0.95); }
+    .control-btn svg { width: 18px; height: 18px; }
+
+    .control-btn.stop:hover {
+      background: rgba(239, 68, 68, 0.15);
+      color: var(--error);
+    }
+
+    /* ============================================
+       AI RESPONSE - ZONE 4: AI SAYS
+       ============================================ */
+    
+    .ai-response {
+      margin: 12px 16px 0;
+      padding: 14px 16px;
+      border-radius: var(--radius-lg);
+      background: var(--card);
+      backdrop-filter: blur(20px);
+      border: 1px solid rgba(168, 85, 247, 0.25);
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      min-height: 64px;
+      position: relative;
+    }
+    .ai-response::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 3px;
+      background: var(--zone-ai);
+      border-radius: 3px 0 0 3px;
+    }
+
+    .ai-icon {
+      color: var(--zone-ai);
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+    .ai-icon svg { width: 16px; height: 16px; }
+
+    .response-text {
+      font-size: 15px;
+      color: var(--foreground);
+      line-height: 1.5;
+      flex: 1;
+    }
+
+    .response-text.empty {
+      color: var(--foreground-muted);
+      font-style: italic;
+    }
+
+    /* ============================================
+       COMPLETED LIST - ZONE 5: DONE
+       ============================================ */
+    
+    .completed-list {
+      margin: 12px 16px 0;
+      flex: 1;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      border-radius: var(--radius-lg);
+      background: var(--card);
+      backdrop-filter: blur(20px);
+      border: 1px solid var(--border-subtle);
+      position: relative;
+    }
+    .completed-list::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 3px;
+      background: var(--zone-done);
+      border-radius: 3px 0 0 3px;
+    }
+
+    .completed-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border-subtle);
+      background: rgba(22, 27, 34, 0.95);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    .completed-count {
+      font-size: 12px;
+      color: var(--foreground-muted);
+    }
+
+    .completed-scroll {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 16px 16px;
+    }
+
+    .completed-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border-subtle);
+      animation: slide-up 0.3s ease-out;
+    }
+    .completed-item:last-child { border-bottom: none; }
+
+    .completed-check {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: var(--zone-pick-dim);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .completed-check svg { width: 12px; height: 12px; color: var(--primary); }
+
+    .completed-qty {
+      font-size: 13px;
+      color: var(--foreground-muted);
+      font-variant-numeric: tabular-nums;
+      width: 32px;
+    }
+
+    .completed-product {
+      font-size: 13px;
+      color: var(--foreground-muted);
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .completed-slot {
+      font-size: 11px;
+      color: rgba(125, 133, 144, 0.6);
+    }
+
+    .empty-list {
+      text-align: center;
+      padding: 32px 20px;
+      color: var(--foreground-muted);
+      font-size: 13px;
+    }
+
+    /* ============================================
+       BOTTOM NAVIGATION - ZONE 6: NAV
+       ============================================ */
+    
+    .nav {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: rgba(22, 27, 34, 0.98);
+      backdrop-filter: blur(20px);
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: center;
+      gap: 48px;
+      padding: 12px 24px;
+      padding-bottom: max(12px, env(safe-area-inset-bottom));
+    }
+
+    .nav-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      color: var(--foreground-muted);
+      text-decoration: none;
+      font-size: 11px;
+      font-weight: 500;
+      transition: color var(--transition-fast);
+      padding: 4px 16px;
+    }
+
+    .nav-item .nav-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: var(--radius-md);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background var(--transition-fast);
+    }
+
+    .nav-item svg { width: 22px; height: 22px; }
+
+    .nav-item.active {
+      color: var(--primary);
+    }
+    .nav-item.active .nav-icon {
+      background: var(--zone-pick-dim);
+    }
+
+    .nav-item:hover:not(.active) {
+      color: var(--foreground);
+    }
+
+    /* ============================================
+       LOGIN SCREEN
+       ============================================ */
+    
+    .login-screen {
+      position: fixed;
+      inset: 0;
+      background: linear-gradient(145deg, #0d1117 0%, #161b22 50%, #0d1117 100%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      padding-top: 60px;
+      padding-left: 20px;
+      padding-right: 20px;
+      padding-bottom: 20px;
+      overflow-y: auto;
+      z-index: 200;
+    }
+
+    .login-glow {
+      position: absolute;
+      top: 20%;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 300px;
+      height: 300px;
+      background: radial-gradient(circle, var(--primary-glow) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .login-box {
+      position: relative;
+      background: rgba(22, 27, 34, 0.95);
+      backdrop-filter: blur(30px);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-xl);
+      padding: 40px 32px;
+      width: 100%;
+      max-width: 360px;
+      text-align: center;
+      animation: scale-in 0.3s ease-out;
+    }
+
+    .login-logo {
+      width: 80px;
+      height: 80px;
+      border-radius: var(--radius-lg);
+      background: linear-gradient(135deg, var(--zone-pick-dim) 0%, rgba(78, 204, 163, 0.05) 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 20px;
+      box-shadow: var(--shadow-glow);
+    }
+    .login-logo svg { width: 40px; height: 40px; color: var(--primary); }
+
+    .login-box h1 {
+      font-size: 24px;
+      font-weight: 700;
+      margin-bottom: 6px;
+      color: var(--foreground);
+    }
+
+    .login-subtitle {
+      font-size: 14px;
+      color: var(--foreground-muted);
+      margin-bottom: 28px;
+    }
+
+    .auth-tabs {
+      display: flex;
+      background: var(--background-secondary);
+      border-radius: var(--radius-sm);
+      padding: 4px;
+      margin-bottom: 24px;
+    }
+
+    .auth-tab {
+      flex: 1;
+      padding: 10px;
+      border: none;
+      background: transparent;
+      color: var(--foreground-muted);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      border-radius: var(--radius-sm);
+      transition: all var(--transition-fast);
+    }
+
+    .auth-tab.active {
+      background: var(--primary);
+      color: var(--background);
+    }
+
+    .auth-tab:not(.active):hover {
+      color: var(--foreground);
+    }
+
+    .login-box input {
+      width: 100%;
+      padding: 14px 16px;
+      border: 2px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--background-secondary);
+      color: var(--foreground);
+      font-size: 15px;
+      margin-bottom: 14px;
+      transition: border-color var(--transition-fast);
+    }
+
+    .login-box input:focus {
+      outline: none;
+      border-color: var(--primary);
+    }
+
+    .login-box input::placeholder {
+      color: var(--foreground-muted);
+    }
+
+    .name-row {
+      display: flex;
+      gap: 12px;
+    }
+    .name-row input { flex: 1; }
+
+    .signup-fields { display: none; }
+    .signup-fields.show { display: block; }
+
+    .btn-primary {
+      width: 100%;
+      padding: 14px;
+      border: none;
+      border-radius: var(--radius-md);
+      background: var(--primary);
+      color: var(--background);
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all var(--transition-fast);
+      box-shadow: 0 4px 14px -4px var(--primary-glow);
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px -4px var(--primary-glow);
+    }
+
+    .btn-primary:active {
+      transform: scale(0.98);
+    }
+
+    .btn-primary:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .forgot-link {
+      display: inline-block;
+      margin-top: 14px;
+      font-size: 12px;
+      color: var(--foreground-muted);
+      text-decoration: underline;
+      cursor: pointer;
+      transition: color var(--transition-fast);
+    }
+    .forgot-link:hover { color: var(--foreground); }
+
+    .login-error {
+      color: var(--error);
+      font-size: 13px;
+      margin-top: 16px;
+      min-height: 20px;
+    }
+
+    .login-success {
+      color: var(--primary);
+      font-size: 13px;
+      margin-top: 16px;
+    }
+
+    /* ============================================
+       DIALOGS
+       ============================================ */
+    
+    .dialog-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(4px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      z-index: 150;
+      animation: fade-in 0.2s ease-out;
+    }
+
+    .dialog-card {
+      background: var(--card-solid);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-xl);
+      padding: 28px;
+      max-width: 340px;
+      width: 100%;
+      text-align: center;
+      animation: scale-in 0.25s ease-out;
+    }
+
+    .dialog-card h2 {
+      font-size: 20px;
+      font-weight: 600;
+      color: var(--primary);
+      margin-bottom: 10px;
+    }
+
+    .dialog-card p {
+      font-size: 13px;
+      color: var(--foreground-muted);
+      margin-bottom: 6px;
+    }
+
+    .dialog-route-info {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--foreground);
+      margin-bottom: 24px;
+    }
+
+    .dialog-buttons {
+      display: flex;
+      gap: 12px;
+    }
+
+    .dialog-buttons button {
+      flex: 1;
+      padding: 12px;
+      border: none;
+      border-radius: var(--radius-md);
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all var(--transition-fast);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .btn-secondary {
+      background: var(--background-secondary);
+      color: var(--foreground-muted);
+    }
+    .btn-secondary:hover {
+      background: var(--border);
+      color: var(--foreground);
+    }
+
+    .btn-resume {
+      background: var(--primary);
+      color: var(--background);
+    }
+    .btn-resume:hover {
+      box-shadow: 0 4px 14px -4px var(--primary-glow);
+    }
+
+    .btn-resume svg, .btn-secondary svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    /* ============================================
+       BANNERS
+       ============================================ */
+    
+    .offline-banner {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      background: #f59e0b;
+      color: #1a1a2e;
+      padding: 10px 20px;
+      padding-top: max(10px, env(safe-area-inset-top));
+      text-align: center;
+      font-weight: 600;
+      font-size: 13px;
+      display: none;
+      z-index: 300;
+      animation: slide-up 0.3s ease-out;
+    }
+    .offline-banner.show { display: flex; align-items: center; justify-content: center; gap: 8px; }
+    .offline-banner svg { width: 16px; height: 16px; }
+
+    .error-banner {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      background: var(--error);
+      color: white;
+      padding: 12px 20px;
+      padding-top: max(12px, env(safe-area-inset-top));
+      text-align: center;
+      font-weight: 500;
+      font-size: 13px;
+      display: none;
+      z-index: 300;
+    }
+    .error-banner.show { display: block; }
+
+    /* ============================================
+       UPLOAD TAB
+       ============================================ */
+    
+    .upload-content {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      flex: 1;
+      padding: 24px;
+    }
+
+    .upload-wrapper {
+      width: 100%;
+      max-width: 320px;
+      text-align: center;
+    }
+
+    .upload-title {
+      font-size: 20px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+
+    .upload-subtitle {
+      font-size: 14px;
+      color: var(--foreground-muted);
+      margin-bottom: 24px;
+    }
+
+    .upload-dropzone {
+      width: 100%;
+      height: 180px;
+      border: 2px dashed var(--border);
+      border-radius: var(--radius-xl);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all var(--transition-fast);
+    }
+
+    .upload-dropzone:hover,
+    .upload-dropzone.dragging {
+      border-color: var(--primary);
+      background: var(--zone-pick-dim);
+    }
+
+    .upload-dropzone-icon {
+      width: 56px;
+      height: 56px;
+      border-radius: var(--radius-lg);
+      background: var(--background-secondary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 16px;
+    }
+    .upload-dropzone-icon svg {
+      width: 28px;
+      height: 28px;
+      color: var(--foreground-muted);
+    }
+
+    .upload-dropzone-text {
+      font-size: 14px;
+      color: var(--foreground-muted);
+    }
+    .upload-dropzone-text span {
+      color: var(--primary);
+      font-weight: 500;
+    }
+
+    .upload-dropzone-hint {
+      font-size: 12px;
+      color: rgba(125, 133, 144, 0.6);
+      margin-top: 6px;
+    }
+
+    /* Hide file input */
+    .upload-dropzone input { display: none; }
+
+    /* ============================================
+       SVG ICONS (inline for simplicity)
+       ============================================ */
+  </style>
+</head>
+<body>
+  <div class="offline-banner" id="offlineBanner">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"></path><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"></path><path d="M10.71 5.05A16 16 0 0 1 22.58 9"></path><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"></path><path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path><line x1="12" y1="20" x2="12.01" y2="20"></line></svg>
+    No internet connection
+  </div>
+  <div class="error-banner" id="errorBanner"></div>
+
+  <!-- LOGIN SCREEN -->
+  <div class="login-screen" id="loginScreen">
+    <div class="login-glow"></div>
+    <div class="login-box">
+      <div class="login-logo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"></path>
+          <path d="m3.3 7 8.7 5 8.7-5"></path>
+          <path d="M12 22V12"></path>
+        </svg>
+      </div>
+      <h1>Stocker AI</h1>
+      <p class="login-subtitle">Voice-Guided Stocking Assistant</p>
+
+      <div class="auth-tabs">
+        <button type="button" class="auth-tab active" id="loginTab">Log In</button>
+        <button type="button" class="auth-tab" id="signupTab">Sign Up</button>
+      </div>
+
+      <form id="authForm" autocomplete="on">
+        <div class="signup-fields" id="signupFields">
+          <div class="name-row">
+            <input type="text" id="firstNameInput" placeholder="First name" autocomplete="given-name" />
+            <input type="text" id="lastNameInput" placeholder="Last name" autocomplete="family-name" />
+          </div>
+          <input type="tel" id="phoneInput" placeholder="Phone (for voice updates)" autocomplete="tel" />
+        </div>
+
+        <input type="email" id="emailInput" placeholder="Email" autocomplete="username" />
+        <input type="password" id="passwordInput" placeholder="Password" autocomplete="current-password" />
+
+        <button type="submit" class="btn-primary" id="authBtn">Log In</button>
+      </form>
+      <span class="forgot-link" id="forgotLink">Forgot password?</span>
+      <p class="login-error" id="loginError"></p>
+      <p class="login-success" id="loginSuccess"></p>
+    </div>
+  </div>
+
+  <!-- RESUME DIALOG -->
+  <div class="dialog-overlay hidden" id="resumeDialog">
+    <div class="dialog-card">
+      <h2>Resume Session?</h2>
+      <p>You have an incomplete route:</p>
+      <p class="dialog-route-info" id="resumeRouteInfo">South Route - Machine 2/7</p>
+      <div class="dialog-buttons">
+        <button class="btn-secondary" id="startFreshBtn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>
+          Start Fresh
+        </button>
+        <button class="btn-resume" id="resumeBtn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+          Resume
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- CONFIRM DIALOG -->
+  <div class="dialog-overlay hidden" id="confirmModal">
+    <div class="dialog-card">
+      <h2 id="confirmTitle">Stop Route?</h2>
+      <p id="confirmMessage">Progress will be saved. You can resume later.</p>
+      <div class="dialog-buttons">
+        <button class="btn-secondary" id="confirmCancel">Cancel</button>
+        <button class="btn-resume" id="confirmOk">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN APP -->
+  
+  <!-- HEADER - ZONE 1: ROUTE -->
+  <header class="header hidden" id="appHeader">
+    <div class="header-left">
+      <span class="zone-label zone-label-route">Route</span>
+      <span class="route-name" id="routeName">Stocker AI</span>
+    </div>
+    <div class="header-right">
+      <span class="progress-badge" id="machineBadge">-</span>
+      <button class="logout-btn" id="logoutBtn" aria-label="Sign out">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- MAIN CONTENT -->
+  <main class="main-content hidden" id="mainContent">
+    
+    <!-- Voice Tab -->
+    <div id="voiceTab">
+      <!-- CURRENT ITEM CARD - ZONE 2: PICK ITEM -->
+      <div class="current-item-card empty" id="currentItemCard">
+        <span class="zone-label zone-label-pick">Pick Item</span>
+        
+        <!-- Empty state -->
+        <div class="empty-state" id="emptyState">
+          <div class="empty-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"></path><path d="m3.3 7 8.7 5 8.7-5"></path><path d="M12 22V12"></path></svg>
+          </div>
+          <p class="empty-text">Say "start my route" to begin</p>
+        </div>
+
+        <!-- Active item -->
+        <div class="item-row hidden" id="itemRow">
+          <div class="item-indicator">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+          </div>
+          <div class="item-details">
+            <div class="item-qty-product">
+              <span class="item-qty" id="itemQty">3×</span>
+              <span class="item-product" id="itemProduct">Doritos Nacho Cheese</span>
+            </div>
+            <div class="item-slot" id="itemSlot">slot 58</div>
+            <div class="item-machine" id="itemMachine">Machine 1 - Building A</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- VOICE STATUS - ZONE 3: MIC -->
+      <div class="voice-status" id="voiceStatus">
+        <span class="zone-label zone-label-mic">Mic</span>
+        <div class="status-dot-wrapper">
+          <div class="status-dot" id="statusDot"></div>
+          <div class="pulse-ring" id="pulseRing" style="display:none;"></div>
+        </div>
+        <div class="speaking-bars" id="speakingBars">
+          <span></span><span></span><span></span>
+        </div>
+        <span class="status-label" id="statusLabel">Ready</span>
+        <span class="last-input" id="lastInput"></span>
+        <div class="voice-controls hidden" id="voiceControls">
+          <button class="control-btn" id="pauseBtn" aria-label="Pause">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
+          </button>
+          <button class="control-btn stop" id="stopBtn" aria-label="Stop">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- AI RESPONSE - ZONE 4: AI SAYS -->
+      <div class="ai-response" id="aiResponse">
+        <span class="zone-label zone-label-ai">AI Says</span>
+        <div class="ai-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.912 5.813a2 2 0 0 0 1.275 1.275L21 12l-5.813 1.912a2 2 0 0 0-1.275 1.275L12 21l-1.912-5.813a2 2 0 0 0-1.275-1.275L3 12l5.813-1.912a2 2 0 0 0 1.275-1.275L12 3Z"></path></svg>
+        </div>
+        <span class="response-text empty" id="responseText">Waiting for command...</span>
+      </div>
+
+      <!-- COMPLETED LIST - ZONE 5: DONE -->
+      <div class="completed-list" id="completedList">
+        <div class="completed-header">
+          <span class="zone-label zone-label-done">Done</span>
+          <span class="completed-count" id="completedCount">0 items</span>
+        </div>
+        <div class="completed-scroll" id="completedScroll">
+          <div class="empty-list" id="emptyList">No items picked yet</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Upload Tab -->
+    <div class="upload-content hidden" id="uploadTab">
+      <div class="upload-wrapper">
+        <h2 class="upload-title">Upload Route Data</h2>
+        <p class="upload-subtitle">Upload your route file to get started</p>
+        <label class="upload-dropzone" id="uploadDropzone">
+          <input type="file" accept=".csv,.xlsx,.xls" id="fileInput" />
+          <div class="upload-dropzone-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+          </div>
+          <p class="upload-dropzone-text">Drag & drop or <span>browse</span></p>
+          <p class="upload-dropzone-hint">CSV, Excel files supported</p>
+        </label>
+      </div>
+    </div>
+  </main>
+
+  <!-- BOTTOM NAVIGATION - ZONE 6 -->
+  <nav class="nav hidden" id="bottomNav">
+    <a href="#" class="nav-item active" id="navVoice">
+      <div class="nav-icon">
+        <svg viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+          <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+        </svg>
+      </div>
+      Voice
+    </a>
+    <a href="#" class="nav-item" id="navUpload">
+      <div class="nav-icon">
+        <svg viewBox="0 0 24 24" fill="currentColor">
+          <path d="M9 16h6v-6h4l-7-7-7 7h4v6zm-4 2h14v2H5v-2z"/>
+        </svg>
+      </div>
+      Upload
+    </a>
+  </nav>
+
+  <script>
+    // ============================================
+    // YOUR EXISTING JAVASCRIPT LOGIC GOES HERE
+    // Copy from your original index.html starting
+    // from the CONFIGURATION section
+    // ============================================
+    
+    // The HTML structure matches your original zones:
+    // 1. header (#appHeader) - ROUTE zone
+    // 2. #currentItemCard - PICK ITEM zone
+    // 3. #voiceStatus - MIC zone
+    // 4. #aiResponse - AI SAYS zone
+    // 5. #completedList - DONE zone
+    // 6. #bottomNav - NAV zone
+
+    // UI Helper functions to match new class names:
+    
+    function updateVoiceStatus(state, label) {
+      const dot = document.getElementById('statusDot');
+      const statusLabel = document.getElementById('statusLabel');
+      const pulseRing = document.getElementById('pulseRing');
+      const speakingBars = document.getElementById('speakingBars');
+      
+      // Reset all states
+      dot.className = 'status-dot';
+      pulseRing.style.display = 'none';
+      speakingBars.classList.remove('active');
+      
+      // Apply new state
+      dot.classList.add(state);
+      statusLabel.textContent = label || state.charAt(0).toUpperCase() + state.slice(1);
+      
+      if (state === 'listening') {
+        pulseRing.style.display = 'block';
+      } else if (state === 'speaking') {
+        speakingBars.classList.add('active');
+      }
+    }
+
+    function setCurrentItem(item, machineName) {
+      const card = document.getElementById('currentItemCard');
+      const emptyState = document.getElementById('emptyState');
+      const itemRow = document.getElementById('itemRow');
+      
+      if (!item) {
+        card.classList.add('empty');
+        card.classList.remove('complete');
+        emptyState.classList.remove('hidden');
+        itemRow.classList.add('hidden');
+        return;
+      }
+      
+      card.classList.remove('empty', 'complete');
+      emptyState.classList.add('hidden');
+      itemRow.classList.remove('hidden');
+      
+      document.getElementById('itemQty').textContent = item.quantity + '×';
+      document.getElementById('itemProduct').textContent = item.product || '';
+      document.getElementById('itemSlot').textContent = item.slot_spoken || item.slot || '';
+      document.getElementById('itemMachine').textContent = machineName || '';
+    }
+
+    function setRouteComplete() {
+      const card = document.getElementById('currentItemCard');
+      const emptyState = document.getElementById('emptyState');
+      const itemRow = document.getElementById('itemRow');
+      
+      card.classList.add('empty', 'complete');
+      emptyState.classList.remove('hidden');
+      itemRow.classList.add('hidden');
+      
+      emptyState.innerHTML = `
+        <div class="empty-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+        </div>
+        <p class="empty-text">Route Complete!</p>
+      `;
+    }
+
+    function updateCompletedList(items) {
+      const scroll = document.getElementById('completedScroll');
+      const count = document.getElementById('completedCount');
+      
+      count.textContent = items.length + ' item' + (items.length !== 1 ? 's' : '');
+      
+      if (items.length === 0) {
+        scroll.innerHTML = '<div class="empty-list">No items picked yet</div>';
+        return;
+      }
+      
+      scroll.innerHTML = items.map(item => `
+        <div class="completed-item">
+          <div class="completed-check">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          </div>
+          <span class="completed-qty">${item.quantity}×</span>
+          <span class="completed-product">${item.product || ''}</span>
+          <span class="completed-slot">${item.slot || ''}</span>
+        </div>
+      `).join('');
+      
+      scroll.scrollTop = scroll.scrollHeight;
+    }
+
+    function setAIResponse(text, isEmpty) {
+      const el = document.getElementById('responseText');
+      el.textContent = text || 'Waiting for command...';
+      el.classList.toggle('empty', isEmpty || !text);
+    }
+
+    function setLastInput(text) {
+      document.getElementById('lastInput').textContent = text ? '"' + text + '"' : '';
+    }
+
+    function showApp() {
+      document.getElementById('loginScreen').classList.add('hidden');
+      document.getElementById('appHeader').classList.remove('hidden');
+      document.getElementById('mainContent').classList.remove('hidden');
+      document.getElementById('bottomNav').classList.remove('hidden');
+    }
+
+    function showLogin() {
+      document.getElementById('loginScreen').classList.remove('hidden');
+      document.getElementById('appHeader').classList.add('hidden');
+      document.getElementById('mainContent').classList.add('hidden');
+      document.getElementById('bottomNav').classList.add('hidden');
+    }
+
+    function showVoiceControls(show) {
+      const controls = document.getElementById('voiceControls');
+      controls.classList.toggle('hidden', !show);
+    }
+
+    function updateHeader(routeName, machineIndex, totalMachines, userName) {
+      const nameEl = document.getElementById('routeName');
+      const badgeEl = document.getElementById('machineBadge');
+      
+      if (routeName) {
+        nameEl.textContent = routeName + ' Route';
+        badgeEl.textContent = 'Machine ' + machineIndex + '/' + totalMachines;
+      } else {
+        nameEl.textContent = userName ? 'Hi, ' + userName : 'Stocker AI';
+        badgeEl.textContent = '-';
+      }
+    }
+
+    // Tab navigation
+    document.getElementById('navVoice').addEventListener('click', function(e) {
+      e.preventDefault();
+      this.classList.add('active');
+      document.getElementById('navUpload').classList.remove('active');
+      document.getElementById('voiceTab').classList.remove('hidden');
+      document.getElementById('uploadTab').classList.add('hidden');
+    });
+
+    document.getElementById('navUpload').addEventListener('click', function(e) {
+      e.preventDefault();
+      this.classList.add('active');
+      document.getElementById('navVoice').classList.remove('active');
+      document.getElementById('uploadTab').classList.remove('hidden');
+      document.getElementById('voiceTab').classList.add('hidden');
+    });
+
+    // Auth tabs
+    document.getElementById('loginTab').addEventListener('click', function() {
+      this.classList.add('active');
+      document.getElementById('signupTab').classList.remove('active');
+      document.getElementById('signupFields').classList.remove('show');
+      document.getElementById('authBtn').textContent = 'Log In';
+      document.getElementById('forgotLink').style.display = 'inline-block';
+      document.getElementById('passwordInput').placeholder = 'Password';
+    });
+
+    document.getElementById('signupTab').addEventListener('click', function() {
+      this.classList.add('active');
+      document.getElementById('loginTab').classList.remove('active');
+      document.getElementById('signupFields').classList.add('show');
+      document.getElementById('authBtn').textContent = 'Sign Up';
+      document.getElementById('forgotLink').style.display = 'none';
+      document.getElementById('passwordInput').placeholder = 'Create password (min 6 chars)';
+    });
+
+    // Online/offline detection
+    function updateOnlineStatus() {
+      const banner = document.getElementById('offlineBanner');
+      banner.classList.toggle('show', !navigator.onLine);
+    }
+    window.addEventListener('online', updateOnlineStatus);
+    window.addEventListener('offline', updateOnlineStatus);
+
+    // ============================================
+    // PASTE YOUR REMAINING JAVASCRIPT HERE
+    // (Configuration, State, Speech Recognition, 
+    // API calls, etc. from your original file)
+    // ============================================
+  </script>
+</body>
+</html>
