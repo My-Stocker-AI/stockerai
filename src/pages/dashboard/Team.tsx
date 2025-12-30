@@ -49,22 +49,22 @@ interface TeamMember {
 }
 
 const Team = () => {
-  const { user, userRole } = useAuth();
+  const { user, userRole, loading } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  
+
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedMember, setSelectedMember] = useState<TeamMember | null>(null);
-  
+
   // Invite form state
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteFirstName, setInviteFirstName] = useState("");
   const [inviteLastName, setInviteLastName] = useState("");
   const [inviteRole, setInviteRole] = useState<'driver' | 'primary_admin'>('driver');
   const [inviteCanViewAll, setInviteCanViewAll] = useState(false);
-  
+
   // Edit form state
   const [editRole, setEditRole] = useState<'driver' | 'primary_admin'>('driver');
   const [editCanViewAll, setEditCanViewAll] = useState(false);
@@ -271,6 +271,21 @@ const Team = () => {
     return true;
   };
 
+  // Show loading state if auth is still loading or userRole is not available
+  if (loading || !userRole) {
+    return (
+      <DashboardLayout
+        title="Team"
+        breadcrumbs={[{ label: "Dashboard", href: "/dashboard" }, { label: "Team" }]}
+      >
+        <div className="flex items-center justify-center py-16">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="ml-3 text-dashboard-text-secondary">Loading team data...</p>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
   return (
     <DashboardLayout 
       title="Team" 
@@ -464,7 +479,7 @@ const Team = () => {
               <Select 
                 value={editRole} 
                 onValueChange={(v: 'driver' | 'primary_admin') => setEditRole(v)}
-                disabled={!canChangeRole(selectedMember!)}
+                disabled={!selectedMember || !canChangeRole(selectedMember)}
               >
                 <SelectTrigger className="bg-dashboard-bg border-dashboard-border text-dashboard-text">
                   <SelectValue />
