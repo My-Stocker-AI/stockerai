@@ -52,18 +52,20 @@ const Home = () => {
       <section className="min-h-screen flex items-center pt-20">
         <div className="section-container w-full">
           <div className="max-w-4xl md:text-left text-center">
-            <p className="text-base md:text-lg font-bold text-primary uppercase tracking-wide mb-4 animate-fade-in-up">
-              Voice Picking for Vending Route Operators
+            <p className="text-primary font-semibold tracking-wide mb-4 animate-fade-in-up">
+              VOICE PICKING FOR VENDING ROUTE OPERATORS
             </p>
             <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight text-foreground mb-6 animate-fade-in-up">
               Enterprise Warehouse Speed.{" "}
+              <br className="hidden sm:block" />
               <span className="text-primary">Zero Hardware Cost.</span>
             </h1>
             <p className="text-lg sm:text-xl text-muted-foreground mb-10 max-w-2xl animate-fade-in-up animation-delay-100">
-              Hardware automation runs $100k+. Stocker AI runs on the phone in your pocket. Same accuracy and speed, no hardware. Works with Parlevel, Nayax, and VendSoft. Starting at $40/month.
+              Hardware automation runs $100k+. Stocker AI runs on the phone in your
+              pocket. Same accuracy and speed, no hardware. Works with Parlevel, Nayax, and VendSoft. Starting at $40/month.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 md:justify-start justify-center animate-fade-in-up animation-delay-200">
-              <Link to="/login">
+              <Link to="/signup">
                 <Button className="btn-primary">Start Free Trial</Button>
               </Link>
               <a href="#how-it-works">
@@ -92,7 +94,7 @@ const Home = () => {
                 icon: Upload,
                 title: "Upload Your Route",
                 description:
-                  "Export your PDF from Parlevel, Nayax, or VendSoft. Upload it to Stocker AI.",
+                  "Export your PDF from Parlevel, Nayax, or VendSoft. Upload it to Stocker.",
               },
               {
                 step: 2,
@@ -106,7 +108,7 @@ const Home = () => {
                 icon: Mic,
                 title: "Pick by Voice",
                 description:
-                  "Stocker AI tells you what to grab. Say 'next' when done. Repeat.",
+                  "Stocker tells you what to grab. Say 'next' when done. Repeat.",
               },
             ].map((item) => (
               <div key={item.step} className="text-center">
@@ -133,7 +135,7 @@ const Home = () => {
         <div className="section-container">
           <div className="text-center mb-16">
             <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
-              Why Operators Switch to Stocker AI
+              Why Operators Switch to Stocker
             </h2>
           </div>
 
@@ -142,22 +144,22 @@ const Home = () => {
               {
                 icon: Eye,
                 headline: "Stop Squinting at Screens",
-                body: "Screen-based picking slows drivers down and causes errors. Stocker AI's voice guidance calls out quantity, product, and slot - hands stay full, eyes stay up. Result: 25-30% faster picks with near-zero mistakes.",
+                body: "Screen-based picking slows drivers down and causes errors. Stocker's voice guidance calls out quantity, product, and slot - hands stay full, eyes stay up. Result: 25-30% faster picks with near-zero mistakes.",
               },
               {
                 icon: UserPlus,
                 headline: "New Driver? Productive in 15 Minutes",
-                body: "Training new hires takes weeks of shadowing and costly mistakes. Stocker AI walks them through every pick, step by step, from day one. Result: Onboarding drops from weeks to minutes.",
+                body: "Training new hires takes weeks of shadowing and costly mistakes. Stocker walks them through every pick, step by step, from day one. Result: Onboarding drops from weeks to minutes.",
               },
               {
                 icon: Save,
                 headline: "Every Pick Confirmed. Every Item Tracked",
-                body: "Lost progress means rework - or worse, missed deliveries. Stocker AI auto-saves after every item and resumes exactly where you stopped. Result: Zero rework, 100% route completion.",
+                body: "Lost progress means rework - or worse, missed deliveries. Stocker auto-saves after every item and resumes exactly where you stopped. Result: Zero rework, 100% route completion.",
               },
               {
                 icon: Settings,
                 headline: "Your Workflow, Your Way",
-                body: "Forcing one picking method slows drivers down and fights muscle memory. Stocker AI adapts to each driver and machine - they choose how to work it. Result: No retraining, no friction, natural flow.",
+                body: "Forcing one picking method slows drivers down and fights muscle memory. Stocker adapts to each driver and machine - they choose how to work it. Result: No retraining, no friction, natural flow.",
               },
             ].map((feature, index) => (
               <div key={index} className="card-base border border-border">
@@ -191,51 +193,29 @@ const Home = () => {
         </div>
       </section>
 
-      {/* 5. Demo Section */}
-      <section id="demo" className="section-padding">
-        <div className="section-container">
-          <div className="text-center mb-12">
-            <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
-              See It In Action
-            </h2>
-            <p className="text-xl text-muted-foreground">
-              30 seconds from upload to first pick
-            </p>
-          </div>
-
-          {/* Video Placeholder */}
-          <div className="max-w-3xl mx-auto">
-            <div className="aspect-video bg-foreground/5 rounded-2xl border border-border flex items-center justify-center">
-              <div className="text-center p-8">
-                <div className="w-16 h-16 bg-primary/20 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <div className="w-0 h-0 border-t-8 border-t-transparent border-l-12 border-l-primary border-b-8 border-b-transparent ml-1"></div>
-                </div>
-                <p className="text-muted-foreground">Demo video coming soon</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* 6. Social Proof Section */}
-      <section className="bg-alt section-padding">
+      {/* 5. Social Proof Section */}
+      <section className="section-padding">
         <div className="section-container">
           <div className="max-w-3xl mx-auto text-center">
             <p className="text-lg font-medium text-primary mb-8">
-              Built by operators, for operators
+              Built by venders for venders
             </p>
 
             <blockquote className="text-2xl md:text-3xl text-foreground font-medium mb-6 italic">
               "[PLACEHOLDER - Driver testimonial to be added]"
             </blockquote>
-            <p className="text-muted-foreground">
+            <p className="text-muted-foreground mb-12">
               - Driver Name, Company Name
+            </p>
+
+            <p className="text-sm text-muted-foreground">
+              Powered by Deepgram voice AI and OpenAI
             </p>
           </div>
         </div>
       </section>
 
-      {/* 7. Pricing Preview Section */}
+      {/* 6. Pricing Preview Section */}
       <section className="bg-alt section-padding">
         <div className="section-container">
           <div className="text-center mb-12">
@@ -243,7 +223,7 @@ const Home = () => {
               Simple Per-Driver Pricing
             </h2>
             <p className="text-xl text-muted-foreground">
-              Starting at $20/driver/month
+              Starting at $15/driver/month
             </p>
           </div>
 
@@ -272,25 +252,25 @@ const Home = () => {
         </div>
       </section>
 
-      {/* 8. FAQ Section */}
+      {/* 7. FAQ Section */}
       <section className="section-padding">
         <div className="section-container">
           <FAQSection items={landingFAQs} />
         </div>
       </section>
 
-      {/* 9. Final CTA Section */}
+      {/* 8. Final CTA Section */}
       <section className="bg-alt section-padding">
         <div className="section-container">
           <div className="max-w-3xl mx-auto text-center">
             <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
-              More Routes. Less Overhead.
+              Ready to Pick Smarter?
             </h2>
             <p className="text-xl text-muted-foreground mb-8">
-              Compete with the big operators—without their $100k systems. 14 days free, cancel anytime.
+              Join operators who've cut picking time by 25% or more.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
-              <Link to="/login">
+              <Link to="/signup">
                 <Button className="btn-primary">Start Your Free Trial</Button>
               </Link>
               <a
@@ -304,7 +284,7 @@ const Home = () => {
         </div>
       </section>
 
-      {/* 10. Footer */}
+      {/* 9. Footer */}
       <Footer />
     </div>
   );
