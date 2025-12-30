@@ -4,7 +4,7 @@ import { useAuth } from '@/hooks/useAuth';
 
 // Platform admin emails - only these users can access /admin routes
 const PLATFORM_ADMIN_EMAILS = [
-  'russ@visionairy.co',
+  'russ@visionairy.biz',
   // Add additional platform admin emails here
 ];
 

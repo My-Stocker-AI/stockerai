@@ -52,7 +52,7 @@ const Home = () => {
       <section className="min-h-screen flex items-center pt-20">
         <div className="section-container w-full">
           <div className="max-w-4xl md:text-left text-center">
-            <p className="text-sm font-semibold text-primary uppercase tracking-wide mb-4 animate-fade-in-up">
+            <p className="text-base md:text-lg font-bold text-primary uppercase tracking-wide mb-4 animate-fade-in-up">
               Voice Picking for Vending Route Operators
             </p>
             <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight text-foreground mb-6 animate-fade-in-up">
@@ -243,7 +243,7 @@ const Home = () => {
               Simple Per-Driver Pricing
             </h2>
             <p className="text-xl text-muted-foreground">
-              Starting at $15/driver/month
+              Starting at $20/driver/month
             </p>
           </div>
 
