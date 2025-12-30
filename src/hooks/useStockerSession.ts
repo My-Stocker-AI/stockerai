@@ -39,8 +39,11 @@ export function useStockerSession(userId: string | null) {
   // Ref to avoid stale closures - always has latest messages
   const messagesRef = useRef<any[]>([]);
 
-  useEffect(() => {
-    setSessionId(`session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
+  // Generate a new session ID (called explicitly, not on mount)
+  const generateNewSessionId = useCallback(() => {
+    const newId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    setSessionId(newId);
+    return newId;
   }, []);
 
   // Keep ref in sync with state
@@ -135,6 +138,7 @@ export function useStockerSession(userId: string | null) {
     reset,
     setRouteState,
     setMessages,
-    setSessionId
+    setSessionId,
+    generateNewSessionId
   };
 }

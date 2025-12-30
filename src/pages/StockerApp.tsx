@@ -126,7 +126,7 @@ export default function StockerApp() {
   const userName = userProfile?.first_name || 'there';
   const userId = user?.id || null;
 
-  const { routeState, sessionId, messages, messagesRef, updateFromTool, addMessage, reset, setRouteState, setMessages, setSessionId } = useStockerSession(userId);
+  const { routeState, sessionId, messages, messagesRef, updateFromTool, addMessage, reset, setRouteState, setMessages, setSessionId, generateNewSessionId } = useStockerSession(userId);
   const { setSession, sendToAI, executeToolCalls, getRoutes } = useStockerAI();
   const sessionPersistence = useSessionPersistence();
 
@@ -415,7 +415,12 @@ export default function StockerApp() {
       completedItems: savedSession.completedItems || [],
       completed: savedSession.completed || false
     });
-    setSessionId(savedSession.sessionId || `session_${Date.now()}`);
+    // Restore saved session ID, or generate new one if missing
+    if (savedSession.sessionId) {
+      setSessionId(savedSession.sessionId);
+    } else {
+      generateNewSessionId();
+    }
     setMessages(sanitizeConversationHistory(savedSession.conversationHistory || []));
 
     setShowResumeDialog(false);
@@ -431,13 +436,14 @@ export default function StockerApp() {
     } else {
       await voice.speak(`Welcome back to ${savedSession.routeName} route.`);
     }
-  }, [savedSession, setRouteState, setSessionId, setMessages, voice]);
+  }, [savedSession, setRouteState, setSessionId, generateNewSessionId, setMessages, voice]);
 
   const startFresh = useCallback(async () => {
     if (userId) {
       await sessionPersistence.clear(userId);
     }
     reset();
+    generateNewSessionId(); // Generate new session ID for fresh start
     setShowResumeDialog(false);
     setInitialized(true);
 
@@ -472,7 +478,7 @@ export default function StockerApp() {
       addMessage({ role: 'assistant', content: greeting }); // Add to conversation history
       await voice.speak(greeting);
     }
-  }, [userId, sessionPersistence, reset, voice, getRoutes, userName, addMessage]);
+  }, [userId, sessionPersistence, reset, generateNewSessionId, voice, getRoutes, userName, addMessage]);
 
   // Tap-to-advance (from original PWA)
   const handleItemCardClick = useCallback(() => {
