@@ -14,6 +14,107 @@ export type Database = {
   }
   public: {
     Tables: {
+      account_users: {
+        Row: {
+          account_id: string
+          can_view_all_routes: boolean | null
+          created_at: string | null
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          account_id: string
+          can_view_all_routes?: boolean | null
+          created_at?: string | null
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          account_id?: string
+          can_view_all_routes?: boolean | null
+          created_at?: string | null
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "account_users_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      accounts: {
+        Row: {
+          created_at: string | null
+          driver_count: number | null
+          id: string
+          name: string
+          stripe_customer_id: string | null
+          subscription_status: string | null
+          trial_ends_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          driver_count?: number | null
+          id?: string
+          name: string
+          stripe_customer_id?: string | null
+          subscription_status?: string | null
+          trial_ends_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          driver_count?: number | null
+          id?: string
+          name?: string
+          stripe_customer_id?: string | null
+          subscription_status?: string | null
+          trial_ends_at?: string | null
+        }
+        Relationships: []
+      }
+      discount_codes: {
+        Row: {
+          code: string
+          created_at: string | null
+          discount_type: string
+          discount_value: number
+          duration_months: number | null
+          expires_at: string | null
+          id: string
+          max_uses: number | null
+          times_used: number | null
+        }
+        Insert: {
+          code: string
+          created_at?: string | null
+          discount_type: string
+          discount_value: number
+          duration_months?: number | null
+          expires_at?: string | null
+          id?: string
+          max_uses?: number | null
+          times_used?: number | null
+        }
+        Update: {
+          code?: string
+          created_at?: string | null
+          discount_type?: string
+          discount_value?: number
+          duration_months?: number | null
+          expires_at?: string | null
+          id?: string
+          max_uses?: number | null
+          times_used?: number | null
+        }
+        Relationships: []
+      }
       items: {
         Row: {
           created_at: string | null
@@ -135,6 +236,38 @@ export type Database = {
         }
         Relationships: []
       }
+      route_assignments: {
+        Row: {
+          assigned_at: string | null
+          assigned_by: string | null
+          id: string
+          route_id: string
+          user_id: string
+        }
+        Insert: {
+          assigned_at?: string | null
+          assigned_by?: string | null
+          id?: string
+          route_id: string
+          user_id: string
+        }
+        Update: {
+          assigned_at?: string | null
+          assigned_by?: string | null
+          id?: string
+          route_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "route_assignments_route_id_fkey"
+            columns: ["route_id"]
+            isOneToOne: false
+            referencedRelation: "routes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       routes: {
         Row: {
           created_at: string | null
@@ -248,6 +381,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      can_view_all_routes: { Args: { _user_id: string }; Returns: boolean }
       get_next_item: {
         Args: { p_session_key: string }
         Returns: {
@@ -274,9 +408,17 @@ export type Database = {
           total_machines: number
         }[]
       }
+      get_user_account_id: { Args: { _user_id: string }; Returns: string }
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "primary_admin" | "driver"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -403,6 +545,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["primary_admin", "driver"],
+    },
   },
 } as const
