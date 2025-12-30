@@ -119,6 +119,7 @@ export default function StockerApp() {
   const [savedSession, setSavedSession] = useState<any>(null);
   const [retryCount, setRetryCount] = useState(0);
   const processingRef = useRef(false);
+  const initStartedRef = useRef(false); // Prevent double initialization
   const MAX_RETRIES = 2;
   const voiceRef = useRef<any>(null); // Ref to hold voice methods for callbacks
 
@@ -377,7 +378,9 @@ export default function StockerApp() {
   // Check for saved session on mount (with route verification from original PWA)
   useEffect(() => {
     const checkSavedSession = async () => {
-      if (!userId || initialized) return;
+      // Prevent double initialization
+      if (!userId || initialized || initStartedRef.current) return;
+      initStartedRef.current = true;
 
       const saved = await sessionPersistence.load(userId);
       if (sessionPersistence.isValidSession(saved) && saved?.userId === userId) {
