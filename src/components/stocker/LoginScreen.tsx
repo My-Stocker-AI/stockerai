@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { Package } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -87,7 +86,7 @@ export function LoginScreen({ onLogin, onSignup, onForgotPassword }: LoginScreen
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
           <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-primary/30 to-primary/10 flex items-center justify-center mb-4 glow-primary">
-            <Package className="w-10 h-10 text-primary" />
+            <img src="/logo.svg" alt="Stocker AI" className="w-12 h-12" />
           </div>
           <h1 className="text-2xl font-bold text-foreground">Stocker AI</h1>
           <p className="text-sm text-muted-foreground mt-1">Voice-Guided Stocking Assistant</p>
