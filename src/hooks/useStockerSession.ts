@@ -120,6 +120,9 @@ export function useStockerSession(userId: string | null) {
     messages,
     updateFromTool,
     addMessage,
-    reset
+    reset,
+    setRouteState,
+    setMessages,
+    setSessionId
   };
 }
