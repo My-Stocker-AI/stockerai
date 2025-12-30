@@ -48,6 +48,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
   const tokenExpiryRef = useRef<number>(0);
   const shouldReconnectRef = useRef(true);
   const isConnectedRef = useRef(false);
+  const stoppedRef = useRef(false); // Flag to prevent new audio after stopAudio()
   const isRecordingRef = useRef(false);
   const accumulatedTranscriptRef = useRef('');  // Accumulated transcript for utterance (matches original PWA this.transcript)
   const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);  // Silence timer fallback (matches original PWA)
@@ -401,6 +402,9 @@ export function useVoice(options: UseVoiceOptions = {}) {
   }, [ensureToken, startKeepAlive, stopKeepAlive, setupMediaRecorder, handleDeepgramMessage, onError]);
 
   const startListening = useCallback(async () => {
+    // Reset stopped flag when starting new session
+    stoppedRef.current = false;
+
     try {
       audioStreamRef.current = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -512,6 +516,9 @@ export function useVoice(options: UseVoiceOptions = {}) {
   }, [setStatus]);
 
   const stopAudio = useCallback(() => {
+    // Set stopped flag to prevent any pending TTS from playing
+    stoppedRef.current = true;
+
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.src = '';
@@ -608,10 +615,28 @@ export function useVoice(options: UseVoiceOptions = {}) {
 
         if (!response.ok) throw new Error('TTS failed');
 
+        // Check if stopped while fetching - don't play if user already exited
+        if (stoppedRef.current) {
+          console.log('[Voice] Audio stopped before playback - user exited');
+          return;
+        }
+
         const audioBlob = await response.blob();
+
+        // Check again after blob conversion
+        if (stoppedRef.current) {
+          console.log('[Voice] Audio stopped before playback - user exited');
+          return;
+        }
 
         // Play audio and wait for completion (matches original PWA playAudio)
         await new Promise<void>((resolve, reject) => {
+          // Final check before creating audio element
+          if (stoppedRef.current) {
+            resolve();
+            return;
+          }
+
           const url = URL.createObjectURL(audioBlob);
           const audio = new Audio();
           audioRef.current = audio;

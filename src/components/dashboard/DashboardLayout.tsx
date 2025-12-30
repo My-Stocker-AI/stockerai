@@ -41,6 +41,9 @@ const DashboardLayout = ({ children, title, breadcrumbs }: DashboardLayoutProps)
     navigate('/login');
   };
 
+  // Show admin menu if database role is primary_admin OR if platform admin
+  const showAdminMenu = isPrimaryAdmin || isPlatformAdmin;
+
   const navItems = [
     {
       label: "Voice App",
@@ -49,35 +52,35 @@ const DashboardLayout = ({ children, title, breadcrumbs }: DashboardLayoutProps)
       external: false,
       visible: true
     },
-    { 
-      label: "Upload Routes", 
-      href: "/dashboard/upload", 
-      icon: Upload, 
-      visible: isPrimaryAdmin 
+    {
+      label: "Upload Routes",
+      href: "/dashboard/upload-routes",
+      icon: Upload,
+      visible: showAdminMenu
     },
-    { 
-      label: "My Routes", 
-      href: "/dashboard/routes", 
-      icon: Route, 
-      visible: true 
+    {
+      label: "My Routes",
+      href: "/dashboard/my-routes",
+      icon: Route,
+      visible: true
     },
-    { 
-      label: "Team", 
-      href: "/dashboard/team", 
-      icon: Users, 
-      visible: isPrimaryAdmin 
+    {
+      label: "Team",
+      href: "/dashboard/team",
+      icon: Users,
+      visible: showAdminMenu
     },
-    { 
-      label: "Usage", 
-      href: "/dashboard/usage", 
-      icon: BarChart3, 
-      visible: isPrimaryAdmin 
+    {
+      label: "Usage",
+      href: "/dashboard/usage",
+      icon: BarChart3,
+      visible: showAdminMenu
     },
-    { 
-      label: "Billing", 
-      href: "/dashboard/billing", 
-      icon: CreditCard, 
-      visible: isPrimaryAdmin 
+    {
+      label: "Billing",
+      href: "/dashboard/billing",
+      icon: CreditCard,
+      visible: showAdminMenu
     },
     {
       label: "Settings",

@@ -26,6 +26,13 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
@@ -62,6 +69,7 @@ const UploadRoutes = () => {
   
   const [file, setFile] = useState<File | null>(null);
   const [deliveryDate, setDeliveryDate] = useState<Date>(addDays(new Date(), 1));
+  const [selectedDriverId, setSelectedDriverId] = useState<string>(''); // Driver to assign route to
   const [uploading, setUploading] = useState(false);
   const [assignModalOpen, setAssignModalOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -221,25 +229,77 @@ const UploadRoutes = () => {
       return;
     }
 
+    if (!user) {
+      toast({ title: "Please log in first", variant: "destructive" });
+      return;
+    }
+
     setUploading(true);
-    
-    // Placeholder for n8n webhook integration
-    // In production, this would send the PDF to an n8n webhook for parsing
+
     try {
-      // Simulate upload delay
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      toast({
-        title: "Upload successful",
-        description: "PDF parsing is configured via n8n webhook. Connect your webhook to process routes.",
+      // Determine driver ID (self = current user, otherwise selected driver)
+      const driverId = selectedDriverId === 'self' || !selectedDriverId ? user.id : selectedDriverId;
+
+      // Create FormData with PDF and metadata
+      const formData = new FormData();
+      formData.append('pdf', file);
+      formData.append('date', format(deliveryDate, 'yyyy-MM-dd'));
+      formData.append('user_id', driverId); // Use selected driver ID
+
+      // Send to n8n webhook for PDF parsing
+      const response = await fetch('https://visionairy.app.n8n.cloud/webhook/upload', {
+        method: 'POST',
+        body: formData,
       });
-      
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || 'Upload failed');
+      }
+
+      const result = await response.json();
+
+      // Wait a moment for n8n to insert the route, then create assignment
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      // Find the newly created route and create assignment
+      const { data: newRoute } = await supabase
+        .from('routes')
+        .select('id')
+        .eq('route_name', result.route)
+        .eq('delivery_date', format(deliveryDate, 'yyyy-MM-dd'))
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (newRoute && driverId) {
+        // Create route assignment for the selected driver
+        await supabase
+          .from('route_assignments')
+          .insert({
+            route_id: newRoute.id,
+            user_id: driverId,
+            assigned_by: user.id,
+          });
+      }
+
+      const driverName = selectedDriverId === 'self' || !selectedDriverId
+        ? 'yourself'
+        : teamMembers.find(m => m.user_id === selectedDriverId)?.profiles?.first_name || 'driver';
+
+      toast({
+        title: "Route uploaded successfully!",
+        description: `${result.route || 'Route'} for ${result.date || format(deliveryDate, 'MMM d, yyyy')}: ${result.machines || 0} machines, ${result.items || 0} items. Assigned to ${driverName}.`,
+      });
+
       setFile(null);
+      setSelectedDriverId('');
       queryClient.invalidateQueries({ queryKey: ['routes'] });
-    } catch (error) {
+    } catch (error: any) {
+      console.error('Upload error:', error);
       toast({
         title: "Upload failed",
-        description: "Please try again",
+        description: error.message || "Please try again",
         variant: "destructive",
       });
     } finally {
@@ -295,7 +355,7 @@ const UploadRoutes = () => {
             <CardTitle className="text-dashboard-text">Upload New Route</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="grid gap-4 md:grid-cols-3">
               <div className="space-y-2">
                 <Label htmlFor="pdf" className="text-dashboard-text">Route PDF</Label>
                 <div className="flex items-center gap-2">
@@ -313,7 +373,7 @@ const UploadRoutes = () => {
                   </p>
                 )}
               </div>
-              
+
               <div className="space-y-2">
                 <Label className="text-dashboard-text">Delivery Date</Label>
                 <Popover>
@@ -339,6 +399,29 @@ const UploadRoutes = () => {
                     />
                   </PopoverContent>
                 </Popover>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-dashboard-text">Assign to Driver</Label>
+                <Select value={selectedDriverId} onValueChange={setSelectedDriverId}>
+                  <SelectTrigger className="bg-dashboard-bg border-dashboard-border text-dashboard-text">
+                    <SelectValue placeholder="Select driver..." />
+                  </SelectTrigger>
+                  <SelectContent className="bg-dashboard-bg border-dashboard-border">
+                    <SelectItem value="self" className="text-dashboard-text">
+                      Myself
+                    </SelectItem>
+                    {teamMembers.map((member) => (
+                      <SelectItem
+                        key={member.user_id}
+                        value={member.user_id}
+                        className="text-dashboard-text"
+                      >
+                        {member.profiles?.first_name} {member.profiles?.last_name} ({member.profiles?.email})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
             

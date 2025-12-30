@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Loader2, User, Lock, Trash2 } from "lucide-react";
+import { Loader2, User, Lock, Trash2, Building2, Users } from "lucide-react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,6 +28,13 @@ interface Profile {
   email: string;
 }
 
+interface Account {
+  id: string;
+  name: string;
+  driver_count: number | null;
+  machines_per_driver: number | null;
+}
+
 const Settings = () => {
   const { user, userRole, signOut } = useAuth();
   const { toast } = useToast();
@@ -39,12 +46,17 @@ const Settings = () => {
   // Profile form state
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
-  
+
+  // Account settings state
+  const [accountName, setAccountName] = useState("");
+  const [driverCount, setDriverCount] = useState(2);
+  const [machinesPerDriver, setMachinesPerDriver] = useState(10);
+
   // Password form state
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  
+
   // Delete account state
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
@@ -59,11 +71,28 @@ const Settings = () => {
         .select('*')
         .eq('id', user.id)
         .single();
-      
+
       if (error) throw error;
       return data as Profile;
     },
     enabled: !!user?.id,
+  });
+
+  // Fetch account (for admins)
+  const { data: account, isLoading: accountLoading } = useQuery({
+    queryKey: ['account', userRole?.account_id],
+    queryFn: async () => {
+      if (!userRole?.account_id) return null;
+      const { data, error } = await supabase
+        .from('accounts')
+        .select('id, name, driver_count, machines_per_driver')
+        .eq('id', userRole.account_id)
+        .single();
+
+      if (error) throw error;
+      return data as Account;
+    },
+    enabled: !!userRole?.account_id && isPrimaryAdmin,
   });
 
   // Update form when profile loads
@@ -73,6 +102,15 @@ const Settings = () => {
       setLastName(profile.last_name || "");
     }
   }, [profile]);
+
+  // Update account form when account loads
+  useEffect(() => {
+    if (account) {
+      setAccountName(account.name || "");
+      setDriverCount(account.driver_count || 2);
+      setMachinesPerDriver(account.machines_per_driver || 10);
+    }
+  }, [account]);
 
   // Update profile mutation
   const updateProfileMutation = useMutation({
@@ -95,6 +133,31 @@ const Settings = () => {
     },
     onError: (error) => {
       toast({ title: "Error updating profile", description: error.message, variant: "destructive" });
+    },
+  });
+
+  // Update account settings mutation
+  const updateAccountMutation = useMutation({
+    mutationFn: async () => {
+      if (!userRole?.account_id) throw new Error('No account found');
+
+      const { error } = await supabase
+        .from('accounts')
+        .update({
+          name: accountName,
+          driver_count: driverCount,
+          machines_per_driver: machinesPerDriver,
+        })
+        .eq('id', userRole.account_id);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['account'] });
+      toast({ title: "Account settings updated successfully" });
+    },
+    onError: (error) => {
+      toast({ title: "Error updating account", description: error.message, variant: "destructive" });
     },
   });
 
@@ -223,6 +286,90 @@ const Settings = () => {
             </Button>
           </CardContent>
         </Card>
+
+        {/* Account Settings Section - Only for Primary Admin */}
+        {isPrimaryAdmin && (
+          <Card className="bg-dashboard-card border-dashboard-border">
+            <CardHeader>
+              <CardTitle className="text-dashboard-text flex items-center gap-2">
+                <Building2 className="h-5 w-5" />
+                Account Settings
+              </CardTitle>
+              <CardDescription className="text-dashboard-text-secondary">
+                Configure your account's driver seats and usage limits
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="accountName" className="text-dashboard-text">Company Name</Label>
+                <Input
+                  id="accountName"
+                  value={accountName}
+                  onChange={(e) => setAccountName(e.target.value)}
+                  placeholder="Your company name"
+                  className="bg-dashboard-bg border-dashboard-border text-dashboard-text"
+                />
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="driverCount" className="text-dashboard-text flex items-center gap-2">
+                    <Users className="h-4 w-4" />
+                    Driver Seats
+                  </Label>
+                  <Input
+                    id="driverCount"
+                    type="number"
+                    min="1"
+                    max="999"
+                    value={driverCount}
+                    onChange={(e) => setDriverCount(parseInt(e.target.value) || 2)}
+                    className="bg-dashboard-bg border-dashboard-border text-dashboard-text"
+                  />
+                  <p className="text-xs text-dashboard-text-secondary">
+                    Number of drivers in your subscription. Current rate: ${driverCount <= 5 ? 20 : driverCount <= 20 ? 18 : 15}/driver/month
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="machinesPerDriver" className="text-dashboard-text">
+                    Machines per Driver/Day
+                  </Label>
+                  <Input
+                    id="machinesPerDriver"
+                    type="number"
+                    min="1"
+                    max="100"
+                    value={machinesPerDriver}
+                    onChange={(e) => setMachinesPerDriver(parseInt(e.target.value) || 10)}
+                    className="bg-dashboard-bg border-dashboard-border text-dashboard-text"
+                  />
+                  <p className="text-xs text-dashboard-text-secondary">
+                    Expected machines each driver services daily (for usage tracking)
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-4 bg-dashboard-bg rounded-lg border border-dashboard-border">
+                <h4 className="font-medium text-dashboard-text mb-2">Monthly Estimate</h4>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-2xl font-bold text-primary">
+                    ${(driverCount <= 5 ? driverCount * 20 : driverCount <= 20 ? driverCount * 18 : driverCount * 15).toLocaleString()}
+                  </span>
+                  <span className="text-dashboard-text-secondary">/month for {driverCount} driver{driverCount > 1 ? 's' : ''}</span>
+                </div>
+              </div>
+
+              <Button
+                onClick={() => updateAccountMutation.mutate()}
+                disabled={updateAccountMutation.isPending}
+                className="bg-primary hover:bg-primary-hover"
+              >
+                {updateAccountMutation.isPending ? "Saving..." : "Save Account Settings"}
+              </Button>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Password Section */}
         <Card className="bg-dashboard-card border-dashboard-border">
