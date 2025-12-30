@@ -3,6 +3,9 @@ import { Navigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { Loader2 } from "lucide-react";
 
+// Platform admin emails (same list as PlatformAdminRoute and DashboardLayout)
+const PLATFORM_ADMIN_EMAILS = ['russ@visionairy.biz'];
+
 interface ProtectedRouteProps {
   children: ReactNode;
   adminOnly?: boolean;
@@ -26,8 +29,13 @@ const ProtectedRoute = ({ children, adminOnly = false }: ProtectedRouteProps) =>
     return <Navigate to="/login" replace />;
   }
 
-  if (adminOnly && userRole?.role !== 'primary_admin') {
-    return <Navigate to="/dashboard/routes" replace />;
+  // Platform admins can access all admin routes
+  const isPlatformAdmin = PLATFORM_ADMIN_EMAILS.includes(user.email || '');
+  const isPrimaryAdmin = userRole?.role === 'primary_admin';
+  const hasAdminAccess = isPlatformAdmin || isPrimaryAdmin;
+
+  if (adminOnly && !hasAdminAccess) {
+    return <Navigate to="/dashboard/my-routes" replace />;
   }
 
   return <>{children}</>;

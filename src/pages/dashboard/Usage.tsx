@@ -32,8 +32,33 @@ interface UsageData {
   exceeds_capacity: boolean;
 }
 
+interface Account {
+  id: string;
+  is_platform_account: boolean | null;
+  driver_count: number | null;
+}
+
 const Usage = () => {
   const { userRole } = useAuth();
+
+  // Fetch account to check if platform account
+  const { data: account, isLoading: accountLoading } = useQuery({
+    queryKey: ['account', userRole?.account_id],
+    queryFn: async () => {
+      if (!userRole?.account_id) return null;
+      const { data, error } = await supabase
+        .from('accounts')
+        .select('id, is_platform_account, driver_count')
+        .eq('id', userRole.account_id)
+        .single();
+
+      if (error) return null;
+      return data as Account;
+    },
+    enabled: !!userRole?.account_id,
+  });
+
+  const isPlatformAccount = account?.is_platform_account === true;
 
   // Fetch calculated usage from edge function
   const { data: usageData, isLoading: usageLoading } = useQuery({
@@ -102,29 +127,59 @@ const Usage = () => {
     enabled: !!userRole?.account_id,
   });
 
-  // Generate chart data (last 30 days)
+  // Generate chart data (last 30 days) - from actual sessions
   const { data: chartData = [] } = useQuery({
     queryKey: ['usage-chart', userRole?.account_id],
     queryFn: async () => {
-      // Placeholder chart data - in production, this would aggregate from sessions/items
-      const data = [];
+      if (!userRole?.account_id) return [];
+
+      // Get team member IDs
+      const { data: teamMembers } = await supabase
+        .from('account_users')
+        .select('user_id')
+        .eq('account_id', userRole.account_id);
+
+      const userIds = teamMembers?.map(m => m.user_id) || [];
+      if (userIds.length === 0) return [];
+
+      // Get sessions for last 30 days
+      const thirtyDaysAgo = subDays(new Date(), 30);
+      const { data: sessions } = await supabase
+        .from('sessions')
+        .select('created_at, items_picked')
+        .in('user_id', userIds)
+        .gte('created_at', thirtyDaysAgo.toISOString());
+
+      // Aggregate by date
+      const dateMap: Record<string, number> = {};
       for (let i = 29; i >= 0; i--) {
         const date = subDays(new Date(), i);
-        data.push({
-          date: format(date, 'MMM d'),
-          items: Math.floor(Math.random() * 100) + 20,
-        });
+        dateMap[format(date, 'yyyy-MM-dd')] = 0;
       }
-      return data;
+
+      sessions?.forEach(session => {
+        const dateKey = format(new Date(session.created_at), 'yyyy-MM-dd');
+        if (dateMap[dateKey] !== undefined) {
+          dateMap[dateKey] += session.items_picked || 0;
+        }
+      });
+
+      return Object.entries(dateMap).map(([date, items]) => ({
+        date: format(new Date(date), 'MMM d'),
+        items,
+      }));
     },
     enabled: !!userRole?.account_id,
   });
 
-  // Fetch driver breakdown
+  // Fetch driver breakdown - from actual sessions
   const { data: driverStats = [], isLoading: driversLoading } = useQuery({
     queryKey: ['driver-stats', userRole?.account_id],
     queryFn: async () => {
       if (!userRole?.account_id) return [];
+
+      const monthStart = startOfMonth(new Date());
+      const monthEnd = endOfMonth(new Date());
 
       // Get team members with profiles
       const { data: teamMembers } = await supabase
@@ -138,21 +193,49 @@ const Usage = () => {
         `)
         .eq('account_id', userRole.account_id);
 
-      // Placeholder driver stats - in production, aggregate from sessions/items
-      return (teamMembers || []).map((member: any) => ({
-        user_id: member.user_id,
-        first_name: member.profiles?.first_name,
-        last_name: member.profiles?.last_name,
-        routes_completed: Math.floor(Math.random() * 20) + 5,
-        items_picked: Math.floor(Math.random() * 500) + 100,
-        machines_serviced: Math.floor(Math.random() * 150) + 30,
-        machines_per_day: Math.floor(Math.random() * 8) + 5,
-      })) as DriverStats[];
+      if (!teamMembers || teamMembers.length === 0) return [];
+
+      // Get sessions for this month for all team members
+      const userIds = teamMembers.map(m => m.user_id);
+      const { data: sessions } = await supabase
+        .from('sessions')
+        .select('user_id, status, items_picked, machines_completed')
+        .in('user_id', userIds)
+        .gte('created_at', monthStart.toISOString())
+        .lte('created_at', monthEnd.toISOString());
+
+      // Aggregate stats per driver
+      const statsMap: Record<string, { routes: number; items: number; machines: number; days: Set<string> }> = {};
+
+      sessions?.forEach(session => {
+        if (!statsMap[session.user_id]) {
+          statsMap[session.user_id] = { routes: 0, items: 0, machines: 0, days: new Set() };
+        }
+        if (session.status === 'completed') {
+          statsMap[session.user_id].routes += 1;
+        }
+        statsMap[session.user_id].items += session.items_picked || 0;
+        statsMap[session.user_id].machines += session.machines_completed || 0;
+      });
+
+      return teamMembers.map((member: any) => {
+        const stats = statsMap[member.user_id] || { routes: 0, items: 0, machines: 0 };
+        const workingDays = Math.max(1, new Date().getDate()); // Days in month so far
+        return {
+          user_id: member.user_id,
+          first_name: member.profiles?.first_name,
+          last_name: member.profiles?.last_name,
+          routes_completed: stats.routes,
+          items_picked: stats.items,
+          machines_serviced: stats.machines,
+          machines_per_day: stats.routes > 0 ? Math.round(stats.machines / stats.routes) : 0,
+        };
+      }) as DriverStats[];
     },
     enabled: !!userRole?.account_id,
   });
 
-  const isLoading = usageLoading || statsLoading || driversLoading;
+  const isLoading = accountLoading || usageLoading || statsLoading || driversLoading;
 
   if (isLoading) {
     return (
@@ -167,10 +250,10 @@ const Usage = () => {
     );
   }
 
-  const declaredDrivers = usageData?.declared_drivers || 2;
-  const capacity = declaredDrivers * 10;
-  const exceedsCapacity = usageData?.exceeds_capacity || false;
-  const calculatedNeeded = usageData?.calculated_drivers_needed || 2;
+  const declaredDrivers = isPlatformAccount ? 0 : (usageData?.declared_drivers || 2);
+  const capacity = isPlatformAccount ? Infinity : (declaredDrivers * 10);
+  const exceedsCapacity = isPlatformAccount ? false : (usageData?.exceeds_capacity || false);
+  const calculatedNeeded = usageData?.calculated_drivers_needed || 0;
 
   return (
     <DashboardLayout 
@@ -199,31 +282,54 @@ const Usage = () => {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-6 md:grid-cols-2">
-              <div>
-                <p className="text-sm text-dashboard-text-secondary mb-1">Plan Capacity</p>
-                <p className="text-2xl font-bold text-dashboard-text">
-                  {declaredDrivers} drivers
-                </p>
-                <p className="text-sm text-dashboard-text-secondary">
-                  Up to {capacity} machines/day capacity
-                </p>
-              </div>
-              <div>
-                <p className="text-sm text-dashboard-text-secondary mb-1">Drivers Needed (based on usage)</p>
-                <div className="flex items-center gap-2">
-                  <p className={`text-2xl font-bold ${exceedsCapacity ? 'text-warning' : 'text-success'}`}>
-                    {calculatedNeeded} drivers
+            {isPlatformAccount ? (
+              <div className="grid gap-6 md:grid-cols-2">
+                <div>
+                  <p className="text-sm text-dashboard-text-secondary mb-1">Plan Type</p>
+                  <p className="text-2xl font-bold text-primary">
+                    Platform Account
                   </p>
-                  {exceedsCapacity && (
-                    <Badge className="bg-warning/20 text-warning border-0">
-                      <AlertTriangle className="h-3 w-3 mr-1" />
-                      Upgrade recommended
-                    </Badge>
-                  )}
+                  <p className="text-sm text-dashboard-text-secondary">
+                    Unlimited access
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-dashboard-text-secondary mb-1">Capacity</p>
+                  <p className="text-2xl font-bold text-dashboard-text">
+                    Unlimited
+                  </p>
+                  <p className="text-sm text-dashboard-text-secondary">
+                    No usage limits
+                  </p>
                 </div>
               </div>
-            </div>
+            ) : (
+              <div className="grid gap-6 md:grid-cols-2">
+                <div>
+                  <p className="text-sm text-dashboard-text-secondary mb-1">Plan Capacity</p>
+                  <p className="text-2xl font-bold text-dashboard-text">
+                    {declaredDrivers} drivers
+                  </p>
+                  <p className="text-sm text-dashboard-text-secondary">
+                    Up to {capacity} machines/day capacity
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-dashboard-text-secondary mb-1">Drivers Needed (based on usage)</p>
+                  <div className="flex items-center gap-2">
+                    <p className={`text-2xl font-bold ${exceedsCapacity ? 'text-warning' : 'text-success'}`}>
+                      {calculatedNeeded} drivers
+                    </p>
+                    {exceedsCapacity && (
+                      <Badge className="bg-warning/20 text-warning border-0">
+                        <AlertTriangle className="h-3 w-3 mr-1" />
+                        Upgrade recommended
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
 

@@ -40,6 +40,7 @@ interface Account {
   trial_ends_at: string | null;
   stripe_customer_id: string | null;
   min_drivers_required: number | null;
+  is_platform_account: boolean | null;
 }
 
 const Billing = () => {
@@ -79,7 +80,7 @@ const Billing = () => {
       if (!userRole?.account_id) return null;
       const { data, error } = await supabase
         .from('accounts')
-        .select('*')
+        .select('id, name, driver_count, subscription_status, trial_ends_at, stripe_customer_id, min_drivers_required, is_platform_account')
         .eq('id', userRole.account_id)
         .single();
       
@@ -225,9 +226,10 @@ const Billing = () => {
     );
   }
 
-  const driverCount = subscription?.driver_count || account?.driver_count || 2;
-  const hasActiveSubscription = subscription?.subscribed || false;
-  const subscriptionStatus = subscription?.subscription_status || account?.subscription_status;
+  const isPlatformAccount = account?.is_platform_account === true;
+  const driverCount = isPlatformAccount ? 0 : (subscription?.driver_count || account?.driver_count || 2);
+  const hasActiveSubscription = isPlatformAccount || subscription?.subscribed || false;
+  const subscriptionStatus = isPlatformAccount ? 'active' : (subscription?.subscription_status || account?.subscription_status);
   const minDriversRequired = account?.min_drivers_required || 2;
   const effectiveMinimum = Math.max(2, minDriversRequired);
   const isBelowMinimum = newDriverCount < effectiveMinimum;
@@ -261,14 +263,28 @@ const Billing = () => {
           </Card>
         )}
 
-        {hasActiveSubscription && (
+        {isPlatformAccount && (
+          <Card className="bg-primary/10 border-primary/30">
+            <CardContent className="flex items-center gap-4 py-4">
+              <CheckCircle className="h-6 w-6 text-primary" />
+              <div className="flex-1">
+                <p className="font-medium text-dashboard-text">Platform Account</p>
+                <p className="text-sm text-dashboard-text-secondary">
+                  Unlimited access - No billing required
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {!isPlatformAccount && hasActiveSubscription && (
           <Card className="bg-success/10 border-success/30">
             <CardContent className="flex items-center gap-4 py-4">
               <CheckCircle className="h-6 w-6 text-success" />
               <div className="flex-1">
                 <p className="font-medium text-dashboard-text">Subscription active</p>
                 <p className="text-sm text-dashboard-text-secondary">
-                  {subscription?.subscription_end 
+                  {subscription?.subscription_end
                     ? `Renews on ${format(new Date(subscription.subscription_end), 'MMMM d, yyyy')}`
                     : 'Your subscription is active'}
                 </p>
@@ -278,161 +294,200 @@ const Billing = () => {
         )}
 
         {/* Subscription Info */}
-        <Card className="bg-dashboard-card border-dashboard-border">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="text-dashboard-text">Subscription</CardTitle>
-                <CardDescription className="text-dashboard-text-secondary">
-                  {getPlanName(driverCount)} Plan
-                </CardDescription>
+        {isPlatformAccount ? (
+          <Card className="bg-dashboard-card border-dashboard-border">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-dashboard-text">Platform Account</CardTitle>
+                  <CardDescription className="text-dashboard-text-secondary">
+                    Unlimited Access
+                  </CardDescription>
+                </div>
+                <Badge className="bg-primary/20 text-primary border-0">Platform</Badge>
               </div>
-              <div className="flex items-center gap-2">
-                {getStatusBadge(subscriptionStatus, account?.trial_ends_at || null)}
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => refetchSubscription()}
-                  className="text-dashboard-text-secondary hover:text-dashboard-text"
-                >
-                  <RefreshCw className="h-4 w-4" />
-                </Button>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-3">
+                <div>
+                  <p className="text-sm text-dashboard-text-secondary">Drivers</p>
+                  <p className="text-2xl font-bold text-dashboard-text">Unlimited</p>
+                </div>
+                <div>
+                  <p className="text-sm text-dashboard-text-secondary">Access Level</p>
+                  <p className="text-2xl font-bold text-dashboard-text">Full</p>
+                </div>
+                <div>
+                  <p className="text-sm text-dashboard-text-secondary">Cost</p>
+                  <p className="text-2xl font-bold text-primary">$0/mo</p>
+                </div>
               </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-3">
-              <div>
-                <p className="text-sm text-dashboard-text-secondary">Drivers</p>
-                <p className="text-2xl font-bold text-dashboard-text">{driverCount}</p>
+              <p className="text-sm text-dashboard-text-secondary pt-4">
+                This is a platform administrator account with unlimited access. No billing is required.
+              </p>
+            </CardContent>
+          </Card>
+        ) : (
+          <Card className="bg-dashboard-card border-dashboard-border">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-dashboard-text">Subscription</CardTitle>
+                  <CardDescription className="text-dashboard-text-secondary">
+                    {getPlanName(driverCount)} Plan
+                  </CardDescription>
+                </div>
+                <div className="flex items-center gap-2">
+                  {getStatusBadge(subscriptionStatus, account?.trial_ends_at || null)}
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => refetchSubscription()}
+                    className="text-dashboard-text-secondary hover:text-dashboard-text"
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
-              <div>
-                <p className="text-sm text-dashboard-text-secondary">Price per driver</p>
-                <p className="text-2xl font-bold text-dashboard-text">${getPricePerDriver(driverCount)}/mo</p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-3">
+                <div>
+                  <p className="text-sm text-dashboard-text-secondary">Drivers</p>
+                  <p className="text-2xl font-bold text-dashboard-text">{driverCount}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-dashboard-text-secondary">Price per driver</p>
+                  <p className="text-2xl font-bold text-dashboard-text">${getPricePerDriver(driverCount)}/mo</p>
+                </div>
+                <div>
+                  <p className="text-sm text-dashboard-text-secondary">Monthly total</p>
+                  <p className="text-2xl font-bold text-primary">${getMonthlyPrice(driverCount)}/mo</p>
+                </div>
               </div>
-              <div>
-                <p className="text-sm text-dashboard-text-secondary">Monthly total</p>
-                <p className="text-2xl font-bold text-primary">${getMonthlyPrice(driverCount)}/mo</p>
+
+              <div className="flex gap-3 pt-4">
+                {hasActiveSubscription ? (
+                  <>
+                    <Button
+                      onClick={handleManageSubscription}
+                      disabled={isOpeningPortal}
+                      variant="outline"
+                      className="border-dashboard-border text-dashboard-text hover:bg-dashboard-bg"
+                    >
+                      {isOpeningPortal ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                      Manage Subscription
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        setNewDriverCount(driverCount);
+                        setChangeDriversOpen(true);
+                      }}
+                      variant="outline"
+                      className="border-dashboard-border text-dashboard-text hover:bg-dashboard-bg"
+                    >
+                      Change Driver Count
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    onClick={() => {
+                      setNewDriverCount(driverCount);
+                      setChangeDriversOpen(true);
+                    }}
+                    className="bg-primary hover:bg-primary-hover"
+                  >
+                    Choose Plan & Subscribe
+                  </Button>
+                )}
               </div>
-            </div>
-            
-            <div className="flex gap-3 pt-4">
-              {hasActiveSubscription ? (
-                <>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Payment Method - Hidden for platform accounts */}
+        {!isPlatformAccount && (
+          <Card className="bg-dashboard-card border-dashboard-border">
+            <CardHeader>
+              <CardTitle className="text-dashboard-text flex items-center gap-2">
+                <CreditCard className="h-5 w-5" />
+                Payment Method
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {subscription?.stripe_customer_id ? (
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-16 bg-dashboard-bg rounded flex items-center justify-center">
+                      <CreditCard className="h-5 w-5 text-dashboard-text-secondary" />
+                    </div>
+                    <div>
+                      <p className="text-dashboard-text">Payment method on file</p>
+                      <p className="text-sm text-dashboard-text-secondary">Managed via Stripe</p>
+                    </div>
+                  </div>
                   <Button
                     onClick={handleManageSubscription}
                     disabled={isOpeningPortal}
                     variant="outline"
                     className="border-dashboard-border text-dashboard-text hover:bg-dashboard-bg"
                   >
-                    {isOpeningPortal ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                    Manage Subscription
+                    Update
                   </Button>
-                  <Button
-                    onClick={() => {
-                      setNewDriverCount(driverCount);
-                      setChangeDriversOpen(true);
-                    }}
-                    variant="outline"
-                    className="border-dashboard-border text-dashboard-text hover:bg-dashboard-bg"
-                  >
-                    Change Driver Count
-                  </Button>
-                </>
-              ) : (
-                <Button
-                  onClick={() => {
-                    setNewDriverCount(driverCount);
-                    setChangeDriversOpen(true);
-                  }}
-                  className="bg-primary hover:bg-primary-hover"
-                >
-                  Choose Plan & Subscribe
-                </Button>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Payment Method */}
-        <Card className="bg-dashboard-card border-dashboard-border">
-          <CardHeader>
-            <CardTitle className="text-dashboard-text flex items-center gap-2">
-              <CreditCard className="h-5 w-5" />
-              Payment Method
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {subscription?.stripe_customer_id ? (
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="h-10 w-16 bg-dashboard-bg rounded flex items-center justify-center">
-                    <CreditCard className="h-5 w-5 text-dashboard-text-secondary" />
-                  </div>
-                  <div>
-                    <p className="text-dashboard-text">Payment method on file</p>
-                    <p className="text-sm text-dashboard-text-secondary">Managed via Stripe</p>
-                  </div>
                 </div>
-                <Button
-                  onClick={handleManageSubscription}
-                  disabled={isOpeningPortal}
-                  variant="outline"
-                  className="border-dashboard-border text-dashboard-text hover:bg-dashboard-bg"
-                >
-                  Update
-                </Button>
-              </div>
-            ) : (
-              <div className="text-center py-4">
-                <p className="text-dashboard-text-secondary mb-4">No payment method on file</p>
-                <Button
-                  onClick={() => handleCheckout(driverCount)}
-                  disabled={isCheckingOut}
-                  className="bg-primary hover:bg-primary-hover"
-                >
-                  {isCheckingOut ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                  Add Payment Method
-                </Button>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Billing History */}
-        <Card className="bg-dashboard-card border-dashboard-border">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-dashboard-text flex items-center gap-2">
-                <FileText className="h-5 w-5" />
-                Billing History
-              </CardTitle>
-              {subscription?.stripe_customer_id && (
-                <Button
-                  onClick={handleManageSubscription}
-                  disabled={isOpeningPortal}
-                  variant="ghost"
-                  size="sm"
-                  className="text-primary hover:text-primary-hover"
-                >
-                  View All Invoices
-                  <ExternalLink className="ml-1 h-3 w-3" />
-                </Button>
+              ) : (
+                <div className="text-center py-4">
+                  <p className="text-dashboard-text-secondary mb-4">No payment method on file</p>
+                  <Button
+                    onClick={() => handleCheckout(driverCount)}
+                    disabled={isCheckingOut}
+                    className="bg-primary hover:bg-primary-hover"
+                  >
+                    {isCheckingOut ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                    Add Payment Method
+                  </Button>
+                </div>
               )}
-            </div>
-          </CardHeader>
-          <CardContent>
-            {subscription?.stripe_customer_id ? (
-              <p className="text-sm text-dashboard-text-secondary text-center py-4">
-                View your complete billing history in the Stripe portal.
-              </p>
-            ) : (
-              <p className="text-sm text-dashboard-text-secondary text-center py-4">
-                Your billing history will appear here after you subscribe.
-              </p>
-            )}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Billing History - Hidden for platform accounts */}
+        {!isPlatformAccount && (
+          <Card className="bg-dashboard-card border-dashboard-border">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-dashboard-text flex items-center gap-2">
+                  <FileText className="h-5 w-5" />
+                  Billing History
+                </CardTitle>
+                {subscription?.stripe_customer_id && (
+                  <Button
+                    onClick={handleManageSubscription}
+                    disabled={isOpeningPortal}
+                    variant="ghost"
+                    size="sm"
+                    className="text-primary hover:text-primary-hover"
+                  >
+                    View All Invoices
+                    <ExternalLink className="ml-1 h-3 w-3" />
+                  </Button>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent>
+              {subscription?.stripe_customer_id ? (
+                <p className="text-sm text-dashboard-text-secondary text-center py-4">
+                  View your complete billing history in the Stripe portal.
+                </p>
+              ) : (
+                <p className="text-sm text-dashboard-text-secondary text-center py-4">
+                  Your billing history will appear here after you subscribe.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {/* Change Driver Count / Checkout Modal */}
