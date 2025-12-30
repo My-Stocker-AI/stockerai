@@ -53,7 +53,7 @@ const Home = () => {
         <div className="section-container w-full">
           <div className="max-w-4xl md:text-left text-center">
             <p className="text-sm font-semibold text-primary uppercase tracking-wide mb-4 animate-fade-in-up">
-              Voice-Guided Pre-Kitting for Vending Operators
+              For Teams That Stock Vending Machine Routes
             </p>
             <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight text-foreground mb-6 animate-fade-in-up">
               Enterprise Warehouse Speed.{" "}
@@ -191,8 +191,34 @@ const Home = () => {
         </div>
       </section>
 
-      {/* 5. Social Proof Section */}
-      <section className="section-padding">
+      {/* 5. Demo Section */}
+      <section id="demo" className="section-padding">
+        <div className="section-container">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
+              See It In Action
+            </h2>
+            <p className="text-xl text-muted-foreground">
+              30 seconds from upload to first pick
+            </p>
+          </div>
+
+          {/* Video Placeholder */}
+          <div className="max-w-3xl mx-auto">
+            <div className="aspect-video bg-foreground/5 rounded-2xl border border-border flex items-center justify-center">
+              <div className="text-center p-8">
+                <div className="w-16 h-16 bg-primary/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <div className="w-0 h-0 border-t-8 border-t-transparent border-l-12 border-l-primary border-b-8 border-b-transparent ml-1"></div>
+                </div>
+                <p className="text-muted-foreground">Demo video coming soon</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* 6. Social Proof Section */}
+      <section className="bg-alt section-padding">
         <div className="section-container">
           <div className="max-w-3xl mx-auto text-center">
             <p className="text-lg font-medium text-primary mb-8">
@@ -202,18 +228,14 @@ const Home = () => {
             <blockquote className="text-2xl md:text-3xl text-foreground font-medium mb-6 italic">
               "[PLACEHOLDER - Driver testimonial to be added]"
             </blockquote>
-            <p className="text-muted-foreground mb-12">
+            <p className="text-muted-foreground">
               - Driver Name, Company Name
-            </p>
-
-            <p className="text-sm text-muted-foreground">
-              Powered by Deepgram voice AI and OpenAI
             </p>
           </div>
         </div>
       </section>
 
-      {/* 6. Pricing Preview Section */}
+      {/* 7. Pricing Preview Section */}
       <section className="bg-alt section-padding">
         <div className="section-container">
           <div className="text-center mb-12">
@@ -250,22 +272,22 @@ const Home = () => {
         </div>
       </section>
 
-      {/* 7. FAQ Section */}
+      {/* 8. FAQ Section */}
       <section className="section-padding">
         <div className="section-container">
           <FAQSection items={landingFAQs} />
         </div>
       </section>
 
-      {/* 8. Final CTA Section */}
+      {/* 9. Final CTA Section */}
       <section className="bg-alt section-padding">
         <div className="section-container">
           <div className="max-w-3xl mx-auto text-center">
             <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
-              Ready to Pick Smarter?
+              More Routes. Less Overhead.
             </h2>
             <p className="text-xl text-muted-foreground mb-8">
-              Join operators who've cut picking time by 25% or more.
+              Compete with the big operators—without their $100k systems. 14 days free, cancel anytime.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
               <Link to="/login">
@@ -282,7 +304,7 @@ const Home = () => {
         </div>
       </section>
 
-      {/* 9. Footer */}
+      {/* 10. Footer */}
       <Footer />
     </div>
   );
