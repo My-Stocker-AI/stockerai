@@ -54,6 +54,7 @@ export type Database = {
           created_at: string | null
           driver_count: number | null
           id: string
+          min_drivers_required: number | null
           name: string
           stripe_customer_id: string | null
           subscription_status: string | null
@@ -63,6 +64,7 @@ export type Database = {
           created_at?: string | null
           driver_count?: number | null
           id?: string
+          min_drivers_required?: number | null
           name: string
           stripe_customer_id?: string | null
           subscription_status?: string | null
@@ -72,6 +74,7 @@ export type Database = {
           created_at?: string | null
           driver_count?: number | null
           id?: string
+          min_drivers_required?: number | null
           name?: string
           stripe_customer_id?: string | null
           subscription_status?: string | null
@@ -202,6 +205,53 @@ export type Database = {
             columns: ["route_id"]
             isOneToOne: false
             referencedRelation: "routes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      monthly_usage: {
+        Row: {
+          account_id: string
+          calculated_drivers_needed: number | null
+          created_at: string | null
+          declared_drivers: number
+          id: string
+          month: string
+          peak_daily_machines: number | null
+          total_machines_completed: number | null
+          updated_at: string | null
+          working_days: number | null
+        }
+        Insert: {
+          account_id: string
+          calculated_drivers_needed?: number | null
+          created_at?: string | null
+          declared_drivers: number
+          id?: string
+          month: string
+          peak_daily_machines?: number | null
+          total_machines_completed?: number | null
+          updated_at?: string | null
+          working_days?: number | null
+        }
+        Update: {
+          account_id?: string
+          calculated_drivers_needed?: number | null
+          created_at?: string | null
+          declared_drivers?: number
+          id?: string
+          month?: string
+          peak_daily_machines?: number | null
+          total_machines_completed?: number | null
+          updated_at?: string | null
+          working_days?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "monthly_usage_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
             referencedColumns: ["id"]
           },
         ]
