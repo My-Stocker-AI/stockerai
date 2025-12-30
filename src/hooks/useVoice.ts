@@ -473,8 +473,6 @@ export function useVoice(options: UseVoiceOptions = {}) {
   const speak = useCallback(async (text: string): Promise<void> => {
     return new Promise(async (resolve) => {
       try {
-        // Stop any currently playing audio to prevent echo/overlap
-        stopAudio();
         pauseListening();
         setStatus('speaking');
 
@@ -564,7 +562,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
         resolve();
       }
     });
-  }, [stopAudio, pauseListening, resumeListening, speakBrowser, playBeep]);
+  }, [pauseListening, resumeListening, speakBrowser, playBeep]);
 
   const setThinking = useCallback(() => setStatus('thinking'), []);
 

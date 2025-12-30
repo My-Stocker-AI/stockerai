@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogOut, Package, CheckCircle, Mic, MicOff, Pause, Play, Square, AlertTriangle, Settings, RefreshCw } from 'lucide-react';
+import { LogOut, CheckCircle, Mic, MicOff, Pause, Play, Square, AlertTriangle, Settings, RefreshCw } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useVoice } from '@/hooks/useVoice';
 import { useStockerAI } from '@/hooks/useStockerAI';
@@ -701,7 +701,7 @@ export default function StockerApp() {
             </div>
           ) : (
             <div className="mt-4 text-center text-gray-500">
-              <Package className="h-12 w-12 mx-auto mb-2 opacity-50" />
+              <img src="/logo.svg" alt="Stocker AI" className="h-12 w-12 mx-auto mb-2 opacity-50" />
               <p>Say "start my route" to begin</p>
             </div>
           )}

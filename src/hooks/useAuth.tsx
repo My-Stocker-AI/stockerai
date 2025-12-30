@@ -51,7 +51,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     return data as UserRole;
   };
 
-  const fetchUserProfile = async (userId: string, authUser?: User | null) => {
+  const fetchUserProfile = async (userId: string) => {
     const { data, error } = await supabase
       .from('profiles')
       .select('first_name, last_name, email')
@@ -60,24 +60,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     if (error) {
       console.error('Error fetching user profile:', error);
-      // Fallback to auth user metadata
-      if (authUser?.user_metadata) {
-        return {
-          first_name: authUser.user_metadata.first_name || null,
-          last_name: authUser.user_metadata.last_name || null,
-          email: authUser.email || null
-        } as UserProfile;
-      }
       return null;
-    }
-
-    // If profile exists but first_name is null, try auth metadata
-    if (!data.first_name && authUser?.user_metadata?.first_name) {
-      return {
-        first_name: authUser.user_metadata.first_name,
-        last_name: authUser.user_metadata.last_name || data.last_name,
-        email: data.email
-      } as UserProfile;
     }
 
     return data as UserProfile;
@@ -94,7 +77,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         if (session?.user) {
           setTimeout(() => {
             fetchUserRole(session.user.id).then(setUserRole);
-            fetchUserProfile(session.user.id, session.user).then(setUserProfile);
+            fetchUserProfile(session.user.id).then(setUserProfile);
           }, 0);
         } else {
           setUserRole(null);
@@ -109,7 +92,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setUser(session?.user ?? null);
       if (session?.user) {
         fetchUserRole(session.user.id).then(setUserRole);
-        fetchUserProfile(session.user.id, session.user).then(setUserProfile);
+        fetchUserProfile(session.user.id).then(setUserProfile);
       }
       setLoading(false);
     });
