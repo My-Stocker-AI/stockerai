@@ -1,7 +1,8 @@
-import { Loader2, Users, Route, Package, Building2, AlertTriangle } from "lucide-react";
+import { Loader2, Users, Route, Package, Building2, AlertTriangle, TrendingUp } from "lucide-react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery } from "@tanstack/react-query";
@@ -18,10 +19,46 @@ interface DriverStats {
   machines_per_day: number;
 }
 
+interface UsageData {
+  account_id: string;
+  month: string;
+  declared_drivers: number;
+  total_machines_completed: number;
+  working_days: number;
+  peak_daily_machines: number;
+  calculated_drivers_needed: number;
+  min_drivers_required: number;
+  capacity: number;
+  exceeds_capacity: boolean;
+}
+
 const Usage = () => {
   const { userRole } = useAuth();
 
-  // Fetch usage stats for current month
+  // Fetch calculated usage from edge function
+  const { data: usageData, isLoading: usageLoading } = useQuery({
+    queryKey: ['calculated-usage', userRole?.account_id],
+    queryFn: async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return null;
+
+      const { data, error } = await supabase.functions.invoke('calculate-usage', {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
+
+      if (error) {
+        console.error('Error calculating usage:', error);
+        return null;
+      }
+
+      return data as UsageData;
+    },
+    enabled: !!userRole?.account_id,
+  });
+
+  // Fetch usage stats for current month (for additional stats)
   const { data: stats, isLoading: statsLoading } = useQuery({
     queryKey: ['usage-stats', userRole?.account_id],
     queryFn: async () => {
@@ -49,19 +86,17 @@ const Usage = () => {
       // Get routes completed
       const completedSessions = sessions?.filter(s => s.status === 'completed') || [];
       
-      // Calculate stats (placeholder - real implementation would aggregate from items/machines)
+      // Calculate stats
       const activeDrivers = new Set(sessions?.map(s => s.user_id)).size;
       const routesCompleted = completedSessions.length;
       
       // These would come from actual item/machine data
       const itemsPicked = routesCompleted * 45; // Placeholder average
-      const machinesServiced = routesCompleted * 8; // Placeholder average
 
       return {
         activeDrivers,
         routesCompleted,
         itemsPicked,
-        machinesServiced,
       };
     },
     enabled: !!userRole?.account_id,
@@ -117,7 +152,7 @@ const Usage = () => {
     enabled: !!userRole?.account_id,
   });
 
-  const isLoading = statsLoading || driversLoading;
+  const isLoading = usageLoading || statsLoading || driversLoading;
 
   if (isLoading) {
     return (
@@ -132,12 +167,102 @@ const Usage = () => {
     );
   }
 
+  const declaredDrivers = usageData?.declared_drivers || 2;
+  const capacity = declaredDrivers * 10;
+  const exceedsCapacity = usageData?.exceeds_capacity || false;
+  const calculatedNeeded = usageData?.calculated_drivers_needed || 2;
+
   return (
     <DashboardLayout 
       title="Usage" 
       breadcrumbs={[{ label: "Dashboard", href: "/dashboard" }, { label: "Usage" }]}
     >
       <div className="space-y-8">
+        {/* Capacity Warning Banner */}
+        {exceedsCapacity && (
+          <Alert className="bg-warning/10 border-warning/30">
+            <AlertTriangle className="h-5 w-5 text-warning" />
+            <AlertTitle className="text-warning font-semibold">Usage Exceeds Plan Capacity</AlertTitle>
+            <AlertDescription className="text-dashboard-text-secondary">
+              Your peak daily usage this month required {calculatedNeeded} drivers, but your plan only includes {declaredDrivers} drivers.
+              Consider upgrading your plan to {calculatedNeeded} drivers to match your usage.
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/* Plan Summary Card */}
+        <Card className="bg-dashboard-card border-dashboard-border">
+          <CardHeader>
+            <CardTitle className="text-dashboard-text flex items-center gap-2">
+              <TrendingUp className="h-5 w-5 text-primary" />
+              Your Plan
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-6 md:grid-cols-2">
+              <div>
+                <p className="text-sm text-dashboard-text-secondary mb-1">Plan Capacity</p>
+                <p className="text-2xl font-bold text-dashboard-text">
+                  {declaredDrivers} drivers
+                </p>
+                <p className="text-sm text-dashboard-text-secondary">
+                  Up to {capacity} machines/day capacity
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-dashboard-text-secondary mb-1">Drivers Needed (based on usage)</p>
+                <div className="flex items-center gap-2">
+                  <p className={`text-2xl font-bold ${exceedsCapacity ? 'text-warning' : 'text-success'}`}>
+                    {calculatedNeeded} drivers
+                  </p>
+                  {exceedsCapacity && (
+                    <Badge className="bg-warning/20 text-warning border-0">
+                      <AlertTriangle className="h-3 w-3 mr-1" />
+                      Upgrade recommended
+                    </Badge>
+                  )}
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* This Month's Usage */}
+        <Card className="bg-dashboard-card border-dashboard-border">
+          <CardHeader>
+            <CardTitle className="text-dashboard-text">This Month's Usage</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 md:grid-cols-3">
+              <div>
+                <p className="text-sm text-dashboard-text-secondary">Total Machines Completed</p>
+                <p className="text-2xl font-bold text-dashboard-text">
+                  {usageData?.total_machines_completed?.toLocaleString() || 0}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-dashboard-text-secondary">Working Days</p>
+                <p className="text-2xl font-bold text-dashboard-text">
+                  {usageData?.working_days || 0}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-dashboard-text-secondary">Peak Day</p>
+                <div className="flex items-center gap-2">
+                  <p className="text-2xl font-bold text-dashboard-text">
+                    {usageData?.peak_daily_machines || 0} machines
+                  </p>
+                  {(usageData?.peak_daily_machines || 0) > capacity && (
+                    <Badge className="bg-warning/20 text-warning border-0">
+                      Over limit
+                    </Badge>
+                  )}
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Stats Cards */}
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <Card className="bg-dashboard-card border-dashboard-border">
@@ -194,7 +319,7 @@ const Usage = () => {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-dashboard-text">
-                {stats?.machinesServiced?.toLocaleString() || 0}
+                {usageData?.total_machines_completed?.toLocaleString() || 0}
               </div>
               <p className="text-xs text-dashboard-text-secondary">This month</p>
             </CardContent>
@@ -294,7 +419,7 @@ const Usage = () => {
               </table>
             </div>
             <p className="text-xs text-dashboard-text-secondary mt-4">
-              * Drivers averaging more than 10 machines/day may need additional support
+              * Each driver can service up to 10 machines per day. Plans automatically adjust to match your usage.
             </p>
           </CardContent>
         </Card>

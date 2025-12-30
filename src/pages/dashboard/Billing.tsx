@@ -1,11 +1,12 @@
 import { useState, useEffect } from "react";
-import { Loader2, CreditCard, FileText, ExternalLink, RefreshCw, CheckCircle, AlertCircle } from "lucide-react";
+import { Loader2, CreditCard, FileText, ExternalLink, RefreshCw, CheckCircle, AlertCircle, AlertTriangle } from "lucide-react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   Dialog,
   DialogContent,
@@ -38,6 +39,7 @@ interface Account {
   subscription_status: string | null;
   trial_ends_at: string | null;
   stripe_customer_id: string | null;
+  min_drivers_required: number | null;
 }
 
 const Billing = () => {
@@ -226,6 +228,9 @@ const Billing = () => {
   const driverCount = subscription?.driver_count || account?.driver_count || 2;
   const hasActiveSubscription = subscription?.subscribed || false;
   const subscriptionStatus = subscription?.subscription_status || account?.subscription_status;
+  const minDriversRequired = account?.min_drivers_required || 2;
+  const effectiveMinimum = Math.max(2, minDriversRequired);
+  const isBelowMinimum = newDriverCount < effectiveMinimum;
 
   return (
     <DashboardLayout 
@@ -449,14 +454,27 @@ const Billing = () => {
               <Input
                 id="driverCount"
                 type="number"
-                min={2}
+                min={effectiveMinimum}
                 max={100}
                 value={newDriverCount}
-                onChange={(e) => setNewDriverCount(Math.max(2, parseInt(e.target.value) || 2))}
+                onChange={(e) => setNewDriverCount(Math.max(effectiveMinimum, parseInt(e.target.value) || effectiveMinimum))}
                 className="bg-dashboard-bg border-dashboard-border text-dashboard-text"
               />
-              <p className="text-xs text-dashboard-text-secondary">Minimum 2 drivers</p>
+              <p className="text-xs text-dashboard-text-secondary">
+                Minimum {effectiveMinimum} drivers {minDriversRequired > 2 ? '(based on your usage)' : ''}
+              </p>
             </div>
+
+            {/* Usage-based minimum warning */}
+            {isBelowMinimum && minDriversRequired > 2 && (
+              <Alert className="bg-warning/10 border-warning/30">
+                <AlertTriangle className="h-4 w-4 text-warning" />
+                <AlertTitle className="text-warning text-sm font-medium">Cannot reduce below usage</AlertTitle>
+                <AlertDescription className="text-dashboard-text-secondary text-sm">
+                  Your peak usage this month required {minDriversRequired} drivers. Reduce usage to lower your plan.
+                </AlertDescription>
+              </Alert>
+            )}
 
             {/* Pricing tiers */}
             <div className="grid grid-cols-3 gap-2 text-center">
@@ -466,7 +484,7 @@ const Billing = () => {
                     ? 'border-primary bg-primary/10' 
                     : 'border-dashboard-border hover:border-dashboard-text-secondary'
                 }`}
-                onClick={() => setNewDriverCount(2)}
+                onClick={() => setNewDriverCount(Math.max(effectiveMinimum, 2))}
               >
                 <p className="text-xs text-dashboard-text-secondary">Starter</p>
                 <p className="text-lg font-bold text-dashboard-text">$20</p>
@@ -478,7 +496,7 @@ const Billing = () => {
                     ? 'border-primary bg-primary/10' 
                     : 'border-dashboard-border hover:border-dashboard-text-secondary'
                 }`}
-                onClick={() => setNewDriverCount(6)}
+                onClick={() => setNewDriverCount(Math.max(effectiveMinimum, 6))}
               >
                 <p className="text-xs text-dashboard-text-secondary">Growth</p>
                 <p className="text-lg font-bold text-dashboard-text">$18</p>
@@ -490,7 +508,7 @@ const Billing = () => {
                     ? 'border-primary bg-primary/10' 
                     : 'border-dashboard-border hover:border-dashboard-text-secondary'
                 }`}
-                onClick={() => setNewDriverCount(21)}
+                onClick={() => setNewDriverCount(Math.max(effectiveMinimum, 21))}
               >
                 <p className="text-xs text-dashboard-text-secondary">Scale</p>
                 <p className="text-lg font-bold text-dashboard-text">$15</p>
@@ -536,7 +554,7 @@ const Billing = () => {
                 }
                 setChangeDriversOpen(false);
               }}
-              disabled={isCheckingOut || isOpeningPortal}
+              disabled={isCheckingOut || isOpeningPortal || isBelowMinimum}
               className="bg-primary hover:bg-primary-hover"
             >
               {isCheckingOut || isOpeningPortal ? (

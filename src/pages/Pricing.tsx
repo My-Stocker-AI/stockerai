@@ -83,6 +83,16 @@ const Pricing = () => {
       answer:
         "Not yet. Monthly billing lets you scale up or down with seasonal demand.",
     },
+    {
+      question: "What if we exceed our machine limit?",
+      answer:
+        "We never interrupt your work. If usage exceeds your plan, we'll adjust your driver count at the next billing cycle.",
+    },
+    {
+      question: "Can I reduce my driver count?",
+      answer:
+        "Yes, but not below your actual usage. Once usage decreases, you can reduce your plan.",
+    },
   ];
 
   return (
@@ -175,7 +185,9 @@ const Pricing = () => {
             </p>
             <p className="text-muted-foreground">2 driver minimum*</p>
             <p className="text-sm text-muted-foreground mt-4">
-              *Each driver can service up to 10 machines per day
+              *Each driver can service up to 10 machines per day.
+              <br />
+              Plans automatically adjust to match your usage.
             </p>
           </div>
         </div>
