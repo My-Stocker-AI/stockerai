@@ -8,6 +8,18 @@ export default {
     "./app/**/*.{ts,tsx}",
     "./src/**/*.{ts,tsx}",
   ],
+  theme: {
+    extend: {
+      colors: {
+        'dashboard-bg': '#0d1117',
+        'dashboard-bg-alt': '#161b22',
+        'dashboard-text': '#e6edf3',
+        'dashboard-text-secondary': '#7d8590',
+        'dashboard-border': 'rgba(48, 54, 61, 0.6)',
+        'dashboard-card': 'rgba(22, 27, 34, 0.8)',
+      },
+    },
+  },
   prefix: "",
   theme: {
     container: {
