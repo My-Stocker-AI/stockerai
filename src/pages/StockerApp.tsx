@@ -661,14 +661,14 @@ export default function StockerApp() {
 
           {(voice.status === 'paused' || voice.status === 'muted') && (
             <p className="text-xs text-gray-500 mt-2 text-center">
-              Say "OK Stocker" to resume
+              Say "OK Stocker" to resume Stocker AI
             </p>
           )}
         </div>
 
         {/* AI Response */}
         <div className="bg-[#161b22] rounded-xl p-4 border border-gray-800">
-          <span className="text-xs text-purple-400 font-semibold uppercase">StockerAI Says</span>
+          <span className="text-xs text-purple-400 font-semibold uppercase">Stocker AI Says</span>
           <p className={cn("mt-2", aiResponse ? "text-white" : "text-gray-500 italic")}>
             {aiResponse || 'Waiting for command...'}
           </p>

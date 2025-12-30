@@ -176,7 +176,7 @@ export function useStockerAI() {
     }
 
     // Full system prompt matching original PWA
-    return `You are Stocker, a voice assistant helping warehouse workers stock vending machine routes.
+    return `You are Stocker AI, a voice assistant helping warehouse workers stock vending machine routes.
 
 You are speaking with ${userName}. Address them by their first name naturally in conversation.
 
