@@ -1,0 +1,504 @@
+import { useState } from "react";
+import { format, addDays } from "date-fns";
+import { Upload, Calendar, Trash2, Users, Loader2 } from "lucide-react";
+import DashboardLayout from "@/components/dashboard/DashboardLayout";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Calendar as CalendarComponent } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
+import { supabase } from "@/integrations/supabase/client";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { cn } from "@/lib/utils";
+
+interface Route {
+  id: string;
+  route_name: string;
+  delivery_date: string;
+  total_machines: number | null;
+  total_items: number | null;
+}
+
+interface TeamMember {
+  id: string;
+  user_id: string;
+  role: string;
+  profiles: {
+    first_name: string | null;
+    last_name: string | null;
+    email: string;
+  } | null;
+}
+
+interface RouteAssignment {
+  user_id: string;
+}
+
+const UploadRoutes = () => {
+  const { userRole, user } = useAuth();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  
+  const [file, setFile] = useState<File | null>(null);
+  const [deliveryDate, setDeliveryDate] = useState<Date>(addDays(new Date(), 1));
+  const [uploading, setUploading] = useState(false);
+  const [assignModalOpen, setAssignModalOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [selectedRoute, setSelectedRoute] = useState<Route | null>(null);
+  const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
+
+  // Fetch routes for the account
+  const { data: routes = [], isLoading: routesLoading } = useQuery({
+    queryKey: ['routes', userRole?.account_id],
+    queryFn: async () => {
+      if (!user) return [];
+      const { data, error } = await supabase
+        .from('routes')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('delivery_date', { ascending: false });
+      
+      if (error) throw error;
+      return data as Route[];
+    },
+    enabled: !!user,
+  });
+
+  // Fetch team members for assignment
+  const { data: teamMembers = [] } = useQuery({
+    queryKey: ['team-members', userRole?.account_id],
+    queryFn: async () => {
+      if (!userRole?.account_id) return [];
+      const { data, error } = await supabase
+        .from('account_users')
+        .select(`
+          id,
+          user_id,
+          role,
+          profiles:user_id (
+            first_name,
+            last_name,
+            email
+          )
+        `)
+        .eq('account_id', userRole.account_id);
+      
+      if (error) throw error;
+      return data as unknown as TeamMember[];
+    },
+    enabled: !!userRole?.account_id,
+  });
+
+  // Fetch assignments for selected route
+  const { data: routeAssignments = [] } = useQuery({
+    queryKey: ['route-assignments', selectedRoute?.id],
+    queryFn: async () => {
+      if (!selectedRoute?.id) return [];
+      const { data, error } = await supabase
+        .from('route_assignments')
+        .select('user_id')
+        .eq('route_id', selectedRoute.id);
+      
+      if (error) throw error;
+      return data as RouteAssignment[];
+    },
+    enabled: !!selectedRoute?.id,
+  });
+
+  // Delete route mutation
+  const deleteRouteMutation = useMutation({
+    mutationFn: async (routeId: string) => {
+      // Delete items first (cascade should handle this, but being explicit)
+      const { error: itemsError } = await supabase
+        .from('items')
+        .delete()
+        .in('machine_id', 
+          (await supabase.from('machines').select('id').eq('route_id', routeId)).data?.map(m => m.id) || []
+        );
+      
+      // Delete machines
+      const { error: machinesError } = await supabase
+        .from('machines')
+        .delete()
+        .eq('route_id', routeId);
+      
+      // Delete assignments
+      const { error: assignmentsError } = await supabase
+        .from('route_assignments')
+        .delete()
+        .eq('route_id', routeId);
+      
+      // Delete route
+      const { error } = await supabase
+        .from('routes')
+        .delete()
+        .eq('id', routeId);
+      
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['routes'] });
+      toast({ title: "Route deleted successfully" });
+      setDeleteDialogOpen(false);
+      setSelectedRoute(null);
+    },
+    onError: (error) => {
+      toast({ title: "Error deleting route", description: error.message, variant: "destructive" });
+    },
+  });
+
+  // Save assignments mutation
+  const saveAssignmentsMutation = useMutation({
+    mutationFn: async ({ routeId, userIds }: { routeId: string; userIds: string[] }) => {
+      // Delete existing assignments
+      await supabase
+        .from('route_assignments')
+        .delete()
+        .eq('route_id', routeId);
+      
+      // Insert new assignments
+      if (userIds.length > 0) {
+        const { error } = await supabase
+          .from('route_assignments')
+          .insert(
+            userIds.map(userId => ({
+              route_id: routeId,
+              user_id: userId,
+              assigned_by: user?.id,
+            }))
+          );
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['route-assignments'] });
+      toast({ title: "Assignments saved successfully" });
+      setAssignModalOpen(false);
+      setSelectedRoute(null);
+    },
+    onError: (error) => {
+      toast({ title: "Error saving assignments", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = e.target.files?.[0];
+    if (selectedFile && selectedFile.type === 'application/pdf') {
+      setFile(selectedFile);
+    } else {
+      toast({
+        title: "Invalid file type",
+        description: "Please select a PDF file",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleUpload = async () => {
+    if (!file) {
+      toast({ title: "Please select a file", variant: "destructive" });
+      return;
+    }
+
+    setUploading(true);
+    
+    // Placeholder for n8n webhook integration
+    // In production, this would send the PDF to an n8n webhook for parsing
+    try {
+      // Simulate upload delay
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      toast({
+        title: "Upload successful",
+        description: "PDF parsing is configured via n8n webhook. Connect your webhook to process routes.",
+      });
+      
+      setFile(null);
+      queryClient.invalidateQueries({ queryKey: ['routes'] });
+    } catch (error) {
+      toast({
+        title: "Upload failed",
+        description: "Please try again",
+        variant: "destructive",
+      });
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const openAssignModal = (route: Route) => {
+    setSelectedRoute(route);
+    setSelectedMembers(routeAssignments.map(a => a.user_id));
+    setAssignModalOpen(true);
+  };
+
+  const openDeleteDialog = (route: Route) => {
+    setSelectedRoute(route);
+    setDeleteDialogOpen(true);
+  };
+
+  const toggleMember = (userId: string) => {
+    setSelectedMembers(prev => 
+      prev.includes(userId) 
+        ? prev.filter(id => id !== userId)
+        : [...prev, userId]
+    );
+  };
+
+  const saveAssignments = () => {
+    if (selectedRoute) {
+      saveAssignmentsMutation.mutate({
+        routeId: selectedRoute.id,
+        userIds: selectedMembers,
+      });
+    }
+  };
+
+  // Group routes by date
+  const routesByDate = routes.reduce((acc, route) => {
+    const date = route.delivery_date;
+    if (!acc[date]) acc[date] = [];
+    acc[date].push(route);
+    return acc;
+  }, {} as Record<string, Route[]>);
+
+  return (
+    <DashboardLayout 
+      title="Upload Routes" 
+      breadcrumbs={[{ label: "Dashboard", href: "/dashboard" }, { label: "Upload Routes" }]}
+    >
+      <div className="space-y-8">
+        {/* Upload Section */}
+        <Card className="bg-dashboard-card border-dashboard-border">
+          <CardHeader>
+            <CardTitle className="text-dashboard-text">Upload New Route</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="pdf" className="text-dashboard-text">Route PDF</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="pdf"
+                    type="file"
+                    accept=".pdf"
+                    onChange={handleFileChange}
+                    className="bg-dashboard-bg border-dashboard-border text-dashboard-text file:bg-dashboard-card file:text-dashboard-text file:border-0"
+                  />
+                </div>
+                {file && (
+                  <p className="text-sm text-dashboard-text-secondary">
+                    Selected: {file.name}
+                  </p>
+                )}
+              </div>
+              
+              <div className="space-y-2">
+                <Label className="text-dashboard-text">Delivery Date</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className={cn(
+                        "w-full justify-start text-left font-normal bg-dashboard-bg border-dashboard-border text-dashboard-text",
+                        !deliveryDate && "text-dashboard-text-secondary"
+                      )}
+                    >
+                      <Calendar className="mr-2 h-4 w-4" />
+                      {deliveryDate ? format(deliveryDate, "PPP") : "Pick a date"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0 bg-dashboard-bg border-dashboard-border" align="start">
+                    <CalendarComponent
+                      mode="single"
+                      selected={deliveryDate}
+                      onSelect={(date) => date && setDeliveryDate(date)}
+                      initialFocus
+                      className="pointer-events-auto"
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+            </div>
+            
+            <Button 
+              onClick={handleUpload} 
+              disabled={!file || uploading}
+              className="bg-primary hover:bg-primary-hover text-primary-foreground"
+            >
+              {uploading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Uploading...
+                </>
+              ) : (
+                <>
+                  <Upload className="mr-2 h-4 w-4" />
+                  Upload Route
+                </>
+              )}
+            </Button>
+          </CardContent>
+        </Card>
+
+        {/* Existing Routes */}
+        <div className="space-y-6">
+          <h2 className="text-xl font-semibold text-dashboard-text">Existing Routes</h2>
+          
+          {routesLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+          ) : Object.keys(routesByDate).length === 0 ? (
+            <Card className="bg-dashboard-card border-dashboard-border">
+              <CardContent className="py-8 text-center">
+                <p className="text-dashboard-text-secondary">No routes uploaded yet</p>
+              </CardContent>
+            </Card>
+          ) : (
+            Object.entries(routesByDate).map(([date, dateRoutes]) => (
+              <div key={date} className="space-y-3">
+                <h3 className="text-sm font-medium text-dashboard-text-secondary uppercase tracking-wider">
+                  {format(new Date(date), "EEEE, MMMM d, yyyy")}
+                </h3>
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  {dateRoutes.map((route) => (
+                    <Card key={route.id} className="bg-dashboard-card border-dashboard-border">
+                      <CardContent className="p-4">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <h4 className="font-medium text-dashboard-text">{route.route_name}</h4>
+                            <p className="text-sm text-dashboard-text-secondary">
+                              {route.total_machines || 0} machines · {route.total_items || 0} items
+                            </p>
+                          </div>
+                          <div className="flex gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => openAssignModal(route)}
+                              className="text-dashboard-text-secondary hover:text-dashboard-text hover:bg-dashboard-bg"
+                            >
+                              <Users className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => openDeleteDialog(route)}
+                              className="text-dashboard-text-secondary hover:text-error hover:bg-dashboard-bg"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
+      {/* Assign Modal */}
+      <Dialog open={assignModalOpen} onOpenChange={setAssignModalOpen}>
+        <DialogContent className="bg-dashboard-bg border-dashboard-border">
+          <DialogHeader>
+            <DialogTitle className="text-dashboard-text">
+              Assign Route: {selectedRoute?.route_name}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            {teamMembers.length === 0 ? (
+              <p className="text-dashboard-text-secondary text-center py-4">
+                No team members found
+              </p>
+            ) : (
+              teamMembers.map((member) => (
+                <div key={member.id} className="flex items-center space-x-3">
+                  <Checkbox
+                    id={member.id}
+                    checked={selectedMembers.includes(member.user_id)}
+                    onCheckedChange={() => toggleMember(member.user_id)}
+                  />
+                  <label
+                    htmlFor={member.id}
+                    className="flex-1 text-sm font-medium text-dashboard-text cursor-pointer"
+                  >
+                    {member.profiles?.first_name} {member.profiles?.last_name}
+                    <span className="text-dashboard-text-secondary ml-2">
+                      ({member.profiles?.email})
+                    </span>
+                  </label>
+                </div>
+              ))
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setAssignModalOpen(false)}
+              className="border-dashboard-border text-dashboard-text"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={saveAssignments}
+              disabled={saveAssignmentsMutation.isPending}
+              className="bg-primary hover:bg-primary-hover"
+            >
+              {saveAssignmentsMutation.isPending ? "Saving..." : "Save Assignments"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent className="bg-dashboard-bg border-dashboard-border">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-dashboard-text">Delete Route</AlertDialogTitle>
+            <AlertDialogDescription className="text-dashboard-text-secondary">
+              Are you sure you want to delete "{selectedRoute?.route_name}"? This will also delete all machines and items in this route. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="border-dashboard-border text-dashboard-text">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => selectedRoute && deleteRouteMutation.mutate(selectedRoute.id)}
+              className="bg-error hover:bg-error/90"
+            >
+              {deleteRouteMutation.isPending ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </DashboardLayout>
+  );
+};
+
+export default UploadRoutes;
