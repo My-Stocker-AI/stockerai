@@ -87,12 +87,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     );
 
     // THEN check for existing session
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
-        fetchUserRole(session.user.id).then(setUserRole);
-        fetchUserProfile(session.user.id).then(setUserProfile);
+        // Wait for both role and profile to load before setting loading=false
+        const [role, profile] = await Promise.all([
+          fetchUserRole(session.user.id),
+          fetchUserProfile(session.user.id)
+        ]);
+        setUserRole(role);
+        setUserProfile(profile);
       }
       setLoading(false);
     });
