@@ -315,10 +315,31 @@ export function useVoice(options: UseVoiceOptions = {}) {
         pauseListening();
         setStatus('speaking');
 
+        // TTS preprocessing - match original PWA exactly
         const processed = text
+          // Spanish/foreign brands - prevent TTS language switching
           .replace(/Kinder Bueno/gi, 'Kinder Bwayno bar')
+          .replace(/\bBueno\b/gi, 'Bwayno')
           .replace(/Takis/gi, 'Tah-keez')
-          .replace(/(\d+)\s*oz\b/gi, '$1 ounce');
+          .replace(/Jarritos/gi, 'Ha-ree-toes')
+          .replace(/Sabritas/gi, 'Sa-bree-tas')
+          .replace(/Modelo/gi, 'Mo-dello')
+          .replace(/Topo Chico/gi, 'Topo Cheeko')
+          .replace(/Gansito/gi, 'Gan-see-toe')
+          .replace(/Mazapan/gi, 'Mazza-pan')
+          .replace(/Lucas/gi, 'Loo-kus')
+          .replace(/Pulparindo/gi, 'Pull-pa-rindo')
+          .replace(/De La Rosa/gi, 'De La Rosa')
+          .replace(/Pelon Pelo Rico/gi, 'Peh-lone Pelo Reeko')
+          // Standard abbreviation fixes
+          .replace(/(\d+)\s*oz\b/gi, '$1 ounce')
+          .replace(/\boz\b/gi, 'ounce')
+          .replace(/\bqty\b/gi, 'quantity')
+          .replace(/\bpcs\b/gi, 'pieces')
+          .replace(/\bpkg\b/gi, 'package')
+          .replace(/\bct\b/gi, 'count')
+          .replace(/\bCan\b/g, 'can')
+          .replace(/\b(\d+)\s*can\b/gi, '$1 cans');
 
         try {
           const response = await fetch(TTS_URL, {
