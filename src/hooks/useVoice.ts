@@ -577,8 +577,15 @@ export function useVoice(options: UseVoiceOptions = {}) {
       // 2. Set state FIRST (before stopping recognition) - matches original PWA
       setStatus('speaking');
 
-      // 3. Kill all audio and stop recognition - matches original PWA
-      stopAudio();
+      // 3. Reset stopped flag - we're intentionally speaking now
+      stoppedRef.current = false;
+
+      // 4. Kill any existing audio and stop recognition - matches original PWA
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = '';
+        audioRef.current = null;
+      }
       pauseListening();
 
       // 4. Preprocess text for TTS - matches original PWA
