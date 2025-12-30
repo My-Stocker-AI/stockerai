@@ -11,7 +11,7 @@ import {
   Menu,
   X,
   ExternalLink,
-  AudioWaveform
+  Mic
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
@@ -40,7 +40,7 @@ const DashboardLayout = ({ children, title, breadcrumbs }: DashboardLayoutProps)
     {
       label: "Voice App",
       href: "/app",
-      icon: AudioWaveform,
+      icon: Mic,
       external: false,
       visible: true
     },
@@ -170,7 +170,7 @@ const DashboardLayout = ({ children, title, breadcrumbs }: DashboardLayoutProps)
       {/* Mobile Header */}
       <header className="lg:hidden flex items-center justify-between p-4 bg-dashboard-bg border-b border-dashboard-border">
         <Link to="/" className="flex items-center gap-2">
-          <AudioWaveform className="h-6 w-6 text-primary" />
+          <img src="/logo.svg" alt="Stocker AI" className="h-6 w-6" />
           <span className="text-lg font-bold text-dashboard-text">Stocker AI</span>
         </Link>
         <Button

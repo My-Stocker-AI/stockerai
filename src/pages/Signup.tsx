@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { AudioWaveform, AlertCircle, Loader2 } from "lucide-react";
+import { AlertCircle, Loader2 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 
@@ -71,7 +71,7 @@ const Signup = () => {
       {/* Simple Header */}
       <header className="p-4">
         <Link to="/" className="flex items-center gap-2 w-fit">
-          <AudioWaveform className="h-7 w-7 text-primary" />
+          <img src="/logo.svg" alt="Stocker AI" className="h-8 w-8" />
           <span className="text-xl font-bold text-foreground">Stocker AI</span>
         </Link>
       </header>
