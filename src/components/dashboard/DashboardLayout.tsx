@@ -11,7 +11,8 @@ import {
   Menu,
   X,
   ExternalLink,
-  Mic
+  Mic,
+  Shield
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
@@ -30,6 +31,10 @@ const DashboardLayout = ({ children, title, breadcrumbs }: DashboardLayoutProps)
   const navigate = useNavigate();
 
   const isPrimaryAdmin = userRole?.role === 'primary_admin';
+
+  // Platform admin emails (same list as PlatformAdminRoute)
+  const PLATFORM_ADMIN_EMAILS = ['russ@visionairy.biz'];
+  const isPlatformAdmin = PLATFORM_ADMIN_EMAILS.includes(user?.email || '');
 
   const handleSignOut = async () => {
     await signOut();
@@ -74,11 +79,17 @@ const DashboardLayout = ({ children, title, breadcrumbs }: DashboardLayoutProps)
       icon: CreditCard, 
       visible: isPrimaryAdmin 
     },
-    { 
-      label: "Settings", 
-      href: "/dashboard/settings", 
-      icon: Settings, 
-      visible: true 
+    {
+      label: "Settings",
+      href: "/dashboard/settings",
+      icon: Settings,
+      visible: true
+    },
+    {
+      label: "Platform Admin",
+      href: "/admin",
+      icon: Shield,
+      visible: isPlatformAdmin
     },
   ];
 

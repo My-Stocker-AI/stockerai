@@ -52,7 +52,7 @@ const Home = () => {
       <section className="min-h-screen flex items-center pt-20">
         <div className="section-container w-full">
           <div className="max-w-4xl md:text-left text-center">
-            <p className="text-primary font-semibold tracking-wide mb-4 animate-fade-in-up">
+            <p className="text-xl md:text-2xl font-bold tracking-wide mb-4 animate-fade-in-up bg-primary/10 text-primary px-4 py-2 rounded-lg inline-block">
               VOICE PICKING FOR VENDING ROUTE OPERATORS
             </p>
             <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight text-foreground mb-6 animate-fade-in-up">
@@ -208,9 +208,6 @@ const Home = () => {
               - Driver Name, Company Name
             </p>
 
-            <p className="text-sm text-muted-foreground">
-              Powered by Deepgram voice AI and OpenAI
-            </p>
           </div>
         </div>
       </section>
@@ -223,7 +220,7 @@ const Home = () => {
               Simple Per-Driver Pricing
             </h2>
             <p className="text-xl text-muted-foreground">
-              Starting at $15/driver/month
+              Starting at $20/driver/month
             </p>
           </div>
 

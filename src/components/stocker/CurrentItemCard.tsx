@@ -32,8 +32,8 @@ export function CurrentItemCard({ item, machineName, isRouteComplete }: CurrentI
         <ZoneLabel type="pick" className="absolute top-3 right-3">Pick Item</ZoneLabel>
         
         <div className="flex flex-col items-center justify-center py-4 text-center">
-          <div className="w-16 h-16 rounded-2xl bg-muted flex items-center justify-center mb-4">
-            <img src="/stocker-logo.jpg" alt="Stocker AI" className="w-10 h-10" />
+          <div className="w-20 h-20 rounded-2xl bg-muted flex items-center justify-center mb-4">
+            <img src="/stocker-logo.jpg" alt="Stocker AI" className="w-14 h-14" />
           </div>
           <p className="text-lg text-muted-foreground">Say "start my route" to begin</p>
         </div>

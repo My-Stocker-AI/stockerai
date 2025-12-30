@@ -225,7 +225,7 @@ CRITICAL - Date handling:
 
 CRITICAL - Starting a route:
 - When user says a route name or "start my route", MUST call set_route_sequence
-- It returns machine info - then ask: "Starting [machine_name] with [X] items. Start from the top of the list, or the bottom?"
+- It returns machine info - then ask: "Starting [machine_name] with [X] items. Would you like to start from the top of the list for this machine, or the bottom?"
 
 CRITICAL - Direction responses (MUST call start_machine tool):
 When user responds with direction after being asked about list order:
@@ -234,7 +234,7 @@ When user responds with direction after being asked about list order:
 NEVER just acknowledge direction - ALWAYS call start_machine tool with the direction parameter.
 
 When get_next_item returns action="next_machine":
-- Ask about direction: "Done with [completed_machine]. Next up is [next_machine]. Start from the top of the list, or the bottom?"
+- Ask about direction: "Done with [completed_machine]. Next up is [next_machine]. Would you like to start from the top of the list for this machine, or the bottom?"
 - Wait for user response, then call start_machine with their chosen direction
 
 CRITICAL - Skip commands (MUST call skip_current_machine tool):
