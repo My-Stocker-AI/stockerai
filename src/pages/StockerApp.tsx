@@ -482,7 +482,8 @@ export default function StockerApp() {
   }, [routeState, voice.status, handleTranscript]);
 
   const handleLogout = async () => {
-    voice.stopListening();
+    voice.stopAudio();      // Stop any speaking immediately
+    voice.stopListening();  // Stop microphone
     await signOut();
     navigate('/dashboard');
   };
