@@ -50,7 +50,7 @@ const Navbar = () => {
             <Link to="/login" className="nav-link">
               Login
             </Link>
-            <Link to="/login">
+            <Link to="/signup">
               <Button className="btn-primary py-2.5 px-6 text-base">
                 Start Free Trial
               </Button>
@@ -96,7 +96,7 @@ const Navbar = () => {
                 <Link to="/login" className="nav-link py-2" onClick={() => setIsMenuOpen(false)}>
                   Login
                 </Link>
-                <Link to="/login" onClick={() => setIsMenuOpen(false)}>
+                <Link to="/signup" onClick={() => setIsMenuOpen(false)}>
                   <Button className="btn-primary w-full">
                     Start Free Trial
                   </Button>
