@@ -467,13 +467,15 @@ export default function StockerApp() {
       }
 
       setAiResponse(greeting);
+      addMessage({ role: 'assistant', content: greeting }); // Add to conversation history
       await voice.speak(greeting);
     } catch {
       const greeting = `Hi ${userName}! Ready to stock. What route would you like to work on today?`;
       setAiResponse(greeting);
+      addMessage({ role: 'assistant', content: greeting }); // Add to conversation history
       await voice.speak(greeting);
     }
-  }, [userId, sessionPersistence, reset, voice, getRoutes, userName]);
+  }, [userId, sessionPersistence, reset, voice, getRoutes, userName, addMessage]);
 
   // Tap-to-advance (from original PWA)
   const handleItemCardClick = useCallback(() => {
