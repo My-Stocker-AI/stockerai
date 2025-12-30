@@ -1,15 +1,34 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogOut, Package, CheckCircle, Mic, MicOff, Pause, Play, Square } from 'lucide-react';
+import { LogOut, Package, CheckCircle, Mic, MicOff, Pause, Play, Square, AlertTriangle } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useVoice } from '@/hooks/useVoice';
 import { useStockerAI } from '@/hooks/useStockerAI';
 import { useStockerSession } from '@/hooks/useStockerSession';
 import { useSessionPersistence } from '@/hooks/useSessionPersistence';
+import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { BottomNav } from '@/components/stocker/BottomNav';
 import { UploadTab } from '@/components/stocker/UploadTab';
+
+// Route verification - check if route still exists (from original PWA)
+async function verifyRouteExists(userId: string, routeName: string, routeDate: string): Promise<boolean> {
+  try {
+    const { data, error } = await supabase
+      .from('routes')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('route_name', routeName)
+      .eq('delivery_date', routeDate)
+      .single();
+
+    return !error && !!data;
+  } catch (e) {
+    console.log('[Stocker] Route verification error:', e);
+    return false;
+  }
+}
 
 // Conversation sanitization (from original PWA)
 function sanitizeConversationHistory(history: any[]): any[] {
@@ -51,6 +70,41 @@ function sanitizeConversationHistory(history: any[]): any[] {
   return sanitized;
 }
 
+// Trim conversation history to prevent memory growth (from original PWA)
+const MAX_MESSAGES = 30;
+function trimConversationHistory(history: any[]): any[] {
+  if (!history || history.length <= MAX_MESSAGES) return history;
+
+  const trimmed = [...history];
+  while (trimmed.length > MAX_MESSAGES) {
+    // Find first non-system message to remove
+    let removed = false;
+    for (let i = 0; i < trimmed.length; i++) {
+      if (trimmed[i].role !== 'system') {
+        // If it's an assistant with tool_calls, also remove the following tool messages
+        if (trimmed[i].role === 'assistant' && trimmed[i].tool_calls) {
+          const toolCallIds = new Set(trimmed[i].tool_calls.map((tc: any) => tc.id));
+          trimmed.splice(i, 1);
+          // Remove corresponding tool messages
+          for (let j = i; j < trimmed.length; ) {
+            if (trimmed[j].role === 'tool' && toolCallIds.has(trimmed[j].tool_call_id)) {
+              trimmed.splice(j, 1);
+            } else {
+              j++;
+            }
+          }
+        } else {
+          trimmed.splice(i, 1);
+        }
+        removed = true;
+        break;
+      }
+    }
+    if (!removed) break; // All system messages, stop
+  }
+  return trimmed;
+}
+
 export default function StockerApp() {
   const navigate = useNavigate();
   const { user, userProfile, signOut, loading } = useAuth();
@@ -59,6 +113,8 @@ export default function StockerApp() {
   const [initialized, setInitialized] = useState(false);
   const [activeTab, setActiveTab] = useState<'voice' | 'upload'>('voice');
   const [showResumeDialog, setShowResumeDialog] = useState(false);
+  const [showStopConfirm, setShowStopConfirm] = useState(false);
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [savedSession, setSavedSession] = useState<any>(null);
   const processingRef = useRef(false);
   const voiceRef = useRef<any>(null); // Ref to hold voice methods for callbacks
@@ -157,7 +213,8 @@ export default function StockerApp() {
 
     try {
       addMessage({ role: 'user', content: transcript });
-      const allMessages = sanitizeConversationHistory([...messages, { role: 'user', content: transcript }]);
+      // Sanitize and trim to prevent memory growth (from original PWA)
+      const allMessages = trimConversationHistory(sanitizeConversationHistory([...messages, { role: 'user', content: transcript }]));
 
       let response = await sendToAI(allMessages, userName, routeState.currentItem);
 
@@ -184,11 +241,11 @@ export default function StockerApp() {
         }
 
         if (!usedFastPath) {
-          response = await sendToAI(sanitizeConversationHistory([
+          response = await sendToAI(trimConversationHistory(sanitizeConversationHistory([
             ...allMessages,
             response,
             ...toolResults.map(tr => ({ role: 'tool', tool_call_id: tr.tool_call_id, content: JSON.stringify(tr.result) }))
-          ]), userName, routeState.currentItem);
+          ])), userName, routeState.currentItem);
         }
       }
 
@@ -253,15 +310,38 @@ export default function StockerApp() {
     if (!loading && !user) navigate('/login');
   }, [loading, user, navigate]);
 
-  // Check for saved session on mount
+  // Online/offline handling (from original PWA)
+  useEffect(() => {
+    const handleOnline = () => setIsOffline(false);
+    const handleOffline = () => setIsOffline(true);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  // Check for saved session on mount (with route verification from original PWA)
   useEffect(() => {
     const checkSavedSession = async () => {
       if (!userId || initialized) return;
 
       const saved = await sessionPersistence.load(userId);
       if (sessionPersistence.isValidSession(saved) && saved?.userId === userId) {
-        setSavedSession(saved);
-        setShowResumeDialog(true);
+        // Verify route still exists before showing resume dialog
+        const routeExists = await verifyRouteExists(userId, saved.routeName, saved.routeDate);
+        if (routeExists) {
+          setSavedSession(saved);
+          setShowResumeDialog(true);
+        } else {
+          // Route was deleted - clear stale session silently
+          console.log('[Stocker] Route no longer exists, clearing stale session');
+          await sessionPersistence.clear(userId);
+          startFresh();
+        }
       } else {
         startFresh();
       }
@@ -371,10 +451,21 @@ export default function StockerApp() {
     }
   };
 
-  const handleStop = async () => {
+  // Stop with confirmation dialog (from original PWA)
+  const handleStopClick = () => {
+    setShowStopConfirm(true);
+  };
+
+  const confirmStop = async () => {
     voice.stopAudio();
     voice.stopListening();
     await saveSessionState();
+    setShowStopConfirm(false);
+    setAiResponse('Stopped. Progress saved.');
+  };
+
+  const cancelStop = () => {
+    setShowStopConfirm(false);
   };
 
   if (loading) {
@@ -426,6 +517,39 @@ export default function StockerApp() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#0d1117] via-[#161b22] to-[#0d1117] text-white flex flex-col">
+      {/* Offline Banner (from original PWA) */}
+      {isOffline && (
+        <div className="bg-yellow-600 text-white text-center py-2 px-4 text-sm flex items-center justify-center gap-2">
+          <AlertTriangle className="h-4 w-4" />
+          You're offline. Some features may not work.
+        </div>
+      )}
+
+      {/* Stop Confirmation Modal (from original PWA) */}
+      {showStopConfirm && (
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+          <div className="bg-[#161b22] rounded-xl border border-gray-800 p-6 max-w-sm w-full">
+            <h2 className="text-xl font-semibold text-white mb-2">Stop Route?</h2>
+            <p className="text-gray-400 mb-4">Progress will be saved. You can resume later.</p>
+            <div className="flex gap-3">
+              <Button
+                onClick={confirmStop}
+                className="flex-1 bg-red-600 hover:bg-red-700"
+              >
+                Stop
+              </Button>
+              <Button
+                onClick={cancelStop}
+                variant="outline"
+                className="flex-1"
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <header className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
         <div>
@@ -528,7 +652,7 @@ export default function StockerApp() {
             <Button
               variant="outline"
               size="sm"
-              onClick={handleStop}
+              onClick={handleStopClick}
               className="flex-1"
             >
               <Square className="h-4 w-4 mr-2" /> Stop

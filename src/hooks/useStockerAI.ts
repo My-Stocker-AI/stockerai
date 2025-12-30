@@ -2,6 +2,24 @@ import { useCallback, useRef } from 'react';
 
 const N8N_BASE = 'https://visionairy.app.n8n.cloud/webhook';
 
+// fetchWithTimeout - matches original PWA (30s default timeout)
+async function fetchWithTimeout(url: string, options: RequestInit, timeout = 30000): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+  try {
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    clearTimeout(timeoutId);
+    return response;
+  } catch (e: any) {
+    clearTimeout(timeoutId);
+    if (e.name === 'AbortError') {
+      throw new Error('Request timed out');
+    }
+    throw e;
+  }
+}
+
 // All 8 tools from original PWA
 const TOOLS = [
   {
@@ -234,7 +252,12 @@ Today's date: ${today}${itemContext}`;
   }, []);
 
   const sendToAI = useCallback(async (messages: any[], userName: string, currentItem: any) => {
-    const response = await fetch(`${N8N_BASE}/openai-chat`, {
+    // Check online status (from original PWA)
+    if (!navigator.onLine) {
+      throw new Error('No internet connection');
+    }
+
+    const response = await fetchWithTimeout(`${N8N_BASE}/openai-chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -267,7 +290,7 @@ Today's date: ${today}${itemContext}`;
       }
 
       try {
-        const resp = await fetch(`${N8N_BASE}${path}`, {
+        const resp = await fetchWithTimeout(`${N8N_BASE}${path}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -290,7 +313,7 @@ Today's date: ${today}${itemContext}`;
   }, []);
 
   const getRoutes = useCallback(async (date: string) => {
-    const resp = await fetch(`${N8N_BASE}/get-routes`, {
+    const resp = await fetchWithTimeout(`${N8N_BASE}/get-routes`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
