@@ -58,7 +58,7 @@ const Home = () => {
             </h1>
             <p className="text-lg sm:text-xl text-muted-foreground mb-10 max-w-2xl animate-fade-in-up animation-delay-100">
               Hardware automation runs $100k+. Stocker runs on the phone in your
-              pocket. Same accuracy and speed, no hardware. Starting at $29/month.
+              pocket. Same accuracy and speed, no hardware. Starting at $40/mth for two drivers.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 md:justify-start justify-center animate-fade-in-up animation-delay-200">
               <Link to="/login">
