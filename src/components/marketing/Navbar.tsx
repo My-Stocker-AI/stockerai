@@ -18,7 +18,7 @@ const Navbar = () => {
         <div className="flex items-center justify-between h-16 md:h-20">
           {/* Logo */}
           <Link to="/" className="flex items-center gap-2">
-            <img src="/logo.svg" alt="Stocker AI" className="h-8 w-8" />
+            <img src="/stocker-logo.jpg" alt="Stocker AI" className="h-8 w-8" />
             <span className="text-xl font-bold text-foreground">Stocker AI</span>
           </Link>
 

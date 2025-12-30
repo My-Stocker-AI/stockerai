@@ -92,7 +92,7 @@ const DashboardLayout = ({ children, title, breadcrumbs }: DashboardLayoutProps)
       {/* Logo */}
       <div className="p-4 border-b border-dashboard-border">
         <Link to="/" className="flex items-center gap-2">
-          <img src="/logo.svg" alt="Stocker AI" className="h-8 w-8" />
+          <img src="/stocker-logo.jpg" alt="Stocker AI" className="h-8 w-8" />
           <span className="text-xl font-bold text-dashboard-text">Stocker AI</span>
         </Link>
       </div>
@@ -170,7 +170,7 @@ const DashboardLayout = ({ children, title, breadcrumbs }: DashboardLayoutProps)
       {/* Mobile Header */}
       <header className="lg:hidden flex items-center justify-between p-4 bg-dashboard-bg border-b border-dashboard-border">
         <Link to="/" className="flex items-center gap-2">
-          <img src="/logo.svg" alt="Stocker AI" className="h-6 w-6" />
+          <img src="/stocker-logo.jpg" alt="Stocker AI" className="h-6 w-6" />
           <span className="text-lg font-bold text-dashboard-text">Stocker AI</span>
         </Link>
         <Button

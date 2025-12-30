@@ -71,7 +71,7 @@ const Signup = () => {
       {/* Simple Header */}
       <header className="p-4">
         <Link to="/" className="flex items-center gap-2 w-fit">
-          <img src="/logo.svg" alt="Stocker AI" className="h-8 w-8" />
+          <img src="/stocker-logo.jpg" alt="Stocker AI" className="h-8 w-8" />
           <span className="text-xl font-bold text-foreground">Stocker AI</span>
         </Link>
       </header>
