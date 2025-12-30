@@ -2,7 +2,8 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 
 export type VoiceStatus = 'idle' | 'listening' | 'speaking' | 'thinking' | 'paused' | 'error';
 
-const N8N_BASE = 'https://visionairy.app.n8n.cloud/webhook';
+// TTS via Cloudflare Worker (same as original PWA)
+const TTS_URL = 'https://solitary-base-799c.russ-731.workers.dev';
 
 interface UseVoiceOptions {
   onTranscript?: (transcript: string, isFinal: boolean) => void;
@@ -149,56 +150,6 @@ export function useVoice(options: UseVoiceOptions = {}) {
     }
   }, []);
 
-  const speak = useCallback(async (text: string): Promise<void> => {
-    return new Promise(async (resolve, reject) => {
-      try {
-        pauseListening();
-        setStatus('speaking');
-
-        const processed = text
-          .replace(/Kinder Bueno/gi, 'Kinder Bwayno bar')
-          .replace(/Takis/gi, 'Tah-keez')
-          .replace(/(\d+)\s*oz\b/gi, '$1 ounce');
-
-        const response = await fetch(`${N8N_BASE}/tts`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: processed })
-        });
-
-        if (!response.ok) throw new Error('TTS failed');
-
-        const audioBuffer = await response.arrayBuffer();
-        const blob = new Blob([audioBuffer], { type: 'audio/mpeg' });
-        const url = URL.createObjectURL(blob);
-        const audio = new Audio(url);
-        audioRef.current = audio;
-
-        audio.onended = () => {
-          URL.revokeObjectURL(url);
-          audioRef.current = null;
-          setStatus('listening');
-          resumeListening();
-          resolve();
-        };
-
-        audio.onerror = () => {
-          URL.revokeObjectURL(url);
-          audioRef.current = null;
-          resumeListening();
-          reject(new Error('Audio playback failed'));
-        };
-
-        await audio.play();
-      } catch (error) {
-        resumeListening();
-        reject(error);
-      }
-    });
-  }, [pauseListening, resumeListening]);
-
-  const setThinking = useCallback(() => setStatus('thinking'), []);
-
   const playBeep = useCallback((success: boolean) => {
     try {
       const ctx = new AudioContext();
@@ -212,6 +163,86 @@ export function useVoice(options: UseVoiceOptions = {}) {
       osc.stop(ctx.currentTime + (success ? 0.1 : 0.2));
     } catch (e) {}
   }, []);
+
+  const speakBrowser = useCallback((text: string): Promise<void> => {
+    return new Promise((resolve) => {
+      try {
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.rate = 1.0;
+        utterance.onend = () => resolve();
+        utterance.onerror = () => resolve();
+        window.speechSynthesis.speak(utterance);
+      } catch (e) {
+        resolve();
+      }
+    });
+  }, []);
+
+  const speak = useCallback(async (text: string): Promise<void> => {
+    return new Promise(async (resolve) => {
+      try {
+        pauseListening();
+        setStatus('speaking');
+
+        const processed = text
+          .replace(/Kinder Bueno/gi, 'Kinder Bwayno bar')
+          .replace(/Takis/gi, 'Tah-keez')
+          .replace(/(\d+)\s*oz\b/gi, '$1 ounce');
+
+        try {
+          const response = await fetch(TTS_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: processed, voice: 'nova' })
+          });
+
+          if (!response.ok) throw new Error('TTS failed');
+
+          const audioBuffer = await response.arrayBuffer();
+          const blob = new Blob([audioBuffer], { type: 'audio/mpeg' });
+          const url = URL.createObjectURL(blob);
+          const audio = new Audio(url);
+          audioRef.current = audio;
+
+          audio.onended = () => {
+            URL.revokeObjectURL(url);
+            audioRef.current = null;
+            playBeep(true); // Ready beep
+            setStatus('listening');
+            resumeListening();
+            resolve();
+          };
+
+          audio.onerror = () => {
+            URL.revokeObjectURL(url);
+            audioRef.current = null;
+            // Fallback to browser TTS
+            speakBrowser(text).then(() => {
+              playBeep(true);
+              setStatus('listening');
+              resumeListening();
+              resolve();
+            });
+          };
+
+          await audio.play();
+        } catch (error) {
+          // Fallback to browser TTS
+          await speakBrowser(text);
+          playBeep(true);
+          setStatus('listening');
+          resumeListening();
+          resolve();
+        }
+      } catch (error) {
+        setStatus('listening');
+        resumeListening();
+        resolve();
+      }
+    });
+  }, [pauseListening, resumeListening, speakBrowser, playBeep]);
+
+  const setThinking = useCallback(() => setStatus('thinking'), []);
 
   useEffect(() => {
     return () => {
