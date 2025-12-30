@@ -53,12 +53,11 @@ const Home = () => {
         <div className="section-container w-full">
           <div className="max-w-4xl md:text-left text-center">
             <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight text-foreground mb-6 animate-fade-in-up">
-              Enterprise Warehouse Speed.{" "}
-              <span className="text-primary">Zero Hardware Cost.</span>
+              Voice-Guided Pre-Kitting{" "}
+              <span className="text-primary">for Vending Operators.</span>
             </h1>
             <p className="text-lg sm:text-xl text-muted-foreground mb-10 max-w-2xl animate-fade-in-up animation-delay-100">
-              Hardware automation runs $100k+. Stocker runs on the phone in your
-              pocket. Same accuracy and speed, no hardware. Starting at $40/mth for two drivers.
+              Stop squinting at route sheets. Stocker reads your picks out loud so your hands stay full and your eyes stay up. Works with Parlevel, Nayax, and VendSoft. Starting at $40/month.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 md:justify-start justify-center animate-fade-in-up animation-delay-200">
               <Link to="/login">
