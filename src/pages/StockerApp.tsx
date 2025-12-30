@@ -1,14 +1,55 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogOut, Package, CheckCircle } from 'lucide-react';
+import { LogOut, Package, CheckCircle, Mic, MicOff, Pause, Play, Square } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useVoice } from '@/hooks/useVoice';
 import { useStockerAI } from '@/hooks/useStockerAI';
 import { useStockerSession } from '@/hooks/useStockerSession';
+import { useSessionPersistence } from '@/hooks/useSessionPersistence';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { BottomNav } from '@/components/stocker/BottomNav';
 import { UploadTab } from '@/components/stocker/UploadTab';
+
+// Conversation sanitization (from original PWA)
+function sanitizeConversationHistory(history: any[]): any[] {
+  if (!history || !Array.isArray(history)) return [];
+
+  const sanitized: any[] = [];
+  const pendingToolCallIds = new Set<string>();
+
+  for (const msg of history) {
+    if (msg.role === 'system' || msg.role === 'user') {
+      sanitized.push(msg);
+      pendingToolCallIds.clear();
+    } else if (msg.role === 'assistant') {
+      sanitized.push(msg);
+      pendingToolCallIds.clear();
+      if (msg.tool_calls && Array.isArray(msg.tool_calls)) {
+        for (const tc of msg.tool_calls) {
+          pendingToolCallIds.add(tc.id);
+        }
+      }
+    } else if (msg.role === 'tool') {
+      if (msg.tool_call_id && pendingToolCallIds.has(msg.tool_call_id)) {
+        sanitized.push(msg);
+        pendingToolCallIds.delete(msg.tool_call_id);
+      }
+    }
+  }
+
+  // Remove assistant messages with unresolved tool_calls
+  if (pendingToolCallIds.size > 0) {
+    for (let i = sanitized.length - 1; i >= 0; i--) {
+      if (sanitized[i].role === 'assistant' && sanitized[i].tool_calls) {
+        sanitized.splice(i, 1);
+        break;
+      }
+    }
+  }
+
+  return sanitized;
+}
 
 export default function StockerApp() {
   const navigate = useNavigate();
@@ -17,13 +58,44 @@ export default function StockerApp() {
   const [error, setError] = useState<string | null>(null);
   const [initialized, setInitialized] = useState(false);
   const [activeTab, setActiveTab] = useState<'voice' | 'upload'>('voice');
+  const [showResumeDialog, setShowResumeDialog] = useState(false);
+  const [savedSession, setSavedSession] = useState<any>(null);
   const processingRef = useRef(false);
 
   const userName = userProfile?.first_name || 'there';
   const userId = user?.id || null;
 
-  const { routeState, sessionId, messages, updateFromTool, addMessage, reset } = useStockerSession(userId);
+  const { routeState, sessionId, messages, updateFromTool, addMessage, reset, setRouteState, setMessages, setSessionId } = useStockerSession(userId);
   const { setSession, sendToAI, executeToolCalls, getRoutes } = useStockerAI();
+  const sessionPersistence = useSessionPersistence();
+
+  // Save session state whenever route changes
+  const saveSessionState = useCallback(async () => {
+    if (!routeState.routeName || !userId) return;
+
+    const sessionData = {
+      sessionId,
+      userId,
+      routeName: routeState.routeName,
+      routeDate: routeState.routeDate,
+      totalMachines: routeState.totalMachines,
+      currentMachineIndex: routeState.currentMachineIndex,
+      currentMachineName: routeState.currentMachineName,
+      currentItem: routeState.currentItem,
+      completedItems: routeState.completedItems,
+      completed: routeState.completed,
+      conversationHistory: messages
+    };
+
+    await sessionPersistence.save(sessionData, userId);
+  }, [routeState, sessionId, messages, userId, sessionPersistence]);
+
+  // Save on route state changes
+  useEffect(() => {
+    if (routeState.routeName) {
+      saveSessionState();
+    }
+  }, [routeState, saveSessionState]);
 
   const handleTranscript = useCallback(async (transcript: string, isFinal: boolean) => {
     if (!isFinal || processingRef.current) return;
@@ -32,7 +104,7 @@ export default function StockerApp() {
 
     try {
       addMessage({ role: 'user', content: transcript });
-      const allMessages = [...messages, { role: 'user', content: transcript }];
+      const allMessages = sanitizeConversationHistory([...messages, { role: 'user', content: transcript }]);
 
       let response = await sendToAI(allMessages, userName, routeState.currentItem);
 
@@ -47,11 +119,11 @@ export default function StockerApp() {
           addMessage({ role: 'tool', tool_call_id: tr.tool_call_id, content: JSON.stringify(tr.result) });
         }
 
-        response = await sendToAI([
+        response = await sendToAI(sanitizeConversationHistory([
           ...allMessages,
           response,
           ...toolResults.map(tr => ({ role: 'tool', tool_call_id: tr.tool_call_id, content: JSON.stringify(tr.result) }))
-        ], userName, routeState.currentItem);
+        ]), userName, routeState.currentItem);
       }
 
       if (response.content) {
@@ -67,9 +139,29 @@ export default function StockerApp() {
     }
   }, [messages, userName, routeState.currentItem, addMessage, sendToAI, executeToolCalls, updateFromTool]);
 
+  const handleWakePhrase = useCallback(async (command: string | null) => {
+    voice.unmute();
+    if (command) {
+      // Process the command
+      await handleTranscript(command, true);
+    } else {
+      // Just wake up - announce current state
+      if (routeState.currentItem?.product) {
+        const item = routeState.currentItem;
+        const msg = `Welcome back! Current item: ${item.quantity} ${item.product}, ${item.slot_spoken || item.slot}. Did you pick that?`;
+        await voice.speak(msg);
+      } else if (routeState.routeName) {
+        await voice.speak(`Welcome back to ${routeState.routeName} route. Say next to continue.`);
+      } else {
+        await voice.speak("I'm back. What would you like to do?");
+      }
+    }
+  }, [routeState]);
+
   const voice = useVoice({
     onTranscript: handleTranscript,
     onError: setError,
+    onWakePhrase: handleWakePhrase,
     continuous: true
   });
 
@@ -81,39 +173,128 @@ export default function StockerApp() {
     if (!loading && !user) navigate('/login');
   }, [loading, user, navigate]);
 
+  // Check for saved session on mount
   useEffect(() => {
+    const checkSavedSession = async () => {
+      if (!userId || initialized) return;
+
+      const saved = await sessionPersistence.load(userId);
+      if (sessionPersistence.isValidSession(saved) && saved?.userId === userId) {
+        setSavedSession(saved);
+        setShowResumeDialog(true);
+      } else {
+        startFresh();
+      }
+    };
+
     if (!loading && user && !initialized) {
-      setInitialized(true);
-      (async () => {
-        try {
-          const today = new Date().toISOString().split('T')[0];
-          const data = await getRoutes(today);
-          let greeting = '';
-
-          if (data.routes?.length) {
-            const names = data.routes.map((r: any) => r.route_name);
-            greeting = names.length === 1
-              ? `Hi ${userName}! You have the ${names[0]} route today. Ready to start?`
-              : `Hi ${userName}! You have ${names.join(' and ')} today. Which one first?`;
-          } else {
-            greeting = `Hi ${userName}! No routes for today. Upload one in the dashboard or tell me a date.`;
-          }
-
-          setAiResponse(greeting);
-          await voice.speak(greeting);
-          await voice.startListening();
-        } catch {
-          setAiResponse(`Hi ${userName}! Ready to stock. What route?`);
-          await voice.startListening();
-        }
-      })();
+      checkSavedSession();
     }
-  }, [loading, user, initialized, userName, getRoutes, voice]);
+  }, [loading, user, userId, initialized, sessionPersistence]);
+
+  const resumeSession = useCallback(async () => {
+    if (!savedSession) return;
+
+    setRouteState({
+      routeName: savedSession.routeName,
+      routeDate: savedSession.routeDate,
+      totalMachines: savedSession.totalMachines,
+      currentMachineIndex: savedSession.currentMachineIndex,
+      currentMachineName: savedSession.currentMachineName,
+      currentItem: savedSession.currentItem,
+      completedItems: savedSession.completedItems || [],
+      completed: savedSession.completed || false
+    });
+    setSessionId(savedSession.sessionId || `session_${Date.now()}`);
+    setMessages(sanitizeConversationHistory(savedSession.conversationHistory || []));
+
+    setShowResumeDialog(false);
+    setInitialized(true);
+    await voice.startListening();
+
+    // Announce resume
+    const item = savedSession.currentItem;
+    if (item?.product) {
+      const msg = `Welcome back to ${savedSession.routeName}! Current item: ${item.quantity} ${item.product}, ${item.slot_spoken || item.slot}.`;
+      setAiResponse(msg);
+      await voice.speak(msg);
+    } else {
+      await voice.speak(`Welcome back to ${savedSession.routeName} route.`);
+    }
+  }, [savedSession, setRouteState, setSessionId, setMessages, voice]);
+
+  const startFresh = useCallback(async () => {
+    if (userId) {
+      await sessionPersistence.clear(userId);
+    }
+    reset();
+    setShowResumeDialog(false);
+    setInitialized(true);
+
+    // Start listening and greet
+    await voice.startListening();
+
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const data = await getRoutes(today);
+      let greeting = '';
+
+      if (data.routes?.length) {
+        const names = data.routes.map((r: any) => r.route_name);
+        if (names.length === 1) {
+          greeting = `Hi ${userName}! Looks like you have the ${names[0]} route ready for today. Ready to go?`;
+        } else if (names.length === 2) {
+          greeting = `Hi ${userName}! Looks like you have the ${names[0]} and ${names[1]} routes ready for today. Which one would you like to start with?`;
+        } else {
+          const lastRoute = names.pop();
+          greeting = `Hi ${userName}! Looks like you have ${names.join(', ')}, and ${lastRoute} routes ready for today. Which one would you like to start with?`;
+        }
+      } else {
+        greeting = `Hi ${userName}! I don't see any routes for today. Load one below or tell me the date of a preloaded route you'd like to fill!`;
+      }
+
+      setAiResponse(greeting);
+      await voice.speak(greeting);
+    } catch {
+      const greeting = `Hi ${userName}! Ready to stock. What route would you like to work on today?`;
+      setAiResponse(greeting);
+      await voice.speak(greeting);
+    }
+  }, [userId, sessionPersistence, reset, voice, getRoutes, userName]);
+
+  // Tap-to-advance (from original PWA)
+  const handleItemCardClick = useCallback(() => {
+    if (routeState.currentItem && !routeState.completed && voice.status === 'listening') {
+      handleTranscript('next', true);
+    }
+  }, [routeState, voice.status, handleTranscript]);
 
   const handleLogout = async () => {
     voice.stopListening();
     await signOut();
     navigate('/dashboard');
+  };
+
+  const handleMuteToggle = () => {
+    if (voice.status === 'muted') {
+      voice.unmute();
+    } else {
+      voice.mute();
+    }
+  };
+
+  const handlePauseToggle = () => {
+    if (voice.status === 'paused') {
+      voice.resumeListening();
+    } else {
+      voice.pauseListening();
+    }
+  };
+
+  const handleStop = async () => {
+    voice.stopAudio();
+    voice.stopListening();
+    await saveSessionState();
   };
 
   if (loading) {
@@ -124,12 +305,42 @@ export default function StockerApp() {
     );
   }
 
-  const statusColors = {
+  // Resume dialog
+  if (showResumeDialog && savedSession) {
+    return (
+      <div className="min-h-screen bg-[#0d1117] flex items-center justify-center p-4">
+        <div className="bg-[#161b22] rounded-xl border border-gray-800 p-6 max-w-sm w-full">
+          <h2 className="text-xl font-semibold text-white mb-2">Resume Session?</h2>
+          <p className="text-gray-400 mb-4">
+            {savedSession.routeName} Route - Machine {savedSession.currentMachineIndex}/{savedSession.totalMachines}
+          </p>
+          <div className="flex gap-3">
+            <Button
+              onClick={resumeSession}
+              className="flex-1 bg-emerald-600 hover:bg-emerald-700"
+            >
+              Resume
+            </Button>
+            <Button
+              onClick={startFresh}
+              variant="outline"
+              className="flex-1"
+            >
+              Start Fresh
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const statusColors: Record<string, string> = {
     idle: 'bg-gray-500',
     listening: 'bg-green-500 animate-pulse',
     speaking: 'bg-yellow-500',
     thinking: 'bg-purple-500 animate-pulse',
-    paused: 'bg-gray-500',
+    paused: 'bg-orange-500',
+    muted: 'bg-red-500',
     error: 'bg-red-500'
   };
 
@@ -158,8 +369,11 @@ export default function StockerApp() {
           <UploadTab />
         ) : (
         <>
-        {/* Current Item */}
-        <div className="bg-[#161b22] rounded-xl p-4 border border-gray-800">
+        {/* Current Item - Tap to advance */}
+        <div
+          className="bg-[#161b22] rounded-xl p-4 border border-gray-800 cursor-pointer active:scale-[0.98] transition-transform"
+          onClick={handleItemCardClick}
+        >
           <span className="text-xs text-emerald-400 font-semibold uppercase">Pick Item</span>
           {routeState.currentItem ? (
             <div className="mt-2">
@@ -169,6 +383,11 @@ export default function StockerApp() {
               </div>
               <div className="text-gray-400 mt-1">{routeState.currentItem.slot_spoken || routeState.currentItem.slot}</div>
               <div className="text-sm text-gray-500 mt-1">{routeState.currentMachineName}</div>
+              {routeState.currentItem.inventory_current !== undefined && (
+                <div className="text-xs text-gray-500 mt-1">
+                  In machine: {routeState.currentItem.inventory_current}/{routeState.currentItem.inventory_parlevel}
+                </div>
+              )}
             </div>
           ) : routeState.completed ? (
             <div className="mt-4 text-center text-emerald-400">
@@ -183,13 +402,63 @@ export default function StockerApp() {
           )}
         </div>
 
-        {/* Voice Status */}
-        <div className="bg-[#161b22] rounded-xl p-4 border border-gray-800 flex items-center gap-3">
-          <span className="text-xs text-amber-400 font-semibold uppercase">Mic</span>
-          <div className={cn("w-3 h-3 rounded-full", statusColors[voice.status])} />
-          <span className="text-sm text-gray-400 capitalize">{voice.status}</span>
-          {voice.lastInput && (
-            <span className="text-sm text-amber-400 ml-auto truncate max-w-[50%]">"{voice.lastInput}"</span>
+        {/* Voice Status + Controls */}
+        <div className="bg-[#161b22] rounded-xl p-4 border border-gray-800">
+          <div className="flex items-center gap-3 mb-3">
+            <span className="text-xs text-amber-400 font-semibold uppercase">Mic</span>
+            <div className={cn("w-3 h-3 rounded-full", statusColors[voice.status])} />
+            <span className="text-sm text-gray-400 capitalize">{voice.status}</span>
+            {voice.lastInput && (
+              <span className="text-sm text-amber-400 ml-auto truncate max-w-[50%]">"{voice.lastInput}"</span>
+            )}
+          </div>
+
+          {/* Voice Control Buttons */}
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleMuteToggle}
+              className={cn(
+                "flex-1",
+                voice.status === 'muted' && "bg-red-900/50 border-red-700"
+              )}
+            >
+              {voice.status === 'muted' ? (
+                <><MicOff className="h-4 w-4 mr-2" /> Unmute</>
+              ) : (
+                <><Mic className="h-4 w-4 mr-2" /> Mute</>
+              )}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handlePauseToggle}
+              className={cn(
+                "flex-1",
+                voice.status === 'paused' && "bg-orange-900/50 border-orange-700"
+              )}
+            >
+              {voice.status === 'paused' ? (
+                <><Play className="h-4 w-4 mr-2" /> Resume</>
+              ) : (
+                <><Pause className="h-4 w-4 mr-2" /> Pause</>
+              )}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleStop}
+              className="flex-1"
+            >
+              <Square className="h-4 w-4 mr-2" /> Stop
+            </Button>
+          </div>
+
+          {(voice.status === 'paused' || voice.status === 'muted') && (
+            <p className="text-xs text-gray-500 mt-2 text-center">
+              Say "OK Stocker" to resume
+            </p>
           )}
         </div>
 

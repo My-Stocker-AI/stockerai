@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 
-export type VoiceStatus = 'idle' | 'listening' | 'speaking' | 'thinking' | 'paused' | 'error';
+export type VoiceStatus = 'idle' | 'listening' | 'speaking' | 'thinking' | 'paused' | 'muted' | 'error';
 
 // TTS via Cloudflare Worker (same as original PWA)
 const TTS_URL = 'https://solitary-base-799c.russ-731.workers.dev';
@@ -8,18 +8,29 @@ const TTS_URL = 'https://solitary-base-799c.russ-731.workers.dev';
 // Deepgram STT via Cloudflare Worker (same as original PWA)
 const DEEPGRAM_TOKEN_URL = 'https://stocker-deepgram-stt.russ-731.workers.dev/token';
 
+// Wake phrases including common mishearings (from original PWA)
+const WAKE_PHRASES = [
+  'ok stocker', 'okay stocker', 'hey stocker', 'stocker',
+  'ok stalker', 'okay stalker', 'hey stalker', 'stalker',
+  'ok stoker', 'okay stoker', 'hey stoker', 'stoker',
+  'ok docker', 'okay docker', 'hey docker',
+  'ok soccer', 'okay soccer',
+  'ok stock', 'okay stock', 'hey stock'
+];
+
 interface UseVoiceOptions {
   onTranscript?: (transcript: string, isFinal: boolean) => void;
   onError?: (error: string) => void;
+  onWakePhrase?: (command: string | null) => void;
   continuous?: boolean;
 }
 
 export function useVoice(options: UseVoiceOptions = {}) {
-  const { onTranscript, onError } = options;
+  const { onTranscript, onError, onWakePhrase } = options;
 
   const [status, setStatus] = useState<VoiceStatus>('idle');
   const [lastInput, setLastInput] = useState('');
-  const [isSupported] = useState(true); // Deepgram works everywhere
+  const [isSupported] = useState(true);
 
   // Deepgram refs
   const socketRef = useRef<WebSocket | null>(null);
@@ -34,10 +45,62 @@ export function useVoice(options: UseVoiceOptions = {}) {
   const finalTranscriptRef = useRef('');
   const utteranceEndTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Echo filtering refs (from original PWA)
+  const lastSpokenTextRef = useRef('');
+  const lastSpeakTimeRef = useRef(0);
+  const ECHO_COOLDOWN_MS = 800;
+
   // TTS refs
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const KEEPALIVE_MS = 8000;
+
+  // Check if input is echo of what we just said (from original PWA)
+  const isEcho = useCallback((text: string): boolean => {
+    const lower = text.toLowerCase().trim();
+
+    // Cooldown: ignore anything within 800ms of speaking
+    if (Date.now() - lastSpeakTimeRef.current < ECHO_COOLDOWN_MS) {
+      console.log('[Voice] Ignoring input during cooldown');
+      return true;
+    }
+
+    // Ignore very short garbage (1-2 chars)
+    if (lower.length < 3) {
+      console.log('[Voice] Ignoring short input:', lower);
+      return true;
+    }
+
+    // Only filter as echo if user's ENTIRE input is a large portion of what AI said
+    if (lastSpokenTextRef.current && lower.length > 10) {
+      if (lastSpokenTextRef.current.indexOf(lower) !== -1) {
+        console.log('[Voice] Ignoring echo:', lower);
+        return true;
+      }
+    }
+
+    return false;
+  }, []);
+
+  // Extract command after wake phrase (from original PWA)
+  const extractWakeCommand = useCallback((text: string): string | null => {
+    const lower = text.toLowerCase();
+    for (const phrase of WAKE_PHRASES) {
+      const idx = lower.indexOf(phrase);
+      if (idx !== -1) {
+        let after = lower.substring(idx + phrase.length).trim();
+        after = after.replace(/^[,\s]+/, '').trim();
+        return after || null;
+      }
+    }
+    return null;
+  }, []);
+
+  // Check if text contains wake phrase
+  const hasWakePhrase = useCallback((text: string): boolean => {
+    const lower = text.toLowerCase();
+    return WAKE_PHRASES.some(phrase => lower.indexOf(phrase) !== -1);
+  }, []);
 
   const playBeep = useCallback((success: boolean) => {
     try {
@@ -90,24 +153,39 @@ export function useVoice(options: UseVoiceOptions = {}) {
       const alt = data.channel.alternatives[0];
       const transcript = alt.transcript || '';
       const isFinal = data.is_final;
+      const speechFinal = data.speech_final;
 
       if (transcript) {
         if (isFinal) {
           finalTranscriptRef.current += (finalTranscriptRef.current ? ' ' : '') + transcript;
           setLastInput(transcript.trim());
-          onTranscript?.(transcript.trim(), true);
+
+          // Check for wake phrase in paused/muted state
+          if (status === 'paused' || status === 'muted') {
+            if (hasWakePhrase(transcript)) {
+              const command = extractWakeCommand(transcript);
+              onWakePhrase?.(command);
+              finalTranscriptRef.current = '';
+              return;
+            }
+          } else {
+            // Normal listening - filter echo and pass to transcript handler
+            if (!isEcho(transcript)) {
+              onTranscript?.(transcript.trim(), true);
+            }
+          }
         } else {
-          onTranscript?.(transcript.trim(), false);
+          if (status === 'listening') {
+            onTranscript?.(transcript.trim(), false);
+          }
         }
       }
 
-      // Check for utterance end (speech_final indicates natural pause)
-      if (data.speech_final && finalTranscriptRef.current.trim()) {
-        // Clear any pending timeout
+      // Check for utterance end
+      if (speechFinal && finalTranscriptRef.current.trim()) {
         if (utteranceEndTimeoutRef.current) {
           clearTimeout(utteranceEndTimeoutRef.current);
         }
-        // Small delay to catch any trailing words
         utteranceEndTimeoutRef.current = setTimeout(() => {
           finalTranscriptRef.current = '';
         }, 300);
@@ -115,20 +193,29 @@ export function useVoice(options: UseVoiceOptions = {}) {
     } else if (data.type === 'UtteranceEnd') {
       finalTranscriptRef.current = '';
     }
-  }, [onTranscript]);
+  }, [onTranscript, onWakePhrase, status, hasWakePhrase, extractWakeCommand, isEcho]);
 
   const setupMediaRecorder = useCallback(() => {
     if (!audioStreamRef.current) return;
 
-    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-      ? 'audio/webm;codecs=opus'
-      : 'audio/webm';
+    // Multiple MIME type fallbacks (from original PWA)
+    const types = [
+      'audio/webm;codecs=opus',
+      'audio/webm',
+      'audio/mp4',
+      'audio/ogg;codecs=opus'
+    ];
+    let mimeType = '';
+    for (const type of types) {
+      if (MediaRecorder.isTypeSupported(type)) {
+        mimeType = type;
+        break;
+      }
+    }
 
     try {
-      const recorder = new MediaRecorder(audioStreamRef.current, {
-        mimeType,
-        audioBitsPerSecond: 16000
-      });
+      const options: MediaRecorderOptions = mimeType ? { mimeType } : {};
+      const recorder = new MediaRecorder(audioStreamRef.current, options);
 
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0 && socketRef.current?.readyState === WebSocket.OPEN) {
@@ -141,7 +228,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
       };
 
       mediaRecorderRef.current = recorder;
-      recorder.start(100); // Send data every 100ms
+      recorder.start(100);
       isRecordingRef.current = true;
     } catch (e: any) {
       onError?.(e.message || 'Failed to start recording');
@@ -201,8 +288,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
         isRecordingRef.current = false;
         stopKeepAlive();
 
-        // Auto-reconnect if we should
-        if (shouldReconnectRef.current && status === 'listening') {
+        if (shouldReconnectRef.current && (status === 'listening' || status === 'paused' || status === 'muted')) {
           setTimeout(async () => {
             try {
               await connectDeepgram();
@@ -215,7 +301,6 @@ export function useVoice(options: UseVoiceOptions = {}) {
 
   const startListening = useCallback(async () => {
     try {
-      // Get microphone access
       audioStreamRef.current = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
@@ -270,6 +355,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
       mediaRecorderRef.current.pause();
       isRecordingRef.current = false;
     }
+    setLastInput('');
     setStatus('paused');
   }, []);
 
@@ -282,10 +368,26 @@ export function useVoice(options: UseVoiceOptions = {}) {
       setupMediaRecorder();
       setStatus('listening');
     } else if (!isConnectedRef.current) {
-      // Need to reconnect
       startListening();
     }
   }, [setupMediaRecorder, startListening]);
+
+  const mute = useCallback(() => {
+    if (mediaRecorderRef.current?.state === 'recording') {
+      mediaRecorderRef.current.pause();
+      isRecordingRef.current = false;
+    }
+    setLastInput('');
+    setStatus('muted');
+  }, []);
+
+  const unmute = useCallback(() => {
+    if (mediaRecorderRef.current?.state === 'paused') {
+      mediaRecorderRef.current.resume();
+      isRecordingRef.current = true;
+    }
+    setStatus('listening');
+  }, []);
 
   const stopAudio = useCallback(() => {
     if (audioRef.current) {
@@ -293,6 +395,9 @@ export function useVoice(options: UseVoiceOptions = {}) {
       audioRef.current.src = '';
       audioRef.current = null;
     }
+    try {
+      window.speechSynthesis.cancel();
+    } catch (e) {}
   }, []);
 
   const speakBrowser = useCallback((text: string): Promise<void> => {
@@ -341,6 +446,10 @@ export function useVoice(options: UseVoiceOptions = {}) {
           .replace(/\bCan\b/g, 'can')
           .replace(/\b(\d+)\s*can\b/gi, '$1 cans');
 
+        // Store for echo filtering
+        lastSpokenTextRef.current = text.toLowerCase();
+        lastSpeakTimeRef.current = Date.now();
+
         try {
           const response = await fetch(TTS_URL, {
             method: 'POST',
@@ -359,32 +468,37 @@ export function useVoice(options: UseVoiceOptions = {}) {
           audio.onended = () => {
             URL.revokeObjectURL(url);
             audioRef.current = null;
-            playBeep(true); // Ready beep
+            playBeep(true);
             setStatus('listening');
-            resumeListening();
-            resolve();
+            // Wait before resuming to prevent echo pickup
+            setTimeout(() => {
+              resumeListening();
+              resolve();
+            }, 100);
           };
 
           audio.onerror = () => {
             URL.revokeObjectURL(url);
             audioRef.current = null;
-            // Fallback to browser TTS
             speakBrowser(text).then(() => {
               playBeep(true);
               setStatus('listening');
-              resumeListening();
-              resolve();
+              setTimeout(() => {
+                resumeListening();
+                resolve();
+              }, 100);
             });
           };
 
           await audio.play();
         } catch (error) {
-          // Fallback to browser TTS
           await speakBrowser(text);
           playBeep(true);
           setStatus('listening');
-          resumeListening();
-          resolve();
+          setTimeout(() => {
+            resumeListening();
+            resolve();
+          }, 100);
         }
       } catch (error) {
         setStatus('listening');
@@ -411,10 +525,14 @@ export function useVoice(options: UseVoiceOptions = {}) {
     stopListening,
     pauseListening,
     resumeListening,
+    mute,
+    unmute,
     speak,
     stopAudio,
     setThinking,
     setStatus,
-    playBeep
+    playBeep,
+    hasWakePhrase,
+    extractWakeCommand
   };
 }
