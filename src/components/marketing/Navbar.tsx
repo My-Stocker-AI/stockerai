@@ -17,9 +17,9 @@ const Navbar = () => {
       <nav className="section-container">
         <div className="flex items-center justify-between h-16 md:h-20">
           {/* Logo */}
-          <Link to="/" className="flex items-center gap-3">
-            <img src="/stocker-logo.jpg" alt="Stocker AI" className="h-12 w-12" />
-            <span className="text-2xl font-bold text-foreground">Stocker AI</span>
+          <Link to="/" className="flex items-center gap-2">
+            <img src="/stocker-logo.jpg" alt="Stocker AI" className="h-14 w-14" />
+            <span className="text-xl font-bold text-foreground">Stocker AI</span>
           </Link>
 
           {/* Desktop Navigation */}

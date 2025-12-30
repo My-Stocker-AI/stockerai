@@ -52,7 +52,7 @@ const Home = () => {
       <section className="min-h-screen flex items-center pt-20">
         <div className="section-container w-full">
           <div className="max-w-4xl md:text-left text-center">
-            <p className="text-xl md:text-2xl font-bold tracking-wide mb-4 animate-fade-in-up bg-primary/10 text-primary px-4 py-2 rounded-lg inline-block">
+            <p className="text-xl md:text-2xl font-bold tracking-wide mb-4 animate-fade-in-up text-primary relative inline-block" style={{ textShadow: '0 0 40px hsl(var(--primary) / 0.6), 0 0 80px hsl(var(--primary) / 0.4)' }}>
               VOICE PICKING FOR VENDING ROUTE OPERATORS
             </p>
             <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight text-foreground mb-6 animate-fade-in-up">
