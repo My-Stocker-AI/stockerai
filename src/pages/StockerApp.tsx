@@ -1,12 +1,14 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogOut, Mic, Package, CheckCircle } from 'lucide-react';
+import { LogOut, Package, CheckCircle } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useVoice } from '@/hooks/useVoice';
 import { useStockerAI } from '@/hooks/useStockerAI';
 import { useStockerSession } from '@/hooks/useStockerSession';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { BottomNav } from '@/components/stocker/BottomNav';
+import { UploadTab } from '@/components/stocker/UploadTab';
 
 export default function StockerApp() {
   const navigate = useNavigate();
@@ -14,6 +16,7 @@ export default function StockerApp() {
   const [aiResponse, setAiResponse] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [initialized, setInitialized] = useState(false);
+  const [activeTab, setActiveTab] = useState<'voice' | 'upload'>('voice');
   const processingRef = useRef(false);
 
   const userName = userProfile?.first_name || 'there';
@@ -150,7 +153,11 @@ export default function StockerApp() {
         </div>
       </header>
 
-      <main className="flex-1 flex flex-col p-4 gap-4 overflow-hidden">
+      <main className="flex-1 flex flex-col p-4 gap-4 overflow-hidden pb-20">
+        {activeTab === 'upload' ? (
+          <UploadTab />
+        ) : (
+        <>
         {/* Current Item */}
         <div className="bg-[#161b22] rounded-xl p-4 border border-gray-800">
           <span className="text-xs text-emerald-400 font-semibold uppercase">Pick Item</span>
@@ -224,15 +231,12 @@ export default function StockerApp() {
             {error}
           </div>
         )}
+        </>
+        )}
       </main>
 
       {/* Bottom Nav */}
-      <nav className="flex justify-center gap-12 py-4 border-t border-gray-800 bg-[#161b22]">
-        <button className="flex flex-col items-center text-emerald-400">
-          <Mic className="h-6 w-6" />
-          <span className="text-xs mt-1">Voice</span>
-        </button>
-      </nav>
+      <BottomNav activeTab={activeTab} onTabChange={setActiveTab} />
     </div>
   );
 }
