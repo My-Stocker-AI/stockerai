@@ -37,12 +37,12 @@ const DashboardLayout = ({ children, title, breadcrumbs }: DashboardLayoutProps)
   };
 
   const navItems = [
-    { 
-      label: "Voice App", 
-      href: "/app", 
-      icon: AudioWaveform, 
+    {
+      label: "Voice App",
+      href: "https://my-stocker-ai.com",
+      icon: AudioWaveform,
       external: true,
-      visible: true 
+      visible: true
     },
     { 
       label: "Upload Routes", 

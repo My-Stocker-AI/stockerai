@@ -143,7 +143,7 @@ const MyRoutes = () => {
             asChild
             className={`w-full ${highlighted ? 'bg-primary hover:bg-primary-hover' : 'bg-dashboard-bg hover:bg-dashboard-card border border-dashboard-border text-dashboard-text'}`}
           >
-            <a href={`/app?route=${route.id}`} target="_blank" rel="noopener noreferrer">
+            <a href={`https://my-stocker-ai.com?route=${route.id}`} target="_blank" rel="noopener noreferrer">
               <Play className="mr-2 h-4 w-4" />
               {status === 'in_progress' ? 'Continue Picking' : 'Start Picking'}
             </a>
