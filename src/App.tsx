@@ -16,6 +16,7 @@ import Usage from "./pages/dashboard/Usage";
 import Billing from "./pages/dashboard/Billing";
 import Settings from "./pages/dashboard/Settings";
 import NotFound from "./pages/NotFound";
+import StockerApp from "./pages/StockerApp";
 import ProtectedRoute from "@/components/dashboard/ProtectedRoute";
 
 const queryClient = new QueryClient();
@@ -39,6 +40,7 @@ const App = () => (
             <Route path="/dashboard/usage" element={<ProtectedRoute adminOnly><Usage /></ProtectedRoute>} />
             <Route path="/dashboard/billing" element={<ProtectedRoute adminOnly><Billing /></ProtectedRoute>} />
             <Route path="/dashboard/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+            <Route path="/app" element={<ProtectedRoute><StockerApp /></ProtectedRoute>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </AuthProvider>
