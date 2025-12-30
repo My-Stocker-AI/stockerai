@@ -28,9 +28,16 @@ interface UseVoiceOptions {
 export function useVoice(options: UseVoiceOptions = {}) {
   const { onTranscript, onError, onWakePhrase } = options;
 
-  const [status, setStatus] = useState<VoiceStatus>('idle');
+  const [status, setStatusState] = useState<VoiceStatus>('idle');
   const [lastInput, setLastInput] = useState('');
   const [isSupported] = useState(true);
+
+  // Status ref to avoid stale closures in WebSocket callbacks (matches original PWA this.state pattern)
+  const statusRef = useRef<VoiceStatus>('idle');
+  const setStatus = useCallback((newStatus: VoiceStatus) => {
+    statusRef.current = newStatus;
+    setStatusState(newStatus);
+  }, []);
 
   // Deepgram refs
   const socketRef = useRef<WebSocket | null>(null);
@@ -42,8 +49,8 @@ export function useVoice(options: UseVoiceOptions = {}) {
   const shouldReconnectRef = useRef(true);
   const isConnectedRef = useRef(false);
   const isRecordingRef = useRef(false);
-  const finalTranscriptRef = useRef('');
-  const utteranceEndTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const accumulatedTranscriptRef = useRef('');  // Accumulated transcript for utterance (matches original PWA this.transcript)
+  const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);  // Silence timer fallback (matches original PWA)
 
   // Echo filtering refs (from original PWA)
   const lastSpokenTextRef = useRef('');
@@ -204,6 +211,40 @@ export function useVoice(options: UseVoiceOptions = {}) {
     return tokenRef.current;
   }, []);
 
+  // Process accumulated transcript as a command (matches original PWA handleCommand flow)
+  const processAccumulatedTranscript = useCallback(() => {
+    const text = accumulatedTranscriptRef.current.trim();
+    accumulatedTranscriptRef.current = '';
+
+    if (!text) return;
+
+    const currentStatus = statusRef.current;
+    console.log('[Voice] Processing transcript:', text, 'state:', currentStatus);
+
+    // In paused/muted state, only listen for wake phrase (matches original PWA)
+    if (currentStatus === 'paused' || currentStatus === 'muted') {
+      if (hasWakePhrase(text)) {
+        const command = extractWakeCommand(text);
+        onWakePhrase?.(command);
+      }
+      return;
+    }
+
+    // Only process if in valid state (matches original PWA state check)
+    if (currentStatus !== 'listening' && currentStatus !== 'idle') {
+      console.log('[Voice] Ignoring transcript, wrong state:', currentStatus);
+      return;
+    }
+
+    // Filter echo/noise (matches original PWA)
+    if (isEcho(text)) {
+      return;
+    }
+
+    // Pass to handler
+    onTranscript?.(text, true);
+  }, [hasWakePhrase, extractWakeCommand, onWakePhrase, isEcho, onTranscript]);
+
   const handleDeepgramMessage = useCallback((data: any) => {
     if (data.type === 'Results' && data.channel?.alternatives?.[0]) {
       const alt = data.channel.alternatives[0];
@@ -211,45 +252,47 @@ export function useVoice(options: UseVoiceOptions = {}) {
       const isFinal = data.is_final;
       const speechFinal = data.speech_final;
 
+      // Check for isUtteranceEnd in the result (matches original PWA)
+      const isUtteranceEnd = speechFinal || data.speech_final;
+
       if (transcript) {
+        // Update display for interim results (only when listening, matches original PWA)
+        if (!isFinal && statusRef.current === 'listening') {
+          setLastInput(transcript.trim());
+          onTranscript?.(transcript.trim(), false);
+        }
+
         if (isFinal) {
-          finalTranscriptRef.current += (finalTranscriptRef.current ? ' ' : '') + transcript;
           setLastInput(transcript.trim());
 
-          // Check for wake phrase in paused/muted state
-          if (status === 'paused' || status === 'muted') {
-            if (hasWakePhrase(transcript)) {
-              const command = extractWakeCommand(transcript);
-              onWakePhrase?.(command);
-              finalTranscriptRef.current = '';
-              return;
-            }
-          } else {
-            // Normal listening - filter echo and pass to transcript handler
-            if (!isEcho(transcript)) {
-              onTranscript?.(transcript.trim(), true);
-            }
+          // If Deepgram detected utterance end, process immediately (matches original PWA)
+          if (isUtteranceEnd) {
+            console.log('[Voice] Utterance end - processing immediately:', transcript);
+            accumulatedTranscriptRef.current = transcript;
+            if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+            processAccumulatedTranscript();
+            return;
           }
-        } else {
-          if (status === 'listening') {
-            onTranscript?.(transcript.trim(), false);
-          }
-        }
-      }
 
-      // Check for utterance end
-      if (speechFinal && finalTranscriptRef.current.trim()) {
-        if (utteranceEndTimeoutRef.current) {
-          clearTimeout(utteranceEndTimeoutRef.current);
+          // Accumulate transcript (matches original PWA this.transcript += final)
+          accumulatedTranscriptRef.current += (accumulatedTranscriptRef.current ? ' ' : '') + transcript;
+
+          // Reset silence timer (fallback for when utterance_end doesn't fire, matches original PWA)
+          if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+          silenceTimerRef.current = setTimeout(() => {
+            processAccumulatedTranscript();
+          }, 300);  // 300ms silence timer (matches original PWA)
         }
-        utteranceEndTimeoutRef.current = setTimeout(() => {
-          finalTranscriptRef.current = '';
-        }, 300);
       }
     } else if (data.type === 'UtteranceEnd') {
-      finalTranscriptRef.current = '';
+      // Deepgram UtteranceEnd message - process immediately (matches original PWA)
+      console.log('[Voice] UtteranceEnd event received');
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      if (accumulatedTranscriptRef.current.trim()) {
+        processAccumulatedTranscript();
+      }
     }
-  }, [onTranscript, onWakePhrase, status, hasWakePhrase, extractWakeCommand, isEcho]);
+  }, [onTranscript, processAccumulatedTranscript]);
 
   const setupMediaRecorder = useCallback(() => {
     if (!audioStreamRef.current) return;
@@ -344,7 +387,9 @@ export function useVoice(options: UseVoiceOptions = {}) {
         isRecordingRef.current = false;
         stopKeepAlive();
 
-        if (shouldReconnectRef.current && (status === 'listening' || status === 'paused' || status === 'muted')) {
+        // Use statusRef.current to avoid stale closure (matches original PWA)
+        const currentStatus = statusRef.current;
+        if (shouldReconnectRef.current && (currentStatus === 'listening' || currentStatus === 'paused' || currentStatus === 'muted')) {
           setTimeout(async () => {
             try {
               await connectDeepgram();
@@ -353,7 +398,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
         }
       };
     });
-  }, [ensureToken, startKeepAlive, stopKeepAlive, setupMediaRecorder, handleDeepgramMessage, onError, status]);
+  }, [ensureToken, startKeepAlive, stopKeepAlive, setupMediaRecorder, handleDeepgramMessage, onError]);
 
   const startListening = useCallback(async () => {
     try {
@@ -375,11 +420,18 @@ export function useVoice(options: UseVoiceOptions = {}) {
       setStatus('error');
       return false;
     }
-  }, [connectDeepgram, onError]);
+  }, [connectDeepgram, onError, setStatus]);
 
   const stopListening = useCallback(() => {
     shouldReconnectRef.current = false;
     stopKeepAlive();
+
+    // Clear silence timer and accumulated transcript
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+    accumulatedTranscriptRef.current = '';
 
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       try {
@@ -404,16 +456,23 @@ export function useVoice(options: UseVoiceOptions = {}) {
 
     isConnectedRef.current = false;
     setStatus('idle');
-  }, [stopKeepAlive]);
+  }, [stopKeepAlive, setStatus]);
 
   const pauseListening = useCallback(() => {
+    // Clear silence timer and accumulated transcript (matches original PWA pause behavior)
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+    accumulatedTranscriptRef.current = '';
+
     if (mediaRecorderRef.current?.state === 'recording') {
       mediaRecorderRef.current.pause();
       isRecordingRef.current = false;
     }
     setLastInput('');
     setStatus('paused');
-  }, []);
+  }, [setStatus]);
 
   const resumeListening = useCallback(() => {
     if (mediaRecorderRef.current?.state === 'paused') {
@@ -426,16 +485,23 @@ export function useVoice(options: UseVoiceOptions = {}) {
     } else if (!isConnectedRef.current) {
       startListening();
     }
-  }, [setupMediaRecorder, startListening]);
+  }, [setupMediaRecorder, startListening, setStatus]);
 
   const mute = useCallback(() => {
+    // Clear silence timer and accumulated transcript (matches original PWA mute behavior)
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+    accumulatedTranscriptRef.current = '';
+
     if (mediaRecorderRef.current?.state === 'recording') {
       mediaRecorderRef.current.pause();
       isRecordingRef.current = false;
     }
     setLastInput('');
     setStatus('muted');
-  }, []);
+  }, [setStatus]);
 
   const unmute = useCallback(() => {
     if (mediaRecorderRef.current?.state === 'paused') {
@@ -443,7 +509,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
       isRecordingRef.current = true;
     }
     setStatus('listening');
-  }, []);
+  }, [setStatus]);
 
   const stopAudio = useCallback(() => {
     if (audioRef.current) {
@@ -591,12 +657,16 @@ export function useVoice(options: UseVoiceOptions = {}) {
       // Always release lock (matches original PWA unlock in finally)
       releaseSpeakLock();
     }
-  }, [acquireSpeakLock, releaseSpeakLock, stopAudio, pauseListening, resumeListening, speakBrowser, playReadyBeep]);
+  }, [acquireSpeakLock, releaseSpeakLock, stopAudio, pauseListening, resumeListening, speakBrowser, playReadyBeep, setStatus]);
 
-  const setThinking = useCallback(() => setStatus('thinking'), []);
+  const setThinking = useCallback(() => setStatus('thinking'), [setStatus]);
 
   useEffect(() => {
     return () => {
+      // Cleanup silence timer on unmount
+      if (silenceTimerRef.current) {
+        clearTimeout(silenceTimerRef.current);
+      }
       stopListening();
       stopAudio();
     };
