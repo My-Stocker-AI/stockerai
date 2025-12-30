@@ -9,10 +9,17 @@ interface UserRole {
   account_id: string;
 }
 
+interface UserProfile {
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
+}
+
 interface AuthContextType {
   user: User | null;
   session: Session | null;
   userRole: UserRole | null;
+  userProfile: UserProfile | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signUp: (email: string, password: string, firstName: string, lastName: string, driverCount?: number) => Promise<{ error: Error | null }>;
@@ -26,6 +33,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [userRole, setUserRole] = useState<UserRole | null>(null);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
   const fetchUserRole = async (userId: string) => {
@@ -43,20 +51,37 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     return data as UserRole;
   };
 
+  const fetchUserProfile = async (userId: string) => {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('first_name, last_name, email')
+      .eq('id', userId)
+      .single();
+
+    if (error) {
+      console.error('Error fetching user profile:', error);
+      return null;
+    }
+
+    return data as UserProfile;
+  };
+
   useEffect(() => {
     // Set up auth state listener FIRST
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
         setSession(session);
         setUser(session?.user ?? null);
-        
-        // Defer role fetch with setTimeout to prevent deadlock
+
+        // Defer role/profile fetch with setTimeout to prevent deadlock
         if (session?.user) {
           setTimeout(() => {
             fetchUserRole(session.user.id).then(setUserRole);
+            fetchUserProfile(session.user.id).then(setUserProfile);
           }, 0);
         } else {
           setUserRole(null);
+          setUserProfile(null);
         }
       }
     );
@@ -67,6 +92,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setUser(session?.user ?? null);
       if (session?.user) {
         fetchUserRole(session.user.id).then(setUserRole);
+        fetchUserProfile(session.user.id).then(setUserProfile);
       }
       setLoading(false);
     });
@@ -157,6 +183,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setUser(null);
     setSession(null);
     setUserRole(null);
+    setUserProfile(null);
   };
 
   const resetPassword = async (email: string) => {
@@ -171,6 +198,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       user,
       session,
       userRole,
+      userProfile,
       loading,
       signIn,
       signUp,

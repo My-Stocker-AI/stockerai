@@ -118,7 +118,7 @@ export function useStockerAI() {
       }
     }
 
-    return `You are Stocker, a voice assistant helping warehouse workers stock vending machine routes.
+    return `You are StockerAI, a voice assistant helping warehouse workers stock vending machine routes.
 You are speaking with ${userName}. Address them by name occasionally.
 
 Your job: Guide users through picking items one by one.
