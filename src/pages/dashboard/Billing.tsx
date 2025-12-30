@@ -58,7 +58,7 @@ const Billing = () => {
     if (searchParams.get('success') === 'true') {
       toast({ 
         title: "Subscription activated!", 
-        description: "Welcome to StockerAI. Your subscription is now active." 
+        description: "Welcome to Stocker AI. Your subscription is now active." 
       });
       queryClient.invalidateQueries({ queryKey: ['subscription'] });
       queryClient.invalidateQueries({ queryKey: ['account'] });
@@ -246,7 +246,7 @@ const Billing = () => {
               <div className="flex-1">
                 <p className="font-medium text-dashboard-text">No active subscription</p>
                 <p className="text-sm text-dashboard-text-secondary">
-                  Subscribe to continue using StockerAI after your trial ends.
+                  Subscribe to continue using Stocker AI after your trial ends.
                 </p>
               </div>
               <Button 

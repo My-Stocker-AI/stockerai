@@ -7,8 +7,8 @@ const Footer = () => {
         <div className="flex flex-col md:flex-row justify-between items-center gap-8">
           {/* Logo */}
           <Link to="/" className="flex items-center gap-2">
-            <img src="/logo.svg" alt="StockerAI" className="h-7 w-7" />
-            <span className="text-lg font-bold">StockerAI</span>
+            <img src="/logo.svg" alt="Stocker AI" className="h-7 w-7" />
+            <span className="text-lg font-bold">Stocker AI</span>
           </Link>
 
           {/* Links */}
@@ -32,7 +32,7 @@ const Footer = () => {
 
           {/* Legal */}
           <div className="flex items-center gap-4 text-sm text-muted-foreground">
-            <span>© {new Date().getFullYear()} StockerAI</span>
+            <span>© {new Date().getFullYear()} Stocker AI</span>
             <span>|</span>
             <a href="#" className="hover:text-primary transition-colors">
               Privacy Policy

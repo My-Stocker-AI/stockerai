@@ -70,7 +70,7 @@ const AdminLayout = ({ children, title }: AdminLayoutProps) => {
         <Link to="/admin" className="flex items-center gap-2">
           <Shield className="h-8 w-8 text-amber-500" />
           <div>
-            <span className="text-xl font-bold text-white">StockerAI</span>
+            <span className="text-xl font-bold text-white">Stocker AI</span>
             <span className="text-xs text-amber-500 block">Platform Admin</span>
           </div>
         </Link>

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogOut, Package, CheckCircle, Mic, MicOff, Pause, Play, Square, AlertTriangle } from 'lucide-react';
+import { LogOut, Package, CheckCircle, Mic, MicOff, Pause, Play, Square, AlertTriangle, Settings, RefreshCw } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useVoice } from '@/hooks/useVoice';
 import { useStockerAI } from '@/hooks/useStockerAI';
@@ -114,9 +114,12 @@ export default function StockerApp() {
   const [activeTab, setActiveTab] = useState<'voice' | 'upload'>('voice');
   const [showResumeDialog, setShowResumeDialog] = useState(false);
   const [showStopConfirm, setShowStopConfirm] = useState(false);
+  const [showMicHelp, setShowMicHelp] = useState(false);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [savedSession, setSavedSession] = useState<any>(null);
+  const [retryCount, setRetryCount] = useState(0);
   const processingRef = useRef(false);
+  const MAX_RETRIES = 2;
   const voiceRef = useRef<any>(null); // Ref to hold voice methods for callbacks
 
   const userName = userProfile?.first_name || 'there';
@@ -255,12 +258,38 @@ export default function StockerApp() {
         await v.speak(response.content);
       }
     } catch (err: any) {
-      setError(err.message);
+      const errorMsg = err.message || 'Something went wrong';
+      const isNetworkError = errorMsg.includes('timeout') ||
+                            errorMsg.includes('network') ||
+                            errorMsg.includes('fetch') ||
+                            errorMsg.includes('Failed to fetch');
+      const isRateLimited = errorMsg.includes('429') || errorMsg.includes('rate limit');
+
+      // Auto-retry on network errors (up to MAX_RETRIES)
+      if (isNetworkError && retryCount < MAX_RETRIES) {
+        setRetryCount(prev => prev + 1);
+        setAiResponse('Connection issue, retrying...');
+        // Wait 1 second then retry
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        processingRef.current = false;
+        return handleTranscript(transcript, true);
+      }
+
+      // Friendly messages for common errors
+      if (isRateLimited) {
+        setError('Service is busy. Please wait a moment and say that again.');
+      } else if (isNetworkError) {
+        setError('Connection lost. Check your internet and try again.');
+      } else {
+        setError(errorMsg);
+      }
+
+      setRetryCount(0); // Reset retry count on final failure
       v.playErrorBeep();
     } finally {
       processingRef.current = false;
     }
-  }, [messages, userName, routeState, addMessage, sendToAI, executeToolCalls, updateFromTool, undoLastItem]);
+  }, [messages, userName, routeState, addMessage, sendToAI, executeToolCalls, updateFromTool, undoLastItem, retryCount]);
 
   const handleWakePhrase = useCallback(async (command: string | null) => {
     const v = voiceRef.current;
@@ -290,9 +319,30 @@ export default function StockerApp() {
     }
   }, [routeState, handleTranscript]);
 
+  // Smart error handler - detects mic permission issues and rate limits
+  const handleVoiceError = useCallback((errorMsg: string) => {
+    const lower = errorMsg.toLowerCase();
+
+    // Mic permission denied
+    if (lower.includes('permission') || lower.includes('notallowed') || lower.includes('not allowed') || lower.includes('denied')) {
+      setShowMicHelp(true);
+      setError('Microphone access denied');
+      return;
+    }
+
+    // Rate limit errors
+    if (lower.includes('429') || lower.includes('rate limit') || lower.includes('too many')) {
+      setError('Voice service is busy. Please wait a moment and try again.');
+      return;
+    }
+
+    // Generic error
+    setError(errorMsg);
+  }, []);
+
   const voice = useVoice({
     onTranscript: handleTranscript,
-    onError: setError,
+    onError: handleVoiceError,
     onWakePhrase: handleWakePhrase,
     continuous: true
   });
@@ -544,6 +594,57 @@ export default function StockerApp() {
                 className="flex-1"
               >
                 Cancel
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Microphone Permission Help Modal */}
+      {showMicHelp && (
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+          <div className="bg-[#161b22] rounded-xl border border-gray-800 p-6 max-w-sm w-full">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-red-500/20 rounded-lg">
+                <MicOff className="h-6 w-6 text-red-400" />
+              </div>
+              <h2 className="text-xl font-semibold text-white">Microphone Access Needed</h2>
+            </div>
+            <p className="text-gray-400 mb-4">Stocker AI needs microphone access to work. Here's how to enable it:</p>
+            <div className="space-y-3 mb-6">
+              <div className="flex items-start gap-3 text-sm">
+                <div className="w-6 h-6 rounded-full bg-blue-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <span className="text-blue-400 font-bold">1</span>
+                </div>
+                <p className="text-gray-300">Tap the <Settings className="inline h-4 w-4" /> lock/settings icon in your browser's address bar</p>
+              </div>
+              <div className="flex items-start gap-3 text-sm">
+                <div className="w-6 h-6 rounded-full bg-blue-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <span className="text-blue-400 font-bold">2</span>
+                </div>
+                <p className="text-gray-300">Find "Microphone" and change it to "Allow"</p>
+              </div>
+              <div className="flex items-start gap-3 text-sm">
+                <div className="w-6 h-6 rounded-full bg-blue-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <span className="text-blue-400 font-bold">3</span>
+                </div>
+                <p className="text-gray-300">Refresh this page and try again</p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <Button
+                onClick={() => window.location.reload()}
+                className="flex-1 bg-blue-600 hover:bg-blue-700"
+              >
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Refresh Page
+              </Button>
+              <Button
+                onClick={() => setShowMicHelp(false)}
+                variant="outline"
+                className="flex-1"
+              >
+                Close
               </Button>
             </div>
           </div>
