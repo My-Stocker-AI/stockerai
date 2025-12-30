@@ -98,84 +98,35 @@ const Team = () => {
   // Count admins
   const adminCount = teamMembers.filter(m => m.role === 'primary_admin').length;
 
-  // Invite member mutation
+  // Invite member mutation - uses n8n webhook to avoid RLS issues
   const inviteMemberMutation = useMutation({
     mutationFn: async () => {
-      // Create user with Supabase Auth
-      const { data: authData, error: authError } = await supabase.auth.admin.createUser({
-        email: inviteEmail,
-        email_confirm: true,
-        user_metadata: {
+      const response = await fetch('https://visionairy.app.n8n.cloud/webhook/invite-team-member', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: inviteEmail,
           first_name: inviteFirstName,
           last_name: inviteLastName,
-        },
-      });
-
-      // Fallback: If admin API not available, use regular signup
-      if (authError) {
-        // Use signUp with a temporary password, then send reset
-        const tempPassword = crypto.randomUUID();
-        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-          email: inviteEmail,
-          password: tempPassword,
-          options: {
-            data: {
-              first_name: inviteFirstName,
-              last_name: inviteLastName,
-            },
-          },
-        });
-
-        if (signUpError) throw signUpError;
-        if (!signUpData.user) throw new Error('Failed to create user');
-
-        // Update profile
-        await supabase
-          .from('profiles')
-          .update({
-            first_name: inviteFirstName,
-            last_name: inviteLastName,
-          })
-          .eq('id', signUpData.user.id);
-
-        // Create account_user
-        const { error: accountUserError } = await supabase
-          .from('account_users')
-          .insert({
-            account_id: userRole?.account_id,
-            user_id: signUpData.user.id,
-            role: inviteRole,
-            can_view_all_routes: inviteCanViewAll,
-          });
-
-        if (accountUserError) throw accountUserError;
-
-        // Send password reset email
-        await supabase.auth.resetPasswordForEmail(inviteEmail, {
-          redirectTo: `${window.location.origin}/login`,
-        });
-
-        return;
-      }
-
-      if (!authData.user) throw new Error('Failed to create user');
-
-      // Create account_user
-      const { error: accountUserError } = await supabase
-        .from('account_users')
-        .insert({
           account_id: userRole?.account_id,
-          user_id: authData.user.id,
           role: inviteRole,
           can_view_all_routes: inviteCanViewAll,
-        });
-
-      if (accountUserError) throw accountUserError;
-
-      // Send password reset email
-      await supabase.auth.resetPasswordForEmail(inviteEmail, {
-        redirectTo: `${window.location.origin}/login`,
+        }),
       });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || 'Failed to invite team member');
+      }
+
+      const result = await response.json();
+      if (!result.success) {
+        throw new Error(result.message || 'Failed to invite team member');
+      }
+
+      return result;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['team-members'] });
@@ -391,56 +342,56 @@ const Team = () => {
 
       {/* Invite Modal */}
       <Dialog open={inviteModalOpen} onOpenChange={setInviteModalOpen}>
-        <DialogContent className="bg-dashboard-bg border-dashboard-border">
+        <DialogContent className="bg-dashboard-card border-dashboard-border">
           <DialogHeader>
-            <DialogTitle className="text-dashboard-text">Add Team Member</DialogTitle>
+            <DialogTitle className="text-primary">Add Team Member</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="email" className="text-dashboard-text">Email</Label>
+              <Label htmlFor="email" className="text-primary">Email</Label>
               <Input
                 id="email"
                 type="email"
                 value={inviteEmail}
                 onChange={(e) => setInviteEmail(e.target.value)}
                 placeholder="driver@company.com"
-                className="bg-dashboard-bg border-dashboard-border text-dashboard-text"
+                className="bg-white border-dashboard-border text-gray-900 placeholder:text-gray-500"
               />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="firstName" className="text-dashboard-text">First Name</Label>
+                <Label htmlFor="firstName" className="text-primary">First Name</Label>
                 <Input
                   id="firstName"
                   value={inviteFirstName}
                   onChange={(e) => setInviteFirstName(e.target.value)}
-                  className="bg-dashboard-bg border-dashboard-border text-dashboard-text"
+                  className="bg-white border-dashboard-border text-gray-900 placeholder:text-gray-500"
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="lastName" className="text-dashboard-text">Last Name</Label>
+                <Label htmlFor="lastName" className="text-primary">Last Name</Label>
                 <Input
                   id="lastName"
                   value={inviteLastName}
                   onChange={(e) => setInviteLastName(e.target.value)}
-                  className="bg-dashboard-bg border-dashboard-border text-dashboard-text"
+                  className="bg-white border-dashboard-border text-gray-900 placeholder:text-gray-500"
                 />
               </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="role" className="text-dashboard-text">Role</Label>
+              <Label htmlFor="role" className="text-primary">Role</Label>
               <Select value={inviteRole} onValueChange={(v: 'driver' | 'primary_admin') => setInviteRole(v)}>
-                <SelectTrigger className="bg-dashboard-bg border-dashboard-border text-dashboard-text">
+                <SelectTrigger className="bg-white border-dashboard-border text-gray-900">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-dashboard-bg border-dashboard-border">
-                  <SelectItem value="driver">Driver</SelectItem>
-                  <SelectItem value="primary_admin">Admin</SelectItem>
+                <SelectContent className="bg-white border-dashboard-border">
+                  <SelectItem value="driver" className="text-gray-900 hover:bg-gray-100">Driver</SelectItem>
+                  <SelectItem value="primary_admin" className="text-gray-900 hover:bg-gray-100">Admin</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div className="flex items-center justify-between">
-              <Label htmlFor="canViewAll" className="text-dashboard-text">Can view all routes</Label>
+              <Label htmlFor="canViewAll" className="text-primary">Can view all routes</Label>
               <Switch
                 id="canViewAll"
                 checked={inviteCanViewAll}
@@ -452,7 +403,7 @@ const Team = () => {
             <Button
               variant="outline"
               onClick={() => { setInviteModalOpen(false); resetInviteForm(); }}
-              className="border-dashboard-border text-dashboard-text"
+              className="border-gray-300 text-gray-700 bg-white hover:bg-gray-100"
             >
               Cancel
             </Button>
@@ -469,26 +420,26 @@ const Team = () => {
 
       {/* Edit Modal */}
       <Dialog open={editModalOpen} onOpenChange={setEditModalOpen}>
-        <DialogContent className="bg-dashboard-bg border-dashboard-border">
+        <DialogContent className="bg-dashboard-card border-dashboard-border">
           <DialogHeader>
-            <DialogTitle className="text-dashboard-text">
+            <DialogTitle className="text-primary">
               Edit {selectedMember?.profiles?.first_name} {selectedMember?.profiles?.last_name}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="editRole" className="text-dashboard-text">Role</Label>
-              <Select 
-                value={editRole} 
+              <Label htmlFor="editRole" className="text-primary">Role</Label>
+              <Select
+                value={editRole}
                 onValueChange={(v: 'driver' | 'primary_admin') => setEditRole(v)}
                 disabled={!selectedMember || !canChangeRole(selectedMember)}
               >
-                <SelectTrigger className="bg-dashboard-bg border-dashboard-border text-dashboard-text">
+                <SelectTrigger className="bg-white border-dashboard-border text-gray-900">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-dashboard-bg border-dashboard-border">
-                  <SelectItem value="driver">Driver</SelectItem>
-                  <SelectItem value="primary_admin">Admin</SelectItem>
+                <SelectContent className="bg-white border-dashboard-border">
+                  <SelectItem value="driver" className="text-gray-900 hover:bg-gray-100">Driver</SelectItem>
+                  <SelectItem value="primary_admin" className="text-gray-900 hover:bg-gray-100">Admin</SelectItem>
                 </SelectContent>
               </Select>
               {selectedMember && !canChangeRole(selectedMember) && (
@@ -496,7 +447,7 @@ const Team = () => {
               )}
             </div>
             <div className="flex items-center justify-between">
-              <Label htmlFor="editCanViewAll" className="text-dashboard-text">Can view all routes</Label>
+              <Label htmlFor="editCanViewAll" className="text-primary">Can view all routes</Label>
               <Switch
                 id="editCanViewAll"
                 checked={editCanViewAll}
@@ -508,7 +459,7 @@ const Team = () => {
             <Button
               variant="outline"
               onClick={() => setEditModalOpen(false)}
-              className="border-dashboard-border text-dashboard-text"
+              className="border-gray-300 text-gray-700 bg-white hover:bg-gray-100"
             >
               Cancel
             </Button>
@@ -525,15 +476,15 @@ const Team = () => {
 
       {/* Delete Confirmation */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent className="bg-dashboard-bg border-dashboard-border">
+        <AlertDialogContent className="bg-dashboard-card border-dashboard-border">
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-dashboard-text">Remove Team Member</AlertDialogTitle>
-            <AlertDialogDescription className="text-dashboard-text-secondary">
+            <AlertDialogTitle className="text-primary">Remove Team Member</AlertDialogTitle>
+            <AlertDialogDescription className="text-gray-600">
               Are you sure you want to remove {selectedMember?.profiles?.first_name} {selectedMember?.profiles?.last_name} from your team? They will lose access to all routes and data.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="border-dashboard-border text-dashboard-text">
+            <AlertDialogCancel className="border-gray-300 text-gray-700 bg-white hover:bg-gray-100">
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction

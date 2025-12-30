@@ -85,8 +85,8 @@ export function LoginScreen({ onLogin, onSignup, onForgotPassword }: LoginScreen
       <div className="relative w-full max-w-sm glass-strong rounded-2xl p-8 animate-scale-in">
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
-          <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-primary/30 to-primary/10 flex items-center justify-center mb-4 glow-primary">
-            <img src="/stocker-logo.jpg" alt="Stocker AI" className="w-12 h-12" />
+          <div className="w-40 h-40 rounded-2xl bg-gradient-to-br from-primary/30 to-primary/10 flex items-center justify-center mb-4 glow-primary">
+            <img src="/stocker-logo.jpg" alt="Stocker AI" className="w-24 h-24" />
           </div>
           <h1 className="text-2xl font-bold text-foreground">Stocker AI</h1>
           <p className="text-sm text-muted-foreground mt-1">Voice-Guided Stocking Assistant</p>

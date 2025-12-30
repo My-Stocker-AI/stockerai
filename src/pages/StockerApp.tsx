@@ -704,7 +704,7 @@ export default function StockerApp() {
             </div>
           ) : (
             <div className="mt-4 text-center text-gray-500">
-              <img src="/stocker-logo.jpg" alt="Stocker AI" className="h-12 w-12 mx-auto mb-2 opacity-50" />
+              <img src="/stocker-logo.jpg" alt="Stocker AI" className="h-24 w-24 mx-auto mb-2 opacity-50" />
               <p>Say "start my route" to begin</p>
             </div>
           )}
