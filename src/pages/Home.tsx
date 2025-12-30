@@ -53,7 +53,7 @@ const Home = () => {
         <div className="section-container w-full">
           <div className="max-w-4xl md:text-left text-center">
             <p className="text-sm font-semibold text-primary uppercase tracking-wide mb-4 animate-fade-in-up">
-              For Teams That Stock Vending Machine Routes
+              Voice Picking for Vending Route Operators
             </p>
             <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight text-foreground mb-6 animate-fade-in-up">
               Enterprise Warehouse Speed.{" "}
@@ -222,7 +222,7 @@ const Home = () => {
         <div className="section-container">
           <div className="max-w-3xl mx-auto text-center">
             <p className="text-lg font-medium text-primary mb-8">
-              Built by venders for venders
+              Built by operators, for operators
             </p>
 
             <blockquote className="text-2xl md:text-3xl text-foreground font-medium mb-6 italic">
