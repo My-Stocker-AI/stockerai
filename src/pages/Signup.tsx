@@ -72,7 +72,7 @@ const Signup = () => {
       <header className="p-4">
         <Link to="/" className="flex items-center gap-2 w-fit">
           <AudioWaveform className="h-7 w-7 text-primary" />
-          <span className="text-xl font-bold text-foreground">Stocker</span>
+          <span className="text-xl font-bold text-foreground">StockerAI</span>
         </Link>
       </header>
 

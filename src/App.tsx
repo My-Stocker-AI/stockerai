@@ -18,6 +18,12 @@ import Settings from "./pages/dashboard/Settings";
 import NotFound from "./pages/NotFound";
 import StockerApp from "./pages/StockerApp";
 import ProtectedRoute from "@/components/dashboard/ProtectedRoute";
+import PlatformAdminRoute from "@/components/admin/PlatformAdminRoute";
+import AdminOverview from "./pages/admin/AdminOverview";
+import AdminUsers from "./pages/admin/AdminUsers";
+import AdminSubscriptions from "./pages/admin/AdminSubscriptions";
+import AdminMetrics from "./pages/admin/AdminMetrics";
+import AdminDiscounts from "./pages/admin/AdminDiscounts";
 
 const queryClient = new QueryClient();
 
@@ -41,6 +47,14 @@ const App = () => (
             <Route path="/dashboard/billing" element={<ProtectedRoute adminOnly><Billing /></ProtectedRoute>} />
             <Route path="/dashboard/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
             <Route path="/app" element={<ProtectedRoute><StockerApp /></ProtectedRoute>} />
+
+            {/* Platform Admin Routes */}
+            <Route path="/admin" element={<PlatformAdminRoute><AdminOverview /></PlatformAdminRoute>} />
+            <Route path="/admin/users" element={<PlatformAdminRoute><AdminUsers /></PlatformAdminRoute>} />
+            <Route path="/admin/subscriptions" element={<PlatformAdminRoute><AdminSubscriptions /></PlatformAdminRoute>} />
+            <Route path="/admin/metrics" element={<PlatformAdminRoute><AdminMetrics /></PlatformAdminRoute>} />
+            <Route path="/admin/discounts" element={<PlatformAdminRoute><AdminDiscounts /></PlatformAdminRoute>} />
+
             <Route path="*" element={<NotFound />} />
           </Routes>
         </AuthProvider>

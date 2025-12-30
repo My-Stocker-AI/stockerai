@@ -22,7 +22,29 @@
         stroke-linecap="round"
         stroke-linejoin="round"/>
 
-  <!-- Sound wave arcs (right side, emanating from S) -->
+  <!-- Sound wave arcs (LEFT side, mirrored) -->
+  <path d="M172 292 Q132 312 172 332"
+        fill="none"
+        stroke="#4ecca3"
+        stroke-width="12"
+        stroke-linecap="round"
+        opacity="0.9"/>
+
+  <path d="M147 272 Q92 312 147 352"
+        fill="none"
+        stroke="#4ecca3"
+        stroke-width="10"
+        stroke-linecap="round"
+        opacity="0.6"/>
+
+  <path d="M124 254 Q54 312 124 370"
+        fill="none"
+        stroke="#4ecca3"
+        stroke-width="8"
+        stroke-linecap="round"
+        opacity="0.35"/>
+
+  <!-- Sound wave arcs (RIGHT side, emanating from S) -->
   <path d="M340 180 Q380 200 340 220"
         fill="none"
         stroke="#4ecca3"

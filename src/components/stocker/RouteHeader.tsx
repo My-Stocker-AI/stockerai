@@ -13,7 +13,7 @@ export function RouteHeader({ routeState, userName, onLogout }: RouteHeaderProps
     ? `${routeState.routeName} Route`
     : userName 
     ? `Hi, ${userName}` 
-    : 'Stocker AI';
+    : 'StockerAI';
     
   const progress = routeState.routeName 
     ? `Machine ${routeState.currentMachineIndex}/${routeState.totalMachines}`

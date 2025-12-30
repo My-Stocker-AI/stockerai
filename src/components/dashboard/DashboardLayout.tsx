@@ -92,8 +92,8 @@ const DashboardLayout = ({ children, title, breadcrumbs }: DashboardLayoutProps)
       {/* Logo */}
       <div className="p-4 border-b border-dashboard-border">
         <Link to="/" className="flex items-center gap-2">
-          <img src="/logo.svg" alt="Stocker" className="h-8 w-8" />
-          <span className="text-xl font-bold text-dashboard-text">Stocker</span>
+          <img src="/logo.svg" alt="StockerAI" className="h-8 w-8" />
+          <span className="text-xl font-bold text-dashboard-text">StockerAI</span>
         </Link>
       </div>
 
@@ -171,7 +171,7 @@ const DashboardLayout = ({ children, title, breadcrumbs }: DashboardLayoutProps)
       <header className="lg:hidden flex items-center justify-between p-4 bg-dashboard-bg border-b border-dashboard-border">
         <Link to="/" className="flex items-center gap-2">
           <AudioWaveform className="h-6 w-6 text-primary" />
-          <span className="text-lg font-bold text-dashboard-text">Stocker</span>
+          <span className="text-lg font-bold text-dashboard-text">StockerAI</span>
         </Link>
         <Button
           variant="ghost"

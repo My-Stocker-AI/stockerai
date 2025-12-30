@@ -85,7 +85,7 @@ const Login = () => {
       <header className="p-4">
         <Link to="/" className="flex items-center gap-2 w-fit">
           <AudioWaveform className="h-7 w-7 text-primary" />
-          <span className="text-xl font-bold text-foreground">Stocker</span>
+          <span className="text-xl font-bold text-foreground">StockerAI</span>
         </Link>
       </header>
 
@@ -100,7 +100,7 @@ const Login = () => {
               <p className="text-muted-foreground">
                 {showForgotPassword 
                   ? "Enter your email to receive a reset link" 
-                  : "Sign in to your Stocker account"}
+                  : "Sign in to your StockerAI account"}
               </p>
             </div>
 

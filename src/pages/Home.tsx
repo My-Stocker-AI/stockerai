@@ -60,7 +60,7 @@ const Home = () => {
               <span className="text-primary">Zero Hardware Cost.</span>
             </h1>
             <p className="text-lg sm:text-xl text-muted-foreground mb-10 max-w-2xl animate-fade-in-up animation-delay-100">
-              Hardware automation runs $100k+. Stocker runs on the phone in your pocket. Same accuracy and speed, no hardware. Works with Parlevel, Nayax, and VendSoft. Starting at $40/month.
+              Hardware automation runs $100k+. StockerAI runs on the phone in your pocket. Same accuracy and speed, no hardware. Works with Parlevel, Nayax, and VendSoft. Starting at $40/month.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 md:justify-start justify-center animate-fade-in-up animation-delay-200">
               <Link to="/login">
@@ -92,7 +92,7 @@ const Home = () => {
                 icon: Upload,
                 title: "Upload Your Route",
                 description:
-                  "Export your PDF from Parlevel, Nayax, or VendSoft. Upload it to Stocker.",
+                  "Export your PDF from Parlevel, Nayax, or VendSoft. Upload it to StockerAI.",
               },
               {
                 step: 2,
@@ -106,7 +106,7 @@ const Home = () => {
                 icon: Mic,
                 title: "Pick by Voice",
                 description:
-                  "Stocker tells you what to grab. Say 'next' when done. Repeat.",
+                  "StockerAI tells you what to grab. Say 'next' when done. Repeat.",
               },
             ].map((item) => (
               <div key={item.step} className="text-center">
@@ -133,7 +133,7 @@ const Home = () => {
         <div className="section-container">
           <div className="text-center mb-16">
             <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
-              Why Operators Switch to Stocker
+              Why Operators Switch to StockerAI
             </h2>
           </div>
 
@@ -142,22 +142,22 @@ const Home = () => {
               {
                 icon: Eye,
                 headline: "Stop Squinting at Screens",
-                body: "Screen-based picking slows drivers down and causes errors. Stocker's voice guidance calls out quantity, product, and slot - hands stay full, eyes stay up. Result: 25-30% faster picks with near-zero mistakes.",
+                body: "Screen-based picking slows drivers down and causes errors. StockerAI's voice guidance calls out quantity, product, and slot - hands stay full, eyes stay up. Result: 25-30% faster picks with near-zero mistakes.",
               },
               {
                 icon: UserPlus,
                 headline: "New Driver? Productive in 15 Minutes",
-                body: "Training new hires takes weeks of shadowing and costly mistakes. Stocker walks them through every pick, step by step, from day one. Result: Onboarding drops from weeks to minutes.",
+                body: "Training new hires takes weeks of shadowing and costly mistakes. StockerAI walks them through every pick, step by step, from day one. Result: Onboarding drops from weeks to minutes.",
               },
               {
                 icon: Save,
                 headline: "Every Pick Confirmed. Every Item Tracked",
-                body: "Lost progress means rework - or worse, missed deliveries. Stocker auto-saves after every item and resumes exactly where you stopped. Result: Zero rework, 100% route completion.",
+                body: "Lost progress means rework - or worse, missed deliveries. StockerAI auto-saves after every item and resumes exactly where you stopped. Result: Zero rework, 100% route completion.",
               },
               {
                 icon: Settings,
                 headline: "Your Workflow, Your Way",
-                body: "Forcing one picking method slows drivers down and fights muscle memory. Stocker adapts to each driver and machine - they choose how to work it. Result: No retraining, no friction, natural flow.",
+                body: "Forcing one picking method slows drivers down and fights muscle memory. StockerAI adapts to each driver and machine - they choose how to work it. Result: No retraining, no friction, natural flow.",
               },
             ].map((feature, index) => (
               <div key={index} className="card-base border border-border">

@@ -16,12 +16,12 @@ const ROICalculator = () => {
     const monthlyLaborCost = monthlyLaborHours * hourlyWage;
     // Estimated savings (25%) = labor cost × 0.25
     const estimatedSavings = monthlyLaborCost * 0.25;
-    // Stocker cost based on tier
+    // StockerAI cost based on tier
     let perDriverCost = 20;
     if (drivers > 20) perDriverCost = 15;
     else if (drivers > 5) perDriverCost = 18;
     const stockerCost = drivers * perDriverCost;
-    // Net savings = estimated savings - Stocker cost
+    // Net savings = estimated savings - StockerAI cost
     const netSavings = estimatedSavings - stockerCost;
 
     return {
@@ -94,7 +94,7 @@ const ROICalculator = () => {
             </span>
           </div>
           <div className="flex justify-between items-center py-2 border-b border-border">
-            <span className="text-muted-foreground">Stocker cost</span>
+            <span className="text-muted-foreground">StockerAI cost</span>
             <span className="text-lg text-foreground">
               {formatCurrency(calculations.stockerCost)}/mo
             </span>
