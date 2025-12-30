@@ -470,99 +470,128 @@ export function useVoice(options: UseVoiceOptions = {}) {
     });
   }, []);
 
+  // Mutex for speak function (matches original PWA lock/unlock pattern)
+  const speakLockRef = useRef(false);
+  const speakQueueRef = useRef<(() => void)[]>([]);
+
+  const acquireSpeakLock = useCallback((): Promise<void> => {
+    return new Promise(resolve => {
+      if (!speakLockRef.current) {
+        speakLockRef.current = true;
+        resolve();
+      } else {
+        speakQueueRef.current.push(resolve);
+      }
+    });
+  }, []);
+
+  const releaseSpeakLock = useCallback(() => {
+    if (speakQueueRef.current.length > 0) {
+      const next = speakQueueRef.current.shift();
+      next?.();
+    } else {
+      speakLockRef.current = false;
+    }
+  }, []);
+
   const speak = useCallback(async (text: string): Promise<void> => {
-    return new Promise(async (resolve) => {
+    if (!text || !text.trim()) return;
+
+    // 1. Acquire lock - only one speak at a time (matches original PWA)
+    await acquireSpeakLock();
+
+    try {
+      // 2. Set state FIRST (before stopping recognition) - matches original PWA
+      setStatus('speaking');
+
+      // 3. Kill all audio and stop recognition - matches original PWA
+      stopAudio();
+      pauseListening();
+
+      // 4. Preprocess text for TTS - matches original PWA
+      const processed = text
+        .replace(/Kinder Bueno/gi, 'Kinder Bwayno bar')
+        .replace(/\bBueno\b/gi, 'Bwayno')
+        .replace(/Takis/gi, 'Tah-keez')
+        .replace(/Jarritos/gi, 'Ha-ree-toes')
+        .replace(/Sabritas/gi, 'Sa-bree-tas')
+        .replace(/Modelo/gi, 'Mo-dello')
+        .replace(/Topo Chico/gi, 'Topo Cheeko')
+        .replace(/Gansito/gi, 'Gan-see-toe')
+        .replace(/Mazapan/gi, 'Mazza-pan')
+        .replace(/Lucas/gi, 'Loo-kus')
+        .replace(/Pulparindo/gi, 'Pull-pa-rindo')
+        .replace(/De La Rosa/gi, 'De La Rosa')
+        .replace(/Pelon Pelo Rico/gi, 'Peh-lone Pelo Reeko')
+        .replace(/(\d+)\s*oz\b/gi, '$1 ounce')
+        .replace(/\boz\b/gi, 'ounce')
+        .replace(/\bqty\b/gi, 'quantity')
+        .replace(/\bpcs\b/gi, 'pieces')
+        .replace(/\bpkg\b/gi, 'package')
+        .replace(/\bct\b/gi, 'count')
+        .replace(/\bCan\b/g, 'can')
+        .replace(/\b(\d+)\s*can\b/gi, '$1 cans');
+
+      // 5. Fetch and play audio
       try {
-        pauseListening();
-        setStatus('speaking');
+        const response = await fetch(TTS_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: processed, voice: 'nova' })
+        });
 
-        // TTS preprocessing - match original PWA exactly
-        const processed = text
-          // Spanish/foreign brands - prevent TTS language switching
-          .replace(/Kinder Bueno/gi, 'Kinder Bwayno bar')
-          .replace(/\bBueno\b/gi, 'Bwayno')
-          .replace(/Takis/gi, 'Tah-keez')
-          .replace(/Jarritos/gi, 'Ha-ree-toes')
-          .replace(/Sabritas/gi, 'Sa-bree-tas')
-          .replace(/Modelo/gi, 'Mo-dello')
-          .replace(/Topo Chico/gi, 'Topo Cheeko')
-          .replace(/Gansito/gi, 'Gan-see-toe')
-          .replace(/Mazapan/gi, 'Mazza-pan')
-          .replace(/Lucas/gi, 'Loo-kus')
-          .replace(/Pulparindo/gi, 'Pull-pa-rindo')
-          .replace(/De La Rosa/gi, 'De La Rosa')
-          .replace(/Pelon Pelo Rico/gi, 'Peh-lone Pelo Reeko')
-          // Standard abbreviation fixes
-          .replace(/(\d+)\s*oz\b/gi, '$1 ounce')
-          .replace(/\boz\b/gi, 'ounce')
-          .replace(/\bqty\b/gi, 'quantity')
-          .replace(/\bpcs\b/gi, 'pieces')
-          .replace(/\bpkg\b/gi, 'package')
-          .replace(/\bct\b/gi, 'count')
-          .replace(/\bCan\b/g, 'can')
-          .replace(/\b(\d+)\s*can\b/gi, '$1 cans');
+        if (!response.ok) throw new Error('TTS failed');
 
-        // Store for echo filtering
-        lastSpokenTextRef.current = text.toLowerCase();
-        lastSpeakTimeRef.current = Date.now();
+        const audioBlob = await response.blob();
 
-        try {
-          const response = await fetch(TTS_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: processed, voice: 'nova' })
-          });
-
-          if (!response.ok) throw new Error('TTS failed');
-
-          const audioBuffer = await response.arrayBuffer();
-          const blob = new Blob([audioBuffer], { type: 'audio/mpeg' });
-          const url = URL.createObjectURL(blob);
-          const audio = new Audio(url);
+        // Play audio and wait for completion (matches original PWA playAudio)
+        await new Promise<void>((resolve, reject) => {
+          const url = URL.createObjectURL(audioBlob);
+          const audio = new Audio();
           audioRef.current = audio;
 
           audio.onended = () => {
             URL.revokeObjectURL(url);
             audioRef.current = null;
-            playReadyBeep(); // Ready beep signals "your turn to speak"
-            setStatus('listening');
-            // Wait before resuming to prevent echo pickup
-            setTimeout(() => {
-              resumeListening();
-              resolve();
-            }, 100);
+            resolve();
           };
 
-          audio.onerror = () => {
+          audio.onerror = (err) => {
             URL.revokeObjectURL(url);
             audioRef.current = null;
-            speakBrowser(text).then(() => {
-              playReadyBeep(); // Ready beep signals "your turn to speak"
-              setStatus('listening');
-              setTimeout(() => {
-                resumeListening();
-                resolve();
-              }, 100);
-            });
+            reject(err);
           };
 
-          await audio.play();
-        } catch (error) {
-          await speakBrowser(text);
-          playReadyBeep(); // Ready beep signals "your turn to speak"
-          setStatus('listening');
-          setTimeout(() => {
-            resumeListening();
-            resolve();
-          }, 100);
-        }
+          audio.src = url;
+          audio.play().catch(reject);
+        });
+
       } catch (error) {
-        setStatus('listening');
-        resumeListening();
-        resolve();
+        // Fallback to browser TTS
+        await speakBrowser(text);
       }
-    });
-  }, [pauseListening, resumeListening, speakBrowser, playBeep]);
+
+      // 6. Store for echo filtering AFTER audio completes (matches original PWA)
+      lastSpokenTextRef.current = text.toLowerCase();
+      lastSpeakTimeRef.current = Date.now();
+
+      // 7. Done speaking - transition back to listening (matches original PWA)
+      setStatus('listening');
+
+      // 8. Play ready beep (matches original PWA)
+      playReadyBeep();
+
+      // 9. Wait before restarting recognition (matches original PWA)
+      await new Promise(r => setTimeout(r, 100));
+
+      // 10. Restart recognition (matches original PWA)
+      resumeListening();
+
+    } finally {
+      // Always release lock (matches original PWA unlock in finally)
+      releaseSpeakLock();
+    }
+  }, [acquireSpeakLock, releaseSpeakLock, stopAudio, pauseListening, resumeListening, speakBrowser, playReadyBeep]);
 
   const setThinking = useCallback(() => setStatus('thinking'), []);
 
