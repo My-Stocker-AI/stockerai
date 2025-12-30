@@ -126,7 +126,7 @@ export default function StockerApp() {
   const userName = userProfile?.first_name || 'there';
   const userId = user?.id || null;
 
-  const { routeState, sessionId, messages, updateFromTool, addMessage, reset, setRouteState, setMessages, setSessionId } = useStockerSession(userId);
+  const { routeState, sessionId, messages, messagesRef, updateFromTool, addMessage, reset, setRouteState, setMessages, setSessionId } = useStockerSession(userId);
   const { setSession, sendToAI, executeToolCalls, getRoutes } = useStockerAI();
   const sessionPersistence = useSessionPersistence();
 
@@ -217,8 +217,8 @@ export default function StockerApp() {
 
     try {
       addMessage({ role: 'user', content: transcript });
-      // Sanitize and trim to prevent memory growth (from original PWA)
-      const allMessages = trimConversationHistory(sanitizeConversationHistory([...messages, { role: 'user', content: transcript }]));
+      // Use messagesRef.current to avoid stale closure (ref is updated immediately by addMessage)
+      const allMessages = trimConversationHistory(sanitizeConversationHistory([...messagesRef.current]));
 
       let response = await sendToAI(allMessages, userName, routeState.currentItem);
 
@@ -245,11 +245,8 @@ export default function StockerApp() {
         }
 
         if (!usedFastPath) {
-          response = await sendToAI(trimConversationHistory(sanitizeConversationHistory([
-            ...allMessages,
-            response,
-            ...toolResults.map(tr => ({ role: 'tool', tool_call_id: tr.tool_call_id, content: JSON.stringify(tr.result) }))
-          ])), userName, routeState.currentItem);
+          // Use messagesRef.current for the follow-up call too
+          response = await sendToAI(trimConversationHistory(sanitizeConversationHistory([...messagesRef.current])), userName, routeState.currentItem);
         }
       }
 
@@ -290,7 +287,7 @@ export default function StockerApp() {
     } finally {
       processingRef.current = false;
     }
-  }, [messages, userName, routeState, addMessage, sendToAI, executeToolCalls, updateFromTool, undoLastItem, retryCount]);
+  }, [userName, routeState, addMessage, sendToAI, executeToolCalls, updateFromTool, undoLastItem, retryCount, messagesRef]);
 
   const handleWakePhrase = useCallback(async (command: string | null) => {
     const v = voiceRef.current;

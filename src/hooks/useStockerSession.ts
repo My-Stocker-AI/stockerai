@@ -36,9 +36,17 @@ export function useStockerSession(userId: string | null) {
   const [sessionId, setSessionId] = useState('');
   const [messages, setMessages] = useState<any[]>([]);
 
+  // Ref to avoid stale closures - always has latest messages
+  const messagesRef = useRef<any[]>([]);
+
   useEffect(() => {
     setSessionId(`session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
   }, []);
+
+  // Keep ref in sync with state
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   const updateFromTool = useCallback((toolName: string, result: any) => {
     if (!result || result.error) return;
@@ -103,21 +111,25 @@ export function useStockerSession(userId: string | null) {
   }, []);
 
   const addMessage = useCallback((msg: any) => {
-    setMessages(prev => {
-      const updated = [...prev, msg];
-      return updated.length > 20 ? updated.slice(-20) : updated;
-    });
+    // Update ref immediately (before React re-renders)
+    const updated = [...messagesRef.current, msg];
+    const trimmed = updated.length > 20 ? updated.slice(-20) : updated;
+    messagesRef.current = trimmed;
+    // Also update state for React rendering
+    setMessages(trimmed);
   }, []);
 
   const reset = useCallback(() => {
     setRouteState(INITIAL_STATE);
     setMessages([]);
+    messagesRef.current = [];
   }, []);
 
   return {
     routeState,
     sessionId,
     messages,
+    messagesRef,  // Expose ref for stale-closure-safe access
     updateFromTool,
     addMessage,
     reset,
