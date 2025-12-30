@@ -83,6 +83,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
   }, []);
 
   // Extract command after wake phrase (from original PWA)
+  // Returns "what's next" if wake phrase alone (matching original behavior)
   const extractWakeCommand = useCallback((text: string): string | null => {
     const lower = text.toLowerCase();
     for (const phrase of WAKE_PHRASES) {
@@ -90,7 +91,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
       if (idx !== -1) {
         let after = lower.substring(idx + phrase.length).trim();
         after = after.replace(/^[,\s]+/, '').trim();
-        return after || null;
+        return after || "what's next"; // Return "what's next" if just wake phrase
       }
     }
     return null;
@@ -102,19 +103,74 @@ export function useVoice(options: UseVoiceOptions = {}) {
     return WAKE_PHRASES.some(phrase => lower.indexOf(phrase) !== -1);
   }, []);
 
-  const playBeep = useCallback((success: boolean) => {
+  // Audio context ref for consistent audio
+  const audioContextRef = useRef<AudioContext | null>(null);
+
+  const getAudioContext = useCallback(() => {
+    if (!audioContextRef.current) {
+      audioContextRef.current = new AudioContext();
+    }
+    return audioContextRef.current;
+  }, []);
+
+  // Success beep - for item confirmation (from original PWA)
+  const playSuccessBeep = useCallback(() => {
     try {
-      const ctx = new AudioContext();
+      const ctx = getAudioContext();
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.connect(gain);
       gain.connect(ctx.destination);
-      osc.frequency.value = success ? 880 : 220;
-      gain.gain.value = 0.1;
+      osc.frequency.value = 523; // C5
+      gain.gain.value = 0.12;
       osc.start();
-      osc.stop(ctx.currentTime + (success ? 0.1 : 0.2));
+      osc.frequency.setValueAtTime(659, ctx.currentTime + 0.1); // E5 ascending
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
+      osc.stop(ctx.currentTime + 0.2);
     } catch (e) {}
-  }, []);
+  }, [getAudioContext]);
+
+  // Error beep - for undo (from original PWA)
+  const playErrorBeep = useCallback(() => {
+    try {
+      const ctx = getAudioContext();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.value = 440; // A4
+      gain.gain.value = 0.12;
+      osc.start();
+      osc.frequency.setValueAtTime(330, ctx.currentTime + 0.15); // E4 descending
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+      osc.stop(ctx.currentTime + 0.3);
+    } catch (e) {}
+  }, [getAudioContext]);
+
+  // Ready beep - plays after AI speaks to signal "your turn" (from original PWA)
+  const playReadyBeep = useCallback(() => {
+    try {
+      const ctx = getAudioContext();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.value = 880; // A5 - higher, distinct
+      gain.gain.value = 0.08; // Quieter than success beep
+      osc.start();
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+      osc.stop(ctx.currentTime + 0.15);
+    } catch (e) {}
+  }, [getAudioContext]);
+
+  // Legacy playBeep for backward compatibility
+  const playBeep = useCallback((success: boolean) => {
+    if (success) {
+      playSuccessBeep();
+    } else {
+      playErrorBeep();
+    }
+  }, [playSuccessBeep, playErrorBeep]);
 
   const stopKeepAlive = useCallback(() => {
     if (keepAliveRef.current) {
@@ -468,7 +524,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
           audio.onended = () => {
             URL.revokeObjectURL(url);
             audioRef.current = null;
-            playBeep(true);
+            playReadyBeep(); // Ready beep signals "your turn to speak"
             setStatus('listening');
             // Wait before resuming to prevent echo pickup
             setTimeout(() => {
@@ -481,7 +537,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
             URL.revokeObjectURL(url);
             audioRef.current = null;
             speakBrowser(text).then(() => {
-              playBeep(true);
+              playReadyBeep(); // Ready beep signals "your turn to speak"
               setStatus('listening');
               setTimeout(() => {
                 resumeListening();
@@ -493,7 +549,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
           await audio.play();
         } catch (error) {
           await speakBrowser(text);
-          playBeep(true);
+          playReadyBeep(); // Ready beep signals "your turn to speak"
           setStatus('listening');
           setTimeout(() => {
             resumeListening();
@@ -532,6 +588,9 @@ export function useVoice(options: UseVoiceOptions = {}) {
     setThinking,
     setStatus,
     playBeep,
+    playSuccessBeep,
+    playErrorBeep,
+    playReadyBeep,
     hasWakePhrase,
     extractWakeCommand
   };

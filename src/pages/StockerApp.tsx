@@ -61,6 +61,7 @@ export default function StockerApp() {
   const [showResumeDialog, setShowResumeDialog] = useState(false);
   const [savedSession, setSavedSession] = useState<any>(null);
   const processingRef = useRef(false);
+  const voiceRef = useRef<any>(null); // Ref to hold voice methods for callbacks
 
   const userName = userProfile?.first_name || 'there';
   const userId = user?.id || null;
@@ -97,10 +98,62 @@ export default function StockerApp() {
     }
   }, [routeState, saveSessionState]);
 
+  // Undo last item - local handler (from original PWA)
+  const undoLastItem = useCallback(() => {
+    if (routeState.completedItems.length === 0) {
+      return { success: false, message: "Nothing to undo - no completed items" };
+    }
+
+    const lastItem = routeState.completedItems[routeState.completedItems.length - 1];
+    const newCompleted = routeState.completedItems.slice(0, -1);
+
+    setRouteState({
+      ...routeState,
+      currentItem: lastItem,
+      completedItems: newCompleted,
+      completed: false
+    });
+
+    voiceRef.current?.playErrorBeep();
+    return {
+      success: true,
+      message: `Going back to ${lastItem.quantity} ${lastItem.product}, ${lastItem.slot_spoken || lastItem.slot}`,
+      item: lastItem
+    };
+  }, [routeState, setRouteState]);
+
   const handleTranscript = useCallback(async (transcript: string, isFinal: boolean) => {
     if (!isFinal || processingRef.current) return;
+    const v = voiceRef.current;
+    if (!v) return;
+
+    const lower = transcript.toLowerCase().trim();
+
+    // Handle voice pause/mute commands locally (from original PWA)
+    if (lower === 'pause' || lower === 'stop listening') {
+      v.pauseListening();
+      return;
+    }
+    if (lower === 'mute' || lower === 'mute mic' || lower === 'mute microphone') {
+      v.mute();
+      return;
+    }
+
+    // Handle undo commands locally (from original PWA)
+    const undoWords = ['go back', 'undo', 'oops', 'wait no', 'previous', 'back one', 'wrong', 'mistake'];
+    const isUndo = undoWords.some(w => lower.indexOf(w) !== -1);
+
+    if (isUndo && routeState.routeName) {
+      processingRef.current = true;
+      const result = undoLastItem();
+      setAiResponse(result.message);
+      await v.speak(result.message);
+      processingRef.current = false;
+      return;
+    }
+
     processingRef.current = true;
-    voice.setThinking();
+    v.setThinking();
 
     try {
       addMessage({ role: 'user', content: transcript });
@@ -112,51 +165,73 @@ export default function StockerApp() {
         addMessage(response);
         const toolResults = await executeToolCalls(response.tool_calls, (name, result) => {
           updateFromTool(name, result);
-          voice.playBeep(!result.error);
+          v.playSuccessBeep(); // Use success beep for item confirmation
         });
 
         for (const tr of toolResults) {
           addMessage({ role: 'tool', tool_call_id: tr.tool_call_id, content: JSON.stringify(tr.result) });
         }
 
-        response = await sendToAI(sanitizeConversationHistory([
-          ...allMessages,
-          response,
-          ...toolResults.map(tr => ({ role: 'tool', tool_call_id: tr.tool_call_id, content: JSON.stringify(tr.result) }))
-        ]), userName, routeState.currentItem);
+        // Check for fast path - if tool returned 'spoken' field, use it directly
+        let usedFastPath = false;
+        for (const tr of toolResults) {
+          if (tr.result?.spoken) {
+            response = { content: tr.result.spoken };
+            addMessage({ role: 'assistant', content: tr.result.spoken });
+            usedFastPath = true;
+            break;
+          }
+        }
+
+        if (!usedFastPath) {
+          response = await sendToAI(sanitizeConversationHistory([
+            ...allMessages,
+            response,
+            ...toolResults.map(tr => ({ role: 'tool', tool_call_id: tr.tool_call_id, content: JSON.stringify(tr.result) }))
+          ]), userName, routeState.currentItem);
+        }
       }
 
       if (response.content) {
         setAiResponse(response.content);
         addMessage(response);
-        await voice.speak(response.content);
+        await v.speak(response.content);
       }
     } catch (err: any) {
       setError(err.message);
-      voice.playBeep(false);
+      v.playErrorBeep();
     } finally {
       processingRef.current = false;
     }
-  }, [messages, userName, routeState.currentItem, addMessage, sendToAI, executeToolCalls, updateFromTool]);
+  }, [messages, userName, routeState, addMessage, sendToAI, executeToolCalls, updateFromTool, undoLastItem]);
 
   const handleWakePhrase = useCallback(async (command: string | null) => {
-    voice.unmute();
-    if (command) {
-      // Process the command
-      await handleTranscript(command, true);
-    } else {
+    const v = voiceRef.current;
+    if (!v) return;
+
+    v.unmute();
+    // "what's next" means just wake phrase alone - announce current state
+    if (!command || command === "what's next") {
       // Just wake up - announce current state
       if (routeState.currentItem?.product) {
         const item = routeState.currentItem;
         const msg = `Welcome back! Current item: ${item.quantity} ${item.product}, ${item.slot_spoken || item.slot}. Did you pick that?`;
-        await voice.speak(msg);
+        setAiResponse(msg);
+        await v.speak(msg);
       } else if (routeState.routeName) {
-        await voice.speak(`Welcome back to ${routeState.routeName} route. Say next to continue.`);
+        const msg = `Welcome back to ${routeState.routeName} route. Say next to continue.`;
+        setAiResponse(msg);
+        await v.speak(msg);
       } else {
-        await voice.speak("I'm back. What would you like to do?");
+        const msg = "I'm back. What would you like to do?";
+        setAiResponse(msg);
+        await v.speak(msg);
       }
+    } else {
+      // Process the actual command after wake phrase
+      await handleTranscript(command, true);
     }
-  }, [routeState]);
+  }, [routeState, handleTranscript]);
 
   const voice = useVoice({
     onTranscript: handleTranscript,
@@ -164,6 +239,11 @@ export default function StockerApp() {
     onWakePhrase: handleWakePhrase,
     continuous: true
   });
+
+  // Store voice in ref for callbacks
+  useEffect(() => {
+    voiceRef.current = voice;
+  }, [voice]);
 
   useEffect(() => {
     if (sessionId && userId) setSession(sessionId, userId);
