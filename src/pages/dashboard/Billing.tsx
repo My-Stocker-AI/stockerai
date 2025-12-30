@@ -105,6 +105,7 @@ const Billing = () => {
 
       if (error) {
         console.error('Error checking subscription:', error);
+        // Don't throw - just return null so page still renders
         return null;
       }
 

@@ -336,7 +336,9 @@ const Team = () => {
                       <div>
                         <div className="flex items-center gap-2">
                           <h4 className="font-medium text-dashboard-text">
-                            {member.profiles?.first_name} {member.profiles?.last_name}
+                            {member.profiles?.first_name || member.profiles?.last_name
+                              ? `${member.profiles?.first_name || ''} ${member.profiles?.last_name || ''}`.trim()
+                              : member.profiles?.email || 'Unknown User'}
                             {member.user_id === user?.id && (
                               <span className="text-dashboard-text-secondary ml-1">(you)</span>
                             )}

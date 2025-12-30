@@ -128,17 +128,29 @@ export function UploadTab() {
 
       const result = await response.json();
 
-      // Wait for n8n to insert, then create assignment
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Retry logic to find the newly created route (n8n may take time to insert)
+      let newRoute = null;
+      const maxRetries = 5;
+      const deliveryDateStr = format(deliveryDate, 'yyyy-MM-dd');
 
-      const { data: newRoute } = await supabase
-        .from('routes')
-        .select('id')
-        .eq('route_name', result.route)
-        .eq('delivery_date', format(deliveryDate, 'yyyy-MM-dd'))
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single();
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        // Wait with exponential backoff: 1s, 2s, 4s, 8s, 16s
+        await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, attempt - 1)));
+
+        const { data } = await supabase
+          .from('routes')
+          .select('id')
+          .eq('route_name', result.route)
+          .eq('delivery_date', deliveryDateStr)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single();
+
+        if (data) {
+          newRoute = data;
+          break;
+        }
+      }
 
       if (newRoute) {
         await supabase

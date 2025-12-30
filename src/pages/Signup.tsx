@@ -42,13 +42,16 @@ const Signup = () => {
     }
 
     setLoading(true);
-    
+
+    // Handle "50+" as 50 drivers - enterprise users can adjust in settings
+    const parsedDriverCount = driverCount === "50+" ? 50 : (parseInt(driverCount) || 2);
+
     const { error: signUpError } = await signUp(
-      email, 
-      password, 
-      firstName, 
+      email,
+      password,
+      firstName,
       lastName,
-      parseInt(driverCount) || 2
+      parsedDriverCount
     );
 
     setLoading(false);
