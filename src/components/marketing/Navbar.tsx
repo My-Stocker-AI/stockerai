@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Menu, X, AudioWaveform } from "lucide-react";
+import { Menu, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const Navbar = () => {
@@ -18,7 +18,7 @@ const Navbar = () => {
         <div className="flex items-center justify-between h-16 md:h-20">
           {/* Logo */}
           <Link to="/" className="flex items-center gap-2">
-            <AudioWaveform className="h-7 w-7 text-primary" />
+            <img src="/logo.svg" alt="Stocker" className="h-8 w-8" />
             <span className="text-xl font-bold text-foreground">Stocker</span>
           </Link>
 

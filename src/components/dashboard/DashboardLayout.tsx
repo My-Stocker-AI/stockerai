@@ -1,17 +1,17 @@
 import { ReactNode, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { 
-  AudioWaveform, 
-  Upload, 
-  Route, 
-  Users, 
-  BarChart3, 
-  CreditCard, 
-  Settings, 
+import {
+  Upload,
+  Route,
+  Users,
+  BarChart3,
+  CreditCard,
+  Settings,
   LogOut,
   Menu,
   X,
-  ExternalLink
+  ExternalLink,
+  AudioWaveform
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
@@ -92,7 +92,7 @@ const DashboardLayout = ({ children, title, breadcrumbs }: DashboardLayoutProps)
       {/* Logo */}
       <div className="p-4 border-b border-dashboard-border">
         <Link to="/" className="flex items-center gap-2">
-          <AudioWaveform className="h-7 w-7 text-primary" />
+          <img src="/logo.svg" alt="Stocker" className="h-8 w-8" />
           <span className="text-xl font-bold text-dashboard-text">Stocker</span>
         </Link>
       </div>

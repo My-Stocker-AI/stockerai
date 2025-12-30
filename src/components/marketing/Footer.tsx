@@ -1,5 +1,4 @@
 import { Link } from "react-router-dom";
-import { AudioWaveform } from "lucide-react";
 
 const Footer = () => {
   return (
@@ -8,7 +7,7 @@ const Footer = () => {
         <div className="flex flex-col md:flex-row justify-between items-center gap-8">
           {/* Logo */}
           <Link to="/" className="flex items-center gap-2">
-            <AudioWaveform className="h-6 w-6 text-primary" />
+            <img src="/logo.svg" alt="Stocker" className="h-7 w-7" />
             <span className="text-lg font-bold">Stocker</span>
           </Link>
 
