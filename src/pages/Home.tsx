@@ -95,7 +95,7 @@ const Home = () => {
 
                 {/* Main image */}
                 <img
-                  src="/hero-warehouse.png"
+                  src="/hero-warehouse-v2.png"
                   alt="Warehouse worker with earbuds picking items into bins"
                   className="relative rounded-2xl w-full border border-primary/20"
                   style={{

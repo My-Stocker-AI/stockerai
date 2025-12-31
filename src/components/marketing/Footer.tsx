@@ -7,7 +7,7 @@ const Footer = () => {
         <div className="flex flex-col md:flex-row justify-between items-center gap-8">
           {/* Logo */}
           <Link to="/" className="flex items-center gap-2">
-            <img src="/stocker-ai-logo.jpg" alt="Stocker AI" className="h-14 w-auto brightness-0 invert" style={{filter: 'brightness(0) invert(1)'}} />
+            <img src="/stocker-ai-logo.jpg" alt="Stocker AI" className="h-28 w-auto brightness-0 invert" style={{filter: 'brightness(0) invert(1)'}} />
             <span className="text-lg font-bold">Stocker AI</span>
           </Link>
 
