@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogOut, CheckCircle, Mic, MicOff, Pause, Play, Square, AlertTriangle, Settings, RefreshCw } from 'lucide-react';
+import { LogOut, CheckCircle, Mic, MicOff, Pause, Play, Square, AlertTriangle, Settings, RefreshCw, HelpCircle } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useVoice } from '@/hooks/useVoice';
 import { useStockerAI } from '@/hooks/useStockerAI';
@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { BottomNav } from '@/components/stocker/BottomNav';
 import { UploadTab } from '@/components/stocker/UploadTab';
+import { HelpSheet } from '@/components/stocker/HelpSheet';
 
 // Route verification - check if route still exists (from original PWA)
 async function verifyRouteExists(userId: string, routeName: string, routeDate: string): Promise<boolean> {
@@ -115,6 +116,7 @@ export default function StockerApp() {
   const [showResumeDialog, setShowResumeDialog] = useState(false);
   const [showStopConfirm, setShowStopConfirm] = useState(false);
   const [showMicHelp, setShowMicHelp] = useState(false);
+  const [showHelpSheet, setShowHelpSheet] = useState(false);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [savedSession, setSavedSession] = useState<any>(null);
   const [retryCount, setRetryCount] = useState(0);
@@ -676,17 +678,23 @@ export default function StockerApp() {
         <div className="flex-shrink-0 mx-4">
           <img src="/stocker-ai-logo.jpg" alt="Stocker AI" className="h-12 w-12 rounded-full shadow-lg shadow-teal-500/20" />
         </div>
-        <div className="flex-1 flex items-center justify-end gap-3">
+        <div className="flex-1 flex items-center justify-end gap-2">
           {routeState.routeName && (
             <span className="text-sm text-gray-400">
               Machine {routeState.currentMachineIndex}/{routeState.totalMachines}
             </span>
           )}
+          <Button variant="ghost" size="icon" onClick={() => setShowHelpSheet(true)} title="Voice Commands Help">
+            <HelpCircle className="h-5 w-5 text-gray-400" />
+          </Button>
           <Button variant="ghost" size="icon" onClick={handleLogout}>
             <LogOut className="h-5 w-5" />
           </Button>
         </div>
       </header>
+
+      {/* Help Sheet */}
+      <HelpSheet isOpen={showHelpSheet} onClose={() => setShowHelpSheet(false)} />
 
       <main className="flex-1 flex flex-col p-4 gap-4 overflow-hidden pb-20">
         {activeTab === 'upload' ? (
