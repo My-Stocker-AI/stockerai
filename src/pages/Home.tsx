@@ -183,7 +183,7 @@ const Home = () => {
         <div className="section-container">
           <div className="text-center mb-16">
             <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
-              Why Operators Switch to Stocker
+              Why Operators Switch to Stocker AI
             </h2>
           </div>
 
@@ -312,7 +312,7 @@ const Home = () => {
               Ready to Pick Smarter?
             </h2>
             <p className="text-xl text-muted-foreground mb-8">
-              Join operators who've cut picking time by 25% or more.
+              Join operators who've cut picking time by 25% or more with Stocker AI!
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
               <Link to="/signup">
