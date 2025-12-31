@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
-import { Navbar } from "@/components/marketing/Navbar";
-import { Footer } from "@/components/marketing/Footer";
+import Navbar from "@/components/marketing/Navbar";
+import Footer from "@/components/marketing/Footer";
 import {
   Mic,
   Play,
