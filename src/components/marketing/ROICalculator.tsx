@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 
 const ROICalculator = () => {
   const [drivers, setDrivers] = useState(5);
-  const [hourlyWage, setHourlyWage] = useState(18);
+  const [hourlyWage, setHourlyWage] = useState(22);
 
   const calculations = useMemo(() => {
     // Monthly labor hours = drivers × 8 hours × 22 days
