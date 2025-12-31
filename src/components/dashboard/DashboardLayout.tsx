@@ -1,4 +1,4 @@
-import { ReactNode, useState } from "react";
+import { ReactNode, useState, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   Upload,
@@ -29,6 +29,18 @@ const DashboardLayout = ({ children, title, breadcrumbs }: DashboardLayoutProps)
   const { user, userRole, signOut } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
+
+  // Lock body scroll when mobile sidebar is open
+  useEffect(() => {
+    if (sidebarOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [sidebarOpen]);
 
   const isPrimaryAdmin = userRole?.role === 'primary_admin';
 
@@ -199,12 +211,12 @@ const DashboardLayout = ({ children, title, breadcrumbs }: DashboardLayoutProps)
 
       {/* Mobile Sidebar Overlay */}
       {sidebarOpen && (
-        <div 
-          className="lg:hidden fixed inset-0 z-40 bg-black/50"
+        <div
+          className="lg:hidden fixed inset-0 z-50 bg-black/60"
           onClick={() => setSidebarOpen(false)}
         >
-          <div 
-            className="absolute left-0 top-0 h-full w-64 bg-dashboard-bg"
+          <div
+            className="absolute left-0 top-0 h-full w-64 bg-dashboard-bg shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <Sidebar mobile />
