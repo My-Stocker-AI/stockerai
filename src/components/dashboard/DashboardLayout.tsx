@@ -1,4 +1,4 @@
-import { ReactNode, useState, useEffect } from "react";
+import { ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   Upload,
@@ -8,8 +8,6 @@ import {
   CreditCard,
   Settings,
   LogOut,
-  Menu,
-  X,
   ExternalLink,
   Mic,
   Shield
@@ -25,22 +23,9 @@ interface DashboardLayoutProps {
 }
 
 const DashboardLayout = ({ children, title, breadcrumbs }: DashboardLayoutProps) => {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const { user, userRole, signOut } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
-
-  // Lock body scroll when mobile sidebar is open
-  useEffect(() => {
-    if (sidebarOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
-    return () => {
-      document.body.style.overflow = '';
-    };
-  }, [sidebarOpen]);
 
   const isPrimaryAdmin = userRole?.role === 'primary_admin';
 
@@ -110,11 +95,8 @@ const DashboardLayout = ({ children, title, breadcrumbs }: DashboardLayoutProps)
 
   const visibleNavItems = navItems.filter(item => item.visible);
 
-  const Sidebar = ({ mobile = false }: { mobile?: boolean }) => (
-    <div className={cn(
-      "flex flex-col h-full bg-dashboard-bg border-r border-dashboard-border",
-      mobile ? "w-full" : "w-64"
-    )}>
+  const Sidebar = () => (
+    <div className="flex flex-col h-full w-64 bg-dashboard-bg border-r border-dashboard-border">
       {/* Logo */}
       <div className="p-4 border-b border-dashboard-border">
         <Link to="/" className="flex items-center gap-2">
@@ -140,7 +122,6 @@ const DashboardLayout = ({ children, title, breadcrumbs }: DashboardLayoutProps)
                   "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
                   "text-dashboard-text-secondary hover:text-dashboard-text hover:bg-dashboard-card"
                 )}
-                onClick={() => mobile && setSidebarOpen(false)}
               >
                 <Icon className="h-5 w-5" />
                 {item.label}
@@ -159,7 +140,6 @@ const DashboardLayout = ({ children, title, breadcrumbs }: DashboardLayoutProps)
                   ? "bg-primary/10 text-primary" 
                   : "text-dashboard-text-secondary hover:text-dashboard-text hover:bg-dashboard-card"
               )}
-              onClick={() => mobile && setSidebarOpen(false)}
             >
               <Icon className="h-5 w-5" />
               {item.label}
@@ -193,42 +173,13 @@ const DashboardLayout = ({ children, title, breadcrumbs }: DashboardLayoutProps)
 
   return (
     <div className="min-h-screen bg-dashboard-bg-alt">
-      {/* Mobile Header */}
-      <header className="lg:hidden flex items-center justify-between p-4 bg-dashboard-bg border-b border-dashboard-border">
-        <Link to="/" className="flex items-center gap-2">
+      {/* Mobile Header - Simple, no hamburger */}
+      <header className="lg:hidden flex items-center justify-center p-4 bg-dashboard-bg border-b border-dashboard-border">
+        <Link to="/dashboard" className="flex items-center gap-2">
           <img src="/stocker-ai-logo.jpg" alt="Stocker AI" className="h-12 w-12" />
           <span className="text-lg font-bold text-dashboard-text">Stocker AI</span>
         </Link>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => setSidebarOpen(!sidebarOpen)}
-          className="text-dashboard-text"
-        >
-          {sidebarOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
-        </Button>
       </header>
-
-      {/* Mobile Sidebar - Full Screen */}
-      {sidebarOpen && (
-        <div
-          className="lg:hidden fixed inset-0 z-50 bg-dashboard-bg"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {/* Close button in top right */}
-          <div className="absolute top-4 right-4 z-10">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setSidebarOpen(false)}
-              className="text-dashboard-text"
-            >
-              <X className="h-6 w-6" />
-            </Button>
-          </div>
-          <Sidebar mobile />
-        </div>
-      )}
 
       <div className="flex">
         {/* Desktop Sidebar */}
