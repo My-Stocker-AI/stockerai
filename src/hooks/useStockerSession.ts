@@ -7,6 +7,7 @@ export interface CurrentItem {
   slot_spoken: string;
   inventory_current?: number;
   inventory_parlevel?: number;
+  machineName?: string;  // Track which machine this item came from
 }
 
 export interface RouteState {
@@ -75,7 +76,8 @@ export function useStockerSession(userId: string | null) {
           slot: result.slot || '',
           slot_spoken: result.slot_spoken || result.slot || '',
           inventory_current: result.inventory_current,
-          inventory_parlevel: result.inventory_parlevel
+          inventory_parlevel: result.inventory_parlevel,
+          machineName: prev.currentMachineName || ''
         };
       }
 
@@ -90,16 +92,18 @@ export function useStockerSession(userId: string | null) {
         }
 
         if (action === 'next_item') {
+          const machineName = result.machine_name || prev.currentMachineName || '';
           next.currentItem = {
             product: result.product || result.product_name || '',
             quantity: result.quantity || 0,
             slot: result.slot || '',
             slot_spoken: result.slot_spoken || result.slot || '',
             inventory_current: result.inventory_current,
-            inventory_parlevel: result.inventory_parlevel
+            inventory_parlevel: result.inventory_parlevel,
+            machineName: machineName
           };
           next.currentMachineIndex = result.machine_index || prev.currentMachineIndex;
-          next.currentMachineName = result.machine_name || prev.currentMachineName;
+          next.currentMachineName = machineName;
         } else if (action === 'next_machine') {
           next.currentMachineIndex = (prev.currentMachineIndex || 0) + 1;
           next.currentMachineName = result.next_machine || '';

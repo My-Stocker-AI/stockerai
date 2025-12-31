@@ -794,7 +794,7 @@ export default function StockerApp() {
           </p>
         </div>
 
-        {/* Completed Items - newest at top */}
+        {/* Completed Items - newest at top, with machine separators */}
         <div className="bg-[#161b22] rounded-xl border border-gray-800 flex-1 overflow-hidden flex flex-col">
           <div className="px-4 py-2 border-b border-gray-800 flex items-center gap-2">
             <span className="text-xs text-gray-400 font-semibold uppercase">Done</span>
@@ -805,14 +805,30 @@ export default function StockerApp() {
               <p className="text-gray-500 text-center">No items picked yet</p>
             ) : (
               <div className="space-y-2">
-                {[...routeState.completedItems].reverse().map((item, i) => (
-                  <div key={routeState.completedItems.length - 1 - i} className="flex items-center gap-3 text-sm text-gray-400">
-                    <CheckCircle className="h-4 w-4 text-emerald-500" />
-                    <span>{item.quantity}x</span>
-                    <span className="flex-1 truncate">{item.product}</span>
-                    <span className="text-gray-500">{item.slot}</span>
-                  </div>
-                ))}
+                {[...routeState.completedItems].reverse().map((item, i, arr) => {
+                  const prevItem = arr[i - 1];
+                  const showMachineSeparator = i > 0 && prevItem?.machineName && item.machineName && prevItem.machineName !== item.machineName;
+
+                  return (
+                    <div key={routeState.completedItems.length - 1 - i}>
+                      {showMachineSeparator && (
+                        <div className="flex items-center gap-2 py-2 my-1">
+                          <div className="flex-1 h-px bg-teal-600/50" />
+                          <span className="text-xs text-teal-400 font-medium px-2">
+                            {prevItem.machineName} ✓
+                          </span>
+                          <div className="flex-1 h-px bg-teal-600/50" />
+                        </div>
+                      )}
+                      <div className="flex items-center gap-3 text-sm text-gray-400">
+                        <CheckCircle className="h-4 w-4 text-emerald-500" />
+                        <span>{item.quantity}x</span>
+                        <span className="flex-1 truncate">{item.product}</span>
+                        <span className="text-gray-500">{item.slot}</span>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
