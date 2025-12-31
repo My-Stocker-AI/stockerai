@@ -209,18 +209,24 @@ const DashboardLayout = ({ children, title, breadcrumbs }: DashboardLayoutProps)
         </Button>
       </header>
 
-      {/* Mobile Sidebar Overlay */}
+      {/* Mobile Sidebar - Full Screen */}
       {sidebarOpen && (
         <div
-          className="lg:hidden fixed inset-0 z-50 bg-black/60"
-          onClick={() => setSidebarOpen(false)}
+          className="lg:hidden fixed inset-0 z-50 bg-dashboard-bg"
+          onClick={(e) => e.stopPropagation()}
         >
-          <div
-            className="absolute left-0 top-0 h-full w-64 bg-dashboard-bg shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <Sidebar mobile />
+          {/* Close button in top right */}
+          <div className="absolute top-4 right-4 z-10">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setSidebarOpen(false)}
+              className="text-dashboard-text"
+            >
+              <X className="h-6 w-6" />
+            </Button>
           </div>
+          <Sidebar mobile />
         </div>
       )}
 
