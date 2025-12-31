@@ -88,28 +88,25 @@ const Home = () => {
             {/* Right Column - Hero Image */}
             <div className="animate-fade-in-up animation-delay-150 lg:order-last order-first">
               <div className="relative">
-                {/* Deep shadow layers for 3D effect */}
-                <div className="absolute inset-0 translate-x-4 translate-y-4 bg-primary/40 rounded-2xl blur-xl"></div>
-                <div className="absolute inset-0 translate-x-6 translate-y-6 bg-primary/20 rounded-2xl blur-2xl"></div>
-                <div className="absolute inset-0 translate-x-8 translate-y-8 bg-slate-900/60 rounded-2xl blur-2xl"></div>
+                {/* Subtle shadow for depth */}
+                <div className="absolute inset-0 translate-x-3 translate-y-3 bg-black/30 rounded-2xl blur-xl"></div>
 
-                {/* Glow ring behind image */}
-                <div className="absolute -inset-1 bg-gradient-to-r from-primary via-cyan-400 to-primary rounded-2xl blur-sm opacity-60"></div>
+                {/* Subtle glow ring */}
+                <div className="absolute -inset-0.5 bg-gradient-to-r from-primary/40 to-cyan-400/40 rounded-2xl blur-sm"></div>
 
                 {/* Main image */}
                 <img
                   src="/hero-warehouse.png"
                   alt="Warehouse worker with earbuds picking items into bins"
-                  className="relative rounded-2xl w-full border-2 border-primary/30"
+                  className="relative rounded-2xl w-full border border-primary/20"
                   style={{
-                    boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 40px rgba(78, 204, 163, 0.3)'
+                    boxShadow: '0 20px 40px -15px rgba(0, 0, 0, 0.4)'
                   }}
                 />
 
-                {/* Decorative glow elements */}
-                <div className="absolute -bottom-6 -right-6 w-32 h-32 bg-primary/50 rounded-full blur-2xl"></div>
-                <div className="absolute -top-6 -left-6 w-40 h-40 bg-cyan-400/30 rounded-full blur-3xl"></div>
-                <div className="absolute top-1/2 -right-8 w-20 h-40 bg-primary/40 rounded-full blur-2xl"></div>
+                {/* Subtle corner accents */}
+                <div className="absolute -bottom-3 -right-3 w-20 h-20 bg-primary/20 rounded-full blur-xl"></div>
+                <div className="absolute -top-3 -left-3 w-24 h-24 bg-primary/15 rounded-full blur-2xl"></div>
               </div>
             </div>
           </div>
