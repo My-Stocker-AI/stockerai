@@ -49,45 +49,62 @@ const Home = () => {
       <Navbar />
 
       {/* 1. Hero Section */}
-      <section className="min-h-screen flex items-center pt-20">
+      <section className="min-h-screen flex items-center pt-32 pb-16">
         <div className="section-container w-full">
-          <div className="max-w-4xl md:text-left text-center">
-            <p className="text-xl md:text-2xl font-bold tracking-wide mb-4 animate-fade-in-up text-primary relative inline-block" style={{ textShadow: '0 0 40px hsl(var(--primary) / 0.6), 0 0 80px hsl(var(--primary) / 0.4)' }}>
-              VOICE PICKING FOR VENDING ROUTE OPERATORS
-            </p>
-            <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight text-foreground mb-6 animate-fade-in-up">
-              Enterprise Warehouse Speed.{" "}
-              <br className="hidden sm:block" />
-              <span className="text-primary">Zero Hardware Cost.</span>
-            </h1>
-            <p className="text-lg sm:text-xl text-muted-foreground mb-8 max-w-2xl animate-fade-in-up animation-delay-100">
-              Hardware automation runs $100k+. Stocker AI runs on the phone in your
-              pocket. Same accuracy and speed, no hardware. Works with Parlevel, Nayax, and VendSoft. Starting at $40/month.
-            </p>
+          <div className="grid lg:grid-cols-2 gap-12 items-center">
+            {/* Left Column - Text Content */}
+            <div className="md:text-left text-center">
+              <p className="text-xl md:text-2xl font-bold tracking-wide mb-4 animate-fade-in-up text-primary relative inline-block" style={{ textShadow: '0 0 40px hsl(var(--primary) / 0.6), 0 0 80px hsl(var(--primary) / 0.4)' }}>
+                VOICE PICKING FOR VENDING ROUTE OPERATORS
+              </p>
+              <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight text-foreground mb-6 animate-fade-in-up">
+                Enterprise Warehouse Speed.{" "}
+                <br className="hidden sm:block" />
+                <span className="text-primary">Zero Hardware Cost.</span>
+              </h1>
+              <p className="text-lg sm:text-xl text-muted-foreground mb-8 max-w-2xl animate-fade-in-up animation-delay-100">
+                Hardware automation runs $100k+. Stocker AI runs on the phone in your
+                pocket. Same accuracy and speed, no hardware. Works with Parlevel, Nayax, and VendSoft. Starting at $40/month.
+              </p>
 
-            {/* Video Placeholder - 20 second explainer */}
-            <div className="mb-10 max-w-2xl animate-fade-in-up animation-delay-150">
-              <div className="relative aspect-video bg-slate-900 rounded-xl border border-slate-700 overflow-hidden shadow-2xl shadow-primary/10">
-                <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400">
-                  <div className="w-16 h-16 rounded-full bg-primary/20 flex items-center justify-center mb-4 cursor-pointer hover:bg-primary/30 transition-colors">
-                    <svg className="w-8 h-8 text-primary ml-1" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M8 5v14l11-7z"/>
-                    </svg>
-                  </div>
-                  <p className="text-sm">Video coming soon</p>
-                </div>
+              <div className="flex flex-col sm:flex-row gap-4 md:justify-start justify-center animate-fade-in-up animation-delay-200">
+                <Link to="/signup">
+                  <Button className="btn-primary">Start Free Trial</Button>
+                </Link>
+                <a href="#how-it-works">
+                  <Button variant="outline" className="btn-secondary">
+                    See How It Works
+                  </Button>
+                </a>
               </div>
             </div>
 
-            <div className="flex flex-col sm:flex-row gap-4 md:justify-start justify-center animate-fade-in-up animation-delay-200">
-              <Link to="/signup">
-                <Button className="btn-primary">Start Free Trial</Button>
-              </Link>
-              <a href="#how-it-works">
-                <Button variant="outline" className="btn-secondary">
-                  See How It Works
-                </Button>
-              </a>
+            {/* Right Column - Hero Image */}
+            <div className="animate-fade-in-up animation-delay-150 lg:order-last order-first">
+              <div className="relative">
+                <img
+                  src="/hero-warehouse.png"
+                  alt="Warehouse worker with earbuds picking items into bins"
+                  className="rounded-2xl shadow-2xl shadow-primary/20 w-full"
+                />
+                {/* Decorative elements */}
+                <div className="absolute -bottom-4 -right-4 w-24 h-24 bg-primary/20 rounded-full blur-2xl"></div>
+                <div className="absolute -top-4 -left-4 w-32 h-32 bg-primary/10 rounded-full blur-3xl"></div>
+              </div>
+            </div>
+          </div>
+
+          {/* Video Placeholder - Below hero grid */}
+          <div className="mt-16 max-w-3xl mx-auto animate-fade-in-up animation-delay-300">
+            <div className="relative aspect-video bg-slate-900 rounded-xl border border-slate-700 overflow-hidden shadow-2xl shadow-primary/10">
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400">
+                <div className="w-16 h-16 rounded-full bg-primary/20 flex items-center justify-center mb-4 cursor-pointer hover:bg-primary/30 transition-colors">
+                  <svg className="w-8 h-8 text-primary ml-1" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M8 5v14l11-7z"/>
+                  </svg>
+                </div>
+                <p className="text-sm">30-second demo coming soon</p>
+              </div>
             </div>
           </div>
         </div>
