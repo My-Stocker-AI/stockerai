@@ -111,7 +111,7 @@ const Home = () => {
           </div>
 
           {/* Video Placeholder - Below hero grid */}
-          <div className="mt-16 max-w-3xl mx-auto animate-fade-in-up animation-delay-300">
+          <div id="demo" className="mt-16 max-w-3xl mx-auto animate-fade-in-up animation-delay-300 scroll-mt-24">
             <div className="relative aspect-video bg-slate-900 rounded-xl border border-slate-700 overflow-hidden shadow-2xl shadow-primary/10">
               <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400">
                 <div className="w-16 h-16 rounded-full bg-primary/20 flex items-center justify-center mb-4 cursor-pointer hover:bg-primary/30 transition-colors">

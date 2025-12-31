@@ -7,9 +7,9 @@ const Navbar = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   const navLinks = [
-    { label: "Features", href: "#features" },
+    { label: "Features", href: "/#features" },
     { label: "Pricing", href: "/pricing" },
-    { label: "Demo", href: "#demo" },
+    { label: "Demo", href: "/#demo" },
   ];
 
   return (
@@ -25,7 +25,7 @@ const Navbar = () => {
           {/* Desktop Navigation */}
           <div className="hidden md:flex items-center gap-8">
             {navLinks.map((link) => (
-              link.href.startsWith("#") ? (
+              link.href.includes("#") ? (
                 <a
                   key={link.label}
                   href={link.href}
@@ -72,7 +72,7 @@ const Navbar = () => {
           <div className="md:hidden py-4 border-t border-border">
             <div className="flex flex-col gap-4">
               {navLinks.map((link) => (
-                link.href.startsWith("#") ? (
+                link.href.includes("#") ? (
                   <a
                     key={link.label}
                     href={link.href}
