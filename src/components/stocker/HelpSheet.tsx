@@ -103,24 +103,37 @@ export function HelpSheet({ isOpen, onClose }: HelpSheetProps) {
           })}
         </div>
 
-        {/* Pro Tip */}
-        <div className="px-4 pb-4">
+        {/* Pro Tips */}
+        <div className="px-4 pb-4 space-y-2">
           <div className="bg-primary/10 rounded-xl p-3 border border-primary/20">
             <p className="text-xs text-muted-foreground">
               <span className="font-medium text-primary">Tip:</span> Speak naturally -
               you can say "got it", "yep", "check", or just "next" to move forward.
             </p>
           </div>
+          <div className="bg-yellow-500/10 rounded-xl p-3 border border-yellow-500/20">
+            <p className="text-xs text-muted-foreground">
+              <span className="font-medium text-yellow-500">Important:</span> One person per mic.
+              Keep screen ON. Speak clearly - don't rush!
+            </p>
+          </div>
         </div>
 
         {/* More Commands Link */}
-        <div className="px-4 pb-6 text-center">
+        <div className="px-4 pb-6 text-center space-y-2">
           <a
             href="/guide"
             target="_blank"
-            className="text-sm text-primary hover:underline"
+            className="text-sm text-primary hover:underline block"
           >
             View all commands →
+          </a>
+          <a
+            href="/guide#troubleshooting"
+            target="_blank"
+            className="text-xs text-muted-foreground hover:underline block"
+          >
+            Having problems? See Troubleshooting
           </a>
         </div>
       </div>
