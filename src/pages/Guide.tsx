@@ -599,7 +599,23 @@ const Guide = () => {
                 </h4>
                 <div className="bg-black/30 rounded-lg p-3">
                   <p className="text-sm text-gray-300">Press the volume up button on the left side of your phone until it's at max.</p>
-                  <p className="text-sm text-gray-300">Or connect Bluetooth headphones/earbuds for better hearing in loud warehouses.</p>
+                </div>
+              </div>
+
+              {/* iPhone Step 6: AirPods/Bluetooth */}
+              <div className="bg-white/10 rounded-xl p-5 mb-4">
+                <h4 className="font-bold text-lg mb-3 flex items-center gap-2">
+                  <span className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-sm font-bold">6</span>
+                  Using AirPods or Bluetooth Headphones? (Important!)
+                </h4>
+                <p className="text-gray-300 mb-3">Bluetooth mics can be tricky. Follow these steps:</p>
+                <div className="bg-black/30 rounded-lg p-3 space-y-2">
+                  <p className="text-sm text-gray-300"><strong>1.</strong> Connect your AirPods/headphones BEFORE opening the Voice App</p>
+                  <p className="text-sm text-gray-300"><strong>2.</strong> Swipe down from <strong className="text-white">top-right corner</strong> to open Control Center</p>
+                  <p className="text-sm text-gray-300"><strong>3.</strong> Long-press the <strong className="text-white">audio/volume panel</strong></p>
+                  <p className="text-sm text-gray-300"><strong>4.</strong> Tap the <strong className="text-white">AirPlay icon</strong> (triangle with circles)</p>
+                  <p className="text-sm text-gray-300"><strong>5.</strong> Make sure your AirPods are selected for <strong className="text-green-400">BOTH input AND output</strong></p>
+                  <p className="text-sm text-yellow-400 pt-2">⚠️ If Stocker can't hear you with AirPods, try using the phone's built-in mic instead - it's more reliable!</p>
                 </div>
               </div>
 
@@ -705,6 +721,23 @@ const Guide = () => {
                   <p className="text-sm text-gray-300"><strong>1.</strong> Settings → Apps → Chrome</p>
                   <p className="text-sm text-gray-300"><strong>2.</strong> Tap <strong className="text-white">Battery</strong></p>
                   <p className="text-sm text-gray-300"><strong>3.</strong> Select <strong className="text-green-400">Unrestricted</strong> or <strong className="text-green-400">Don't optimize</strong></p>
+                </div>
+              </div>
+
+              {/* Android Step 6: Bluetooth Headphones */}
+              <div className="bg-white/10 rounded-xl p-5 mb-4">
+                <h4 className="font-bold text-lg mb-3 flex items-center gap-2">
+                  <span className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-sm font-bold">6</span>
+                  Using Bluetooth Headphones? (Important!)
+                </h4>
+                <p className="text-green-200 mb-3">Bluetooth mics can be tricky. Follow these steps:</p>
+                <div className="bg-black/30 rounded-lg p-3 space-y-2">
+                  <p className="text-sm text-gray-300"><strong>1.</strong> Connect your Bluetooth headphones BEFORE opening the Voice App</p>
+                  <p className="text-sm text-gray-300"><strong>2.</strong> In Chrome, tap the <strong className="text-white">lock icon</strong> in the address bar</p>
+                  <p className="text-sm text-gray-300"><strong>3.</strong> Tap <strong className="text-white">Site settings</strong></p>
+                  <p className="text-sm text-gray-300"><strong>4.</strong> Tap <strong className="text-white">Microphone</strong> → make sure it says <strong className="text-green-400">Allow</strong></p>
+                  <p className="text-sm text-gray-300"><strong>5.</strong> Check phone Settings → <strong className="text-white">Connected devices</strong> → your headphones → make sure <strong className="text-white">Phone calls</strong> or <strong className="text-white">Media audio</strong> is enabled</p>
+                  <p className="text-sm text-yellow-400 pt-2">⚠️ If Stocker can't hear you with Bluetooth, try using the phone's built-in mic instead - it's more reliable!</p>
                 </div>
               </div>
 
