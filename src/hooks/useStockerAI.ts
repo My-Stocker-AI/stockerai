@@ -163,7 +163,9 @@ export function useStockerAI() {
   }, []);
 
   const buildSystemPrompt = useCallback((userName: string, currentItem: any) => {
-    const today = new Date().toISOString().split('T')[0];
+    // Use local date, not UTC (toISOString gives UTC which can be wrong timezone)
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     let itemContext = '';
     if (currentItem) {
       itemContext = `\nCurrent item: ${currentItem.quantity}x ${currentItem.product}, ${currentItem.slot_spoken || currentItem.slot}`;
