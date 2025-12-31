@@ -23,9 +23,20 @@ const Signup = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const showMachineWarning = machinesPerDriver === "11-15" || 
-                              machinesPerDriver === "16-20" || 
+  const showMachineWarning = machinesPerDriver === "11-15" ||
+                              machinesPerDriver === "16-20" ||
                               machinesPerDriver === "20+";
+
+  // Calculate pricing based on driver count
+  const getPricing = (count: number) => {
+    if (count <= 5) return { tier: "Starter", price: 20 };
+    if (count <= 20) return { tier: "Growth", price: 18 };
+    return { tier: "Scale", price: 15 };
+  };
+
+  const parsedCount = driverCount === "50+" ? 50 : parseInt(driverCount) || 2;
+  const pricing = getPricing(parsedCount);
+  const monthlyTotal = parsedCount * pricing.price;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -74,7 +85,7 @@ const Signup = () => {
       {/* Simple Header */}
       <header className="p-4">
         <Link to="/" className="flex items-center gap-2 w-fit">
-          <img src="/stocker-logo.jpg" alt="Stocker AI" className="h-28 w-28" />
+          <img src="/stocker-ai-logo.jpg" alt="Stocker AI" className="h-14 w-auto" />
           <span className="text-xl font-bold text-foreground">Stocker AI</span>
         </Link>
       </header>
@@ -166,6 +177,18 @@ const Signup = () => {
                     <SelectItem value="50+">50+ drivers</SelectItem>
                   </SelectContent>
                 </Select>
+
+                {/* Pricing Summary */}
+                <div className="mt-3 p-3 bg-primary/10 border border-primary/20 rounded-lg">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-muted-foreground">{pricing.tier} Plan</span>
+                    <span className="text-sm font-medium text-primary">${pricing.price}/driver/mo</span>
+                  </div>
+                  <div className="flex justify-between items-center mt-1">
+                    <span className="text-sm text-muted-foreground">After 14-day trial</span>
+                    <span className="text-lg font-bold text-foreground">${monthlyTotal}/mo</span>
+                  </div>
+                </div>
               </div>
 
               <div className="space-y-2">

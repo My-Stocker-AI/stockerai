@@ -75,6 +75,7 @@ serve(async (req) => {
       success_url: `${origin}/dashboard/billing?success=true`,
       cancel_url: `${origin}/dashboard/billing?canceled=true`,
       subscription_data: {
+        trial_period_days: 14,
         metadata: {
           user_id: user.id,
           driver_count: driver_count.toString(),

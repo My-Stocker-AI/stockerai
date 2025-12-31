@@ -162,18 +162,23 @@ const Pricing = () => {
                   ))}
                 </ul>
 
-                <Link
-                  to={plan.cta === "Contact Sales" ? "mailto:sales@my-stocker-ai.com" : "/login"}
-                  className="block mt-auto"
-                >
-                  <Button
-                    className={`w-full ${
-                      plan.popular ? "btn-primary" : "btn-secondary"
-                    }`}
-                  >
-                    {plan.cta}
-                  </Button>
-                </Link>
+                {plan.cta === "Contact Sales" ? (
+                  <a href="mailto:sales@my-stocker-ai.com" className="block mt-auto">
+                    <Button className="w-full btn-secondary">
+                      {plan.cta}
+                    </Button>
+                  </a>
+                ) : (
+                  <Link to="/signup" className="block mt-auto">
+                    <Button
+                      className={`w-full ${
+                        plan.popular ? "btn-primary" : "btn-secondary"
+                      }`}
+                    >
+                      {plan.cta}
+                    </Button>
+                  </Link>
+                )}
               </div>
             ))}
           </div>
@@ -181,13 +186,17 @@ const Pricing = () => {
           {/* Notes below tiers */}
           <div className="text-center mt-10 space-y-2">
             <p className="text-muted-foreground">
-              All plans include 14-day free trial
+              All plans include 14-day free trial &bull; No credit card required to start
             </p>
             <p className="text-muted-foreground">2 driver minimum*</p>
             <p className="text-sm text-muted-foreground mt-4">
               *Each driver can service up to 10 machines per day.
               <br />
               Plans automatically adjust to match your usage.
+            </p>
+            <p className="text-xs text-muted-foreground mt-6 max-w-lg mx-auto">
+              After signup, you'll select your driver count and add payment info in your dashboard.
+              Your card won't be charged until your trial ends.
             </p>
           </div>
         </div>
