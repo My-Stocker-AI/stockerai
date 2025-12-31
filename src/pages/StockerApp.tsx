@@ -669,11 +669,14 @@ export default function StockerApp() {
 
       {/* Header */}
       <header className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
-        <div>
+        <div className="flex-1">
           <span className="text-xs text-blue-400 font-semibold uppercase">Route</span>
           <h1 className="text-lg font-semibold">{routeState.routeName || `Hi, ${userName}`}</h1>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex-shrink-0 mx-4">
+          <img src="/stocker-logo.jpg" alt="Stocker AI" className="h-12 w-12 rounded-full shadow-lg shadow-teal-500/20" />
+        </div>
+        <div className="flex-1 flex items-center justify-end gap-3">
           {routeState.routeName && (
             <span className="text-sm text-gray-400">
               Machine {routeState.currentMachineIndex}/{routeState.totalMachines}
@@ -791,7 +794,7 @@ export default function StockerApp() {
           </p>
         </div>
 
-        {/* Completed Items */}
+        {/* Completed Items - newest at top */}
         <div className="bg-[#161b22] rounded-xl border border-gray-800 flex-1 overflow-hidden flex flex-col">
           <div className="px-4 py-2 border-b border-gray-800 flex items-center gap-2">
             <span className="text-xs text-gray-400 font-semibold uppercase">Done</span>
@@ -802,8 +805,8 @@ export default function StockerApp() {
               <p className="text-gray-500 text-center">No items picked yet</p>
             ) : (
               <div className="space-y-2">
-                {routeState.completedItems.map((item, i) => (
-                  <div key={i} className="flex items-center gap-3 text-sm text-gray-400">
+                {[...routeState.completedItems].reverse().map((item, i) => (
+                  <div key={routeState.completedItems.length - 1 - i} className="flex items-center gap-3 text-sm text-gray-400">
                     <CheckCircle className="h-4 w-4 text-emerald-500" />
                     <span>{item.quantity}x</span>
                     <span className="flex-1 truncate">{item.product}</span>
