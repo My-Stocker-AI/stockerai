@@ -490,6 +490,31 @@ const Guide = () => {
                   <p><strong>Fix:</strong> Check your WiFi/data connection. Stocker requires internet - it doesn't work offline.</p>
                 </div>
               </div>
+
+              {/* Problem 7 */}
+              <div className="bg-card border border-border rounded-xl p-6">
+                <h4 className="font-semibold text-foreground mb-2 flex items-center gap-2">
+                  <AlertTriangle className="h-5 w-5 text-yellow-500" />
+                  Stocker doesn't hear me when using AirPods / Bluetooth headphones
+                </h4>
+                <div className="ml-7 space-y-2 text-muted-foreground">
+                  <p><strong>Cause:</strong> Browser is using phone mic instead of AirPods mic.</p>
+                  <p><strong>Fix (iPhone):</strong></p>
+                  <ol className="list-decimal ml-4 space-y-1 text-sm">
+                    <li>Swipe down from top-right corner to open Control Center</li>
+                    <li>Long-press the audio/volume panel</li>
+                    <li>Tap the AirPlay icon and select AirPods for input</li>
+                    <li>Or try: Settings → Safari → Microphone → Allow for my-stocker-ai.com</li>
+                  </ol>
+                  <p><strong>Fix (Android):</strong></p>
+                  <ol className="list-decimal ml-4 space-y-1 text-sm">
+                    <li>In Chrome, tap the lock icon in the address bar</li>
+                    <li>Tap "Site settings" → Microphone → Allow</li>
+                    <li>Make sure Bluetooth headset is set as audio input in phone settings</li>
+                  </ol>
+                  <p className="text-sm mt-2"><strong>Tip:</strong> If Bluetooth won't work, try using the phone's built-in mic instead.</p>
+                </div>
+              </div>
             </div>
           </div>
 
