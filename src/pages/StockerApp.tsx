@@ -741,8 +741,8 @@ export default function StockerApp() {
               size="sm"
               onClick={handleMuteToggle}
               className={cn(
-                "flex-1",
-                voice.status === 'muted' && "bg-red-900/50 border-red-700"
+                "flex-1 text-teal-400 border-teal-600 hover:bg-teal-900/30 hover:text-teal-300",
+                voice.status === 'muted' && "bg-red-900/50 border-red-700 text-red-300"
               )}
             >
               {voice.status === 'muted' ? (
@@ -756,8 +756,8 @@ export default function StockerApp() {
               size="sm"
               onClick={handlePauseToggle}
               className={cn(
-                "flex-1",
-                voice.status === 'paused' && "bg-orange-900/50 border-orange-700"
+                "flex-1 text-teal-400 border-teal-600 hover:bg-teal-900/30 hover:text-teal-300",
+                voice.status === 'paused' && "bg-orange-900/50 border-orange-700 text-orange-300"
               )}
             >
               {voice.status === 'paused' ? (
@@ -770,7 +770,7 @@ export default function StockerApp() {
               variant="outline"
               size="sm"
               onClick={handleStopClick}
-              className="flex-1"
+              className="flex-1 text-teal-400 border-teal-600 hover:bg-teal-900/30 hover:text-teal-300"
             >
               <Square className="h-4 w-4 mr-2" /> Stop
             </Button>
