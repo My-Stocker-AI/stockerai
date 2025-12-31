@@ -83,17 +83,18 @@ export function useStockerSession(userId: string | null) {
         const action = result.action || '';
 
         if (action === 'next_item' || action === 'next_machine' || action === 'route_complete') {
-          if (prev.currentItem?.product) {
+          // Add current item to completed list if it exists (check slot as minimum valid item indicator)
+          if (prev.currentItem && prev.currentItem.slot) {
             next.completedItems = [...prev.completedItems, prev.currentItem];
           }
         }
 
         if (action === 'next_item') {
           next.currentItem = {
-            product: result.product || '',
+            product: result.product || result.product_name || '',
             quantity: result.quantity || 0,
             slot: result.slot || '',
-            slot_spoken: result.slot_spoken || '',
+            slot_spoken: result.slot_spoken || result.slot || '',
             inventory_current: result.inventory_current,
             inventory_parlevel: result.inventory_parlevel
           };
