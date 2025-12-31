@@ -222,8 +222,12 @@ export default function StockerApp() {
 
       let response = await sendToAI(allMessages, userName, routeState.currentItem);
 
-      if (response.tool_calls?.length) {
-        addMessage(response);
+      // CRITICAL: Loop while there are tool_calls (matches original PWA behavior)
+      // OpenAI can return BOTH content AND tool_calls - we must process all tool_calls first
+      while (response.tool_calls?.length) {
+        // Add assistant message with tool_calls (content set to null per OpenAI spec)
+        addMessage({ role: 'assistant', content: null, tool_calls: response.tool_calls });
+
         const toolResults = await executeToolCalls(response.tool_calls, (name, result) => {
           updateFromTool(name, result);
           v.playSuccessBeep(); // Use success beep for item confirmation
@@ -238,7 +242,6 @@ export default function StockerApp() {
         for (const tr of toolResults) {
           if (tr.result?.spoken) {
             response = { content: tr.result.spoken };
-            addMessage({ role: 'assistant', content: tr.result.spoken });
             usedFastPath = true;
             break;
           }
@@ -247,12 +250,14 @@ export default function StockerApp() {
         if (!usedFastPath) {
           // Use messagesRef.current for the follow-up call too
           response = await sendToAI(trimConversationHistory(sanitizeConversationHistory([...messagesRef.current])), userName, routeState.currentItem);
+        } else {
+          break; // Exit loop if using fast path
         }
       }
 
       if (response.content) {
         setAiResponse(response.content);
-        addMessage(response);
+        addMessage({ role: 'assistant', content: response.content });
         await v.speak(response.content);
       }
     } catch (err: any) {
