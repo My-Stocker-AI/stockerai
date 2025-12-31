@@ -54,7 +54,13 @@ const Home = () => {
           <div className="grid lg:grid-cols-2 gap-12 items-center">
             {/* Left Column - Text Content */}
             <div className="md:text-left text-center">
-              <p className="text-xl md:text-2xl font-bold tracking-wide mb-4 animate-fade-in-up text-primary relative inline-block" style={{ textShadow: '0 0 40px hsl(var(--primary) / 0.6), 0 0 80px hsl(var(--primary) / 0.4)' }}>
+              <p
+                className="text-xl md:text-2xl font-extrabold tracking-widest mb-4 animate-fade-in-up text-primary relative inline-block uppercase"
+                style={{
+                  textShadow: '0 0 10px #fff, 0 0 20px #fff, 0 0 30px #4ecca3, 0 0 40px #4ecca3, 0 0 50px #4ecca3, 0 0 60px #4ecca3',
+                  letterSpacing: '0.15em'
+                }}
+              >
                 VOICE PICKING FOR VENDING ROUTE OPERATORS
               </p>
               <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight text-foreground mb-6 animate-fade-in-up">
@@ -82,14 +88,28 @@ const Home = () => {
             {/* Right Column - Hero Image */}
             <div className="animate-fade-in-up animation-delay-150 lg:order-last order-first">
               <div className="relative">
+                {/* Deep shadow layers for 3D effect */}
+                <div className="absolute inset-0 translate-x-4 translate-y-4 bg-primary/40 rounded-2xl blur-xl"></div>
+                <div className="absolute inset-0 translate-x-6 translate-y-6 bg-primary/20 rounded-2xl blur-2xl"></div>
+                <div className="absolute inset-0 translate-x-8 translate-y-8 bg-slate-900/60 rounded-2xl blur-2xl"></div>
+
+                {/* Glow ring behind image */}
+                <div className="absolute -inset-1 bg-gradient-to-r from-primary via-cyan-400 to-primary rounded-2xl blur-sm opacity-60"></div>
+
+                {/* Main image */}
                 <img
                   src="/hero-warehouse.png"
                   alt="Warehouse worker with earbuds picking items into bins"
-                  className="rounded-2xl shadow-2xl shadow-primary/20 w-full"
+                  className="relative rounded-2xl w-full border-2 border-primary/30"
+                  style={{
+                    boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 40px rgba(78, 204, 163, 0.3)'
+                  }}
                 />
-                {/* Decorative elements */}
-                <div className="absolute -bottom-4 -right-4 w-24 h-24 bg-primary/20 rounded-full blur-2xl"></div>
-                <div className="absolute -top-4 -left-4 w-32 h-32 bg-primary/10 rounded-full blur-3xl"></div>
+
+                {/* Decorative glow elements */}
+                <div className="absolute -bottom-6 -right-6 w-32 h-32 bg-primary/50 rounded-full blur-2xl"></div>
+                <div className="absolute -top-6 -left-6 w-40 h-40 bg-cyan-400/30 rounded-full blur-3xl"></div>
+                <div className="absolute top-1/2 -right-8 w-20 h-40 bg-primary/40 rounded-full blur-2xl"></div>
               </div>
             </div>
           </div>
