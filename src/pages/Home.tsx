@@ -55,10 +55,9 @@ const Home = () => {
             {/* Left Column - Text Content */}
             <div className="md:text-left text-center">
               <p
-                className="text-xl md:text-2xl font-extrabold tracking-widest mb-4 animate-fade-in-up text-white relative inline-block uppercase"
+                className="text-xl md:text-2xl font-extrabold tracking-wide mb-4 animate-fade-in-up text-primary relative inline-block uppercase"
                 style={{
-                  textShadow: '0 0 20px rgba(78, 204, 163, 0.6), 0 0 40px rgba(78, 204, 163, 0.3)',
-                  letterSpacing: '0.12em'
+                  textShadow: '2px 2px 8px rgba(255, 107, 53, 0.4), -1px -1px 6px rgba(255, 165, 89, 0.3)'
                 }}
               >
                 VOICE PICKING FOR VENDING ROUTE OPERATORS
