@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- S with Speakers Favicon - Transparent Background -->
+
+  <!-- Left speaker bars -->
+  <rect x="2" y="13" width="2" height="6" rx="1" fill="#2DD4A8"/>
+  <rect x="5" y="10" width="2" height="12" rx="1" fill="#2DD4A8"/>
+  <rect x="8" y="7" width="2" height="18" rx="1" fill="#2DD4A8"/>
+
+  <!-- Center S (simplified for favicon size) -->
+  <path d="M16 6 C20 6 22 8 22 11 C22 14 18 14 16 14 C14 14 10 14 10 17 C10 20 12 22 16 22 C18 22 20 21 20 21"
+        fill="none"
+        stroke="#2DD4A8"
+        stroke-width="4"
+        stroke-linecap="round"/>
+
+  <!-- Right speaker bars -->
+  <rect x="22" y="7" width="2" height="18" rx="1" fill="#2DD4A8"/>
+  <rect x="25" y="10" width="2" height="12" rx="1" fill="#2DD4A8"/>
+  <rect x="28" y="13" width="2" height="6" rx="1" fill="#2DD4A8"/>
+</svg>
