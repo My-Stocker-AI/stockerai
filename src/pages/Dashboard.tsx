@@ -78,7 +78,7 @@ const Dashboard = () => {
   const otherActions = visibleActions.filter(a => !a.primary);
 
   return (
-    <DashboardLayout title="Dashboard" breadcrumbs={[{ label: "Dashboard" }]}>
+    <DashboardLayout title="Dashboard">
       <div className="space-y-6">
         {/* Primary Action - Voice App */}
         {primaryAction && (
