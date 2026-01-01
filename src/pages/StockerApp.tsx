@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogOut, CheckCircle, Mic, MicOff, Pause, Play, Square, AlertTriangle, Settings, RefreshCw, HelpCircle } from 'lucide-react';
+import { LogOut, CheckCircle, Mic, MicOff, Pause, Play, Square, AlertTriangle, Settings, RefreshCw, HelpCircle, Zap } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useVoice } from '@/hooks/useVoice';
 import { useStockerAI } from '@/hooks/useStockerAI';
@@ -120,6 +120,7 @@ export default function StockerApp() {
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [savedSession, setSavedSession] = useState<any>(null);
   const [retryCount, setRetryCount] = useState(0);
+  const [micPermission, setMicPermission] = useState<'prompt' | 'granted' | 'denied' | 'checking'>('checking');
   const processingRef = useRef(false);
   const initStartedRef = useRef(false); // Prevent double initialization
   const MAX_RETRIES = 2;
@@ -379,6 +380,32 @@ export default function StockerApp() {
     };
   }, []);
 
+  // Proactive mic permission check on load
+  useEffect(() => {
+    const checkMicPermission = async () => {
+      try {
+        // Check if permissions API is available
+        if (navigator.permissions) {
+          const result = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+          setMicPermission(result.state as 'prompt' | 'granted' | 'denied');
+
+          // Listen for permission changes
+          result.onchange = () => {
+            setMicPermission(result.state as 'prompt' | 'granted' | 'denied');
+          };
+        } else {
+          // Fallback - assume we need to prompt
+          setMicPermission('prompt');
+        }
+      } catch {
+        // If query fails, assume prompt needed
+        setMicPermission('prompt');
+      }
+    };
+
+    checkMicPermission();
+  }, []);
+
   // Check for saved session on mount (with route verification from original PWA)
   useEffect(() => {
     const checkSavedSession = async () => {
@@ -467,27 +494,36 @@ export default function StockerApp() {
       if (data.routes?.length) {
         const names = data.routes.map((r: any) => r.route_name);
         if (names.length === 1) {
-          greeting = `Hi ${userName}! Looks like you have the ${names[0]} route ready for today. Ready to go?`;
+          // AUTO-START: Only one route - start it automatically!
+          greeting = `Hi ${userName}! Starting your ${names[0]} route automatically...`;
+          setAiResponse(greeting);
+          addMessage({ role: 'assistant', content: greeting });
+          await voice.speak(greeting);
+          // Trigger the route start after a brief pause
+          setTimeout(() => {
+            handleTranscript(`start ${names[0]} route`, true);
+          }, 500);
+          return; // Exit early - handleTranscript will handle the rest
         } else if (names.length === 2) {
-          greeting = `Hi ${userName}! Looks like you have the ${names[0]} and ${names[1]} routes ready for today. Which one would you like to start with?`;
+          greeting = `Hi ${userName}! You have the ${names[0]} and ${names[1]} routes today. Which one?`;
         } else {
           const lastRoute = names.pop();
-          greeting = `Hi ${userName}! Looks like you have ${names.join(', ')}, and ${lastRoute} routes ready for today. Which one would you like to start with?`;
+          greeting = `Hi ${userName}! You have ${names.join(', ')}, and ${lastRoute} routes today. Which one?`;
         }
       } else {
-        greeting = `Hi ${userName}! I don't see any routes for today. Load one below or tell me the date of a preloaded route you'd like to fill!`;
+        greeting = `Hi ${userName}! No routes for today. Upload one below or tell me a date!`;
       }
 
       setAiResponse(greeting);
       addMessage({ role: 'assistant', content: greeting }); // Add to conversation history
       await voice.speak(greeting);
     } catch {
-      const greeting = `Hi ${userName}! Ready to stock. What route would you like to work on today?`;
+      const greeting = `Hi ${userName}! Ready to stock. What route would you like to work on?`;
       setAiResponse(greeting);
       addMessage({ role: 'assistant', content: greeting }); // Add to conversation history
       await voice.speak(greeting);
     }
-  }, [userId, sessionPersistence, reset, generateNewSessionId, voice, getRoutes, userName, addMessage]);
+  }, [userId, sessionPersistence, reset, generateNewSessionId, voice, getRoutes, userName, addMessage, handleTranscript]);
 
   // Tap-to-advance (from original PWA)
   const handleItemCardClick = useCallback(() => {
@@ -544,31 +580,46 @@ export default function StockerApp() {
     );
   }
 
-  // Resume dialog
+  // Resume dialog - SIMPLIFIED for 5-year-old proof UX
   if (showResumeDialog && savedSession) {
+    const progressPercent = Math.round((savedSession.currentMachineIndex / savedSession.totalMachines) * 100);
     return (
-      <div className="min-h-screen bg-[#0d1117] flex items-center justify-center p-4">
-        <div className="bg-[#161b22] rounded-xl border border-gray-800 p-6 max-w-sm w-full">
-          <h2 className="text-xl font-semibold text-white mb-2">Resume Session?</h2>
-          <p className="text-gray-400 mb-4">
-            {savedSession.routeName} Route - Machine {savedSession.currentMachineIndex}/{savedSession.totalMachines}
+      <div className="min-h-screen bg-[#0d1117] flex flex-col items-center justify-center p-6">
+        {/* Logo */}
+        <img src="/stocker-ai-logo.jpg" alt="Stocker AI" className="h-24 w-24 rounded-full shadow-lg shadow-teal-500/30 mb-6" />
+
+        {/* Route info card */}
+        <div className="bg-[#161b22] rounded-2xl border border-gray-700 p-6 max-w-sm w-full mb-6">
+          <h2 className="text-2xl font-bold text-white text-center mb-2">{savedSession.routeName}</h2>
+          <p className="text-gray-400 text-center mb-4">
+            Machine {savedSession.currentMachineIndex} of {savedSession.totalMachines}
           </p>
-          <div className="flex gap-3">
-            <Button
-              onClick={resumeSession}
-              className="flex-1 bg-emerald-600 hover:bg-emerald-700"
-            >
-              Resume
-            </Button>
-            <Button
-              onClick={startFresh}
-              variant="outline"
-              className="flex-1"
-            >
-              Start Fresh
-            </Button>
+          {/* Progress bar */}
+          <div className="h-3 bg-gray-800 rounded-full overflow-hidden mb-2">
+            <div
+              className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full"
+              style={{ width: `${progressPercent}%` }}
+            />
           </div>
+          <p className="text-sm text-emerald-400 text-center">{progressPercent}% complete</p>
         </div>
+
+        {/* BIG CONTINUE BUTTON */}
+        <Button
+          onClick={resumeSession}
+          className="w-full max-w-sm h-20 text-2xl font-bold bg-emerald-600 hover:bg-emerald-700 rounded-2xl shadow-lg shadow-emerald-500/30 mb-4"
+        >
+          <Play className="h-8 w-8 mr-3" />
+          CONTINUE
+        </Button>
+
+        {/* Small start fresh option */}
+        <button
+          onClick={startFresh}
+          className="text-gray-500 hover:text-gray-300 text-sm underline"
+        >
+          or start a different route
+        </button>
       </div>
     );
   }
@@ -590,6 +641,18 @@ export default function StockerApp() {
         <div className="bg-yellow-600 text-white text-center py-2 px-4 text-sm flex items-center justify-center gap-2">
           <AlertTriangle className="h-4 w-4" />
           You're offline. Some features may not work.
+        </div>
+      )}
+
+      {/* Mic Permission Banner - Shows when mic is denied */}
+      {micPermission === 'denied' && (
+        <div
+          className="bg-red-600 text-white py-3 px-4 flex items-center justify-center gap-3 cursor-pointer"
+          onClick={() => setShowMicHelp(true)}
+        >
+          <MicOff className="h-5 w-5" />
+          <span className="font-medium">Microphone blocked!</span>
+          <span className="text-sm opacity-80">Tap here to fix</span>
         </div>
       )}
 
@@ -693,6 +756,25 @@ export default function StockerApp() {
         </div>
       </header>
 
+      {/* Progress Bar - Only show when route is active */}
+      {routeState.routeName && routeState.totalMachines > 0 && (
+        <div className="px-4 py-2 bg-[#0d1117]">
+          <div className="flex items-center justify-between text-xs text-gray-400 mb-1">
+            <span className="flex items-center gap-1">
+              <Zap className="h-3 w-3 text-emerald-400" />
+              {routeState.completedItems.length} items picked
+            </span>
+            <span>Machine {routeState.currentMachineIndex} of {routeState.totalMachines}</span>
+          </div>
+          <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full transition-all duration-500"
+              style={{ width: `${Math.max(5, (routeState.currentMachineIndex / routeState.totalMachines) * 100)}%` }}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Help Sheet */}
       <HelpSheet isOpen={showHelpSheet} onClose={() => setShowHelpSheet(false)} />
 
@@ -703,17 +785,25 @@ export default function StockerApp() {
         <>
         {/* Current Item - Tap to advance */}
         <div
-          className="bg-[#161b22] rounded-xl p-4 border border-gray-800 cursor-pointer active:scale-[0.98] transition-transform"
+          className={cn(
+            "bg-[#161b22] rounded-xl p-4 border border-gray-800 cursor-pointer active:scale-[0.98] transition-all",
+            routeState.currentItem && voice.status === 'listening' && "border-emerald-500/50 shadow-lg shadow-emerald-500/20"
+          )}
           onClick={handleItemCardClick}
         >
-          <span className="text-xs text-emerald-400 font-semibold uppercase">Pick Item</span>
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-emerald-400 font-semibold uppercase">Pick Item</span>
+            {routeState.currentItem && voice.status === 'listening' && (
+              <span className="text-xs text-emerald-400 animate-pulse">👆 TAP when done</span>
+            )}
+          </div>
           {routeState.currentItem ? (
             <div className="mt-2">
               <div className="flex items-baseline gap-2">
-                <span className="text-3xl font-bold text-emerald-400">{routeState.currentItem.quantity}x</span>
-                <span className="text-xl">{routeState.currentItem.product}</span>
+                <span className="text-4xl font-bold text-emerald-400">{routeState.currentItem.quantity}x</span>
+                <span className="text-2xl">{routeState.currentItem.product}</span>
               </div>
-              <div className="text-gray-400 mt-1">{routeState.currentItem.slot_spoken || routeState.currentItem.slot}</div>
+              <div className="text-lg text-gray-300 mt-2">{routeState.currentItem.slot_spoken || routeState.currentItem.slot}</div>
               <div className="text-sm text-gray-500 mt-1">{routeState.currentMachineName}</div>
               {routeState.currentItem.inventory_current !== undefined && (
                 <div className="text-xs text-gray-500 mt-1">
@@ -724,12 +814,19 @@ export default function StockerApp() {
           ) : routeState.completed ? (
             <div className="mt-4 text-center text-emerald-400">
               <CheckCircle className="h-12 w-12 mx-auto mb-2" />
-              <p>Route Complete!</p>
+              <p className="text-xl font-bold">Route Complete!</p>
+              <p className="text-gray-400 text-sm mt-2">Great job! Say "next route" or tap below</p>
             </div>
           ) : (
-            <div className="mt-4 text-center text-gray-500">
-              <img src="/stocker-ai-logo.jpg" alt="Stocker AI" className="h-24 w-24 mx-auto mb-2 opacity-50" />
-              <p>Say "start my route" to begin</p>
+            <div className="mt-6 text-center">
+              <Button
+                onClick={() => handleTranscript('start my route', true)}
+                className="w-full max-w-xs mx-auto h-20 text-2xl font-bold bg-emerald-600 hover:bg-emerald-700 rounded-2xl shadow-lg shadow-emerald-500/30 animate-pulse"
+              >
+                <Play className="h-8 w-8 mr-3" />
+                START ROUTE
+              </Button>
+              <p className="text-gray-500 text-sm mt-4">Or just say "start my route"</p>
             </div>
           )}
         </div>
