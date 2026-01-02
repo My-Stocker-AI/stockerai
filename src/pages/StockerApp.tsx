@@ -20,6 +20,7 @@ interface RouteOption {
   route_name: string;
   machines: number;
   items: number;
+  machine_names: string[];
 }
 
 // Route verification - check if route still exists (from original PWA)
@@ -844,19 +845,25 @@ export default function StockerApp() {
           <UploadTab />
         ) : showRouteSelection && availableRoutes.length > 0 ? (
           /* Route Selection Cards - Voice first, tap as backup */
-          <div className="flex-1 flex flex-col">
+          <div className="flex-1 flex flex-col max-w-4xl mx-auto w-full">
             <div className="text-center mb-6">
-              <h2 className="text-2xl font-bold text-white mb-2">
+              <h2 className="text-2xl md:text-3xl font-bold text-white mb-2">
                 {availableRoutes.length === 1 ? "Your Route" : "Choose a Route"}
               </h2>
-              <p className="text-gray-400 text-sm">
+              <p className="text-gray-400 text-sm md:text-base">
                 {availableRoutes.length === 1
                   ? "Starting shortly..."
                   : "Say the route name or tap to select"}
               </p>
             </div>
 
-            <div className="space-y-3 flex-1 overflow-y-auto">
+            {/* Grid on desktop, stack on mobile */}
+            <div className={cn(
+              "flex-1 overflow-y-auto",
+              availableRoutes.length > 1
+                ? "grid gap-4 md:grid-cols-2 lg:grid-cols-3 auto-rows-min"
+                : "space-y-3"
+            )}>
               {availableRoutes.map((route) => (
                 <RouteSelectionCard
                   key={route.id}
@@ -865,7 +872,7 @@ export default function StockerApp() {
                     route_date: routeSelectionDate,
                     machine_count: route.machines,
                     item_count: route.items,
-                    machine_names: [] // We don't have machine names in the basic route data
+                    machine_names: route.machine_names || []
                   }}
                   onSelect={selectRoute}
                   isSelected={selectedRoute === route.route_name}
@@ -874,22 +881,31 @@ export default function StockerApp() {
               ))}
             </div>
 
-            {/* Voice Status during route selection */}
+            {/* Voice indicator - more prominent with mic icon */}
             <div className="bg-[#161b22] rounded-xl p-4 border border-gray-800 mt-4">
-              <div className="flex items-center gap-3">
-                <span className="text-xs text-amber-400 font-semibold uppercase">Mic</span>
-                <div className={cn("w-3 h-3 rounded-full", statusColors[voice.status])} />
-                <span className="text-sm text-gray-400 capitalize">{voice.status}</span>
-                {voice.lastInput && (
-                  <span className="text-sm text-amber-400 ml-auto truncate max-w-[50%]">"{voice.lastInput}"</span>
-                )}
+              <div className="flex items-center justify-center gap-3">
+                <div className={cn(
+                  "w-10 h-10 rounded-full flex items-center justify-center",
+                  voice.status === 'listening' ? "bg-green-500/20 animate-pulse" : "bg-gray-800"
+                )}>
+                  <Mic className={cn(
+                    "h-5 w-5",
+                    voice.status === 'listening' ? "text-green-400" : "text-gray-500"
+                  )} />
+                </div>
+                <div className="text-center">
+                  <span className="text-sm text-gray-400 capitalize block">{voice.status}</span>
+                  {voice.lastInput && (
+                    <span className="text-sm text-amber-400 truncate block max-w-[200px]">"{voice.lastInput}"</span>
+                  )}
+                </div>
               </div>
             </div>
 
             {/* AI Response during route selection */}
             <div className="bg-[#161b22] rounded-xl p-4 border border-gray-800 mt-3">
               <span className="text-xs text-purple-400 font-semibold uppercase">Stocker AI Says</span>
-              <p className={cn("mt-2", aiResponse ? "text-white" : "text-gray-500 italic")}>
+              <p className={cn("mt-2 md:text-lg", aiResponse ? "text-white" : "text-gray-500 italic")}>
                 {aiResponse || 'Waiting for command...'}
               </p>
             </div>
