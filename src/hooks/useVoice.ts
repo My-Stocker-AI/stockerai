@@ -28,6 +28,16 @@ interface UseVoiceOptions {
 export function useVoice(options: UseVoiceOptions = {}) {
   const { onTranscript, onError, onWakePhrase } = options;
 
+  // Store callbacks in refs to avoid stale closures in WebSocket handlers
+  const onTranscriptRef = useRef(onTranscript);
+  const onErrorRef = useRef(onError);
+  const onWakePhraseRef = useRef(onWakePhrase);
+
+  // Keep refs updated when callbacks change
+  onTranscriptRef.current = onTranscript;
+  onErrorRef.current = onError;
+  onWakePhraseRef.current = onWakePhrase;
+
   const [status, setStatusState] = useState<VoiceStatus>('idle');
   const [lastInput, setLastInput] = useState('');
   const [isSupported] = useState(true);
@@ -226,7 +236,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
     if (currentStatus === 'paused' || currentStatus === 'muted') {
       if (hasWakePhrase(text)) {
         const command = extractWakeCommand(text);
-        onWakePhrase?.(command);
+        onWakePhraseRef.current?.(command);
       }
       return;
     }
@@ -242,9 +252,9 @@ export function useVoice(options: UseVoiceOptions = {}) {
       return;
     }
 
-    // Pass to handler
-    onTranscript?.(text, true);
-  }, [hasWakePhrase, extractWakeCommand, onWakePhrase, isEcho, onTranscript]);
+    // Pass to handler - use ref to avoid stale closure
+    onTranscriptRef.current?.(text, true);
+  }, [hasWakePhrase, extractWakeCommand, isEcho]); // Removed callback deps - using refs
 
   const handleDeepgramMessage = useCallback((data: any) => {
     if (data.type === 'Results' && data.channel?.alternatives?.[0]) {
@@ -260,7 +270,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
         // Update display for interim results (only when listening, matches original PWA)
         if (!isFinal && statusRef.current === 'listening') {
           setLastInput(transcript.trim());
-          onTranscript?.(transcript.trim(), false);
+          onTranscriptRef.current?.(transcript.trim(), false);
         }
 
         if (isFinal) {
@@ -324,16 +334,16 @@ export function useVoice(options: UseVoiceOptions = {}) {
       };
 
       recorder.onerror = () => {
-        onError?.('MediaRecorder error');
+        onErrorRef.current?.('MediaRecorder error');
       };
 
       mediaRecorderRef.current = recorder;
       recorder.start(100);
       isRecordingRef.current = true;
     } catch (e: any) {
-      onError?.(e.message || 'Failed to start recording');
+      onErrorRef.current?.(e.message || 'Failed to start recording');
     }
-  }, [onError]);
+  }, []); // Using ref, no deps needed
 
   const connectDeepgram = useCallback(async () => {
     if (socketRef.current?.readyState === WebSocket.OPEN) {
@@ -379,7 +389,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
 
       socket.onerror = () => {
         clearTimeout(timeout);
-        onError?.('WebSocket error');
+        onErrorRef.current?.('WebSocket error');
       };
 
       socket.onclose = () => {
@@ -399,7 +409,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
         }
       };
     });
-  }, [ensureToken, startKeepAlive, stopKeepAlive, setupMediaRecorder, handleDeepgramMessage, onError]);
+  }, [ensureToken, startKeepAlive, stopKeepAlive, setupMediaRecorder, handleDeepgramMessage]); // Using ref for onError
 
   const startListening = useCallback(async () => {
     // Reset stopped flag when starting new session
@@ -420,11 +430,11 @@ export function useVoice(options: UseVoiceOptions = {}) {
       setStatus('listening');
       return true;
     } catch (error: any) {
-      onError?.(error.message || 'Failed to start listening');
+      onErrorRef.current?.(error.message || 'Failed to start listening');
       setStatus('error');
       return false;
     }
-  }, [connectDeepgram, onError, setStatus]);
+  }, [connectDeepgram, setStatus]); // Using ref for onError
 
   const stopListening = useCallback(() => {
     shouldReconnectRef.current = false;
