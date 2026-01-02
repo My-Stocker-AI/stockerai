@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Mic, MicOff, Volume2, CheckCircle, AlertTriangle, X, Loader2, ArrowRight, RefreshCw, Play } from 'lucide-react';
+import { Mic, MicOff, Volume2, CheckCircle, X, Loader2, ArrowRight, ChevronDown, ChevronUp, RotateCcw, MapPin } from 'lucide-react';
 import { useVoice } from '@/hooks/useVoice';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
@@ -26,52 +26,83 @@ interface DemoUser {
   discountCode?: string;
 }
 
-// Simple TTS endpoint
-const TTS_URL = 'https://solitary-base-799c.russ-731.workers.dev';
+interface CompletedMachine {
+  machineNumber: number;
+  machineName: string;
+  machineLocation: string;
+  items: DemoItem[];
+}
+
+type DemoPhase = 'welcome' | 'route_select' | 'direction_select' | 'stocking' | 'mid_cta' | 'complete';
+
+// Guided discovery prompt triggers
+const DISCOVERY_PROMPTS = {
+  ITEM_3: "Got it. Hey, quick tip — try asking me 'how many left?' anytime to check your progress.",
+  ITEM_6: "Nice! By the way, if you ever need to skip a machine and come back later, just say 'skip machine'.",
+  MACHINE_1_DONE: "Machine done! Notice you didn't touch your screen once? That's the whole point.",
+  MACHINE_2_ITEM_2: "Got it. Oh, and you can always say 'go back' if you need to undo the last item."
+};
 
 export default function DemoLive() {
   const navigate = useNavigate();
+
+  // Core state
   const [demoUser, setDemoUser] = useState<DemoUser | null>(null);
   const [demoRoutes, setDemoRoutes] = useState<DemoItem[]>([]);
-  const [currentRoute, setCurrentRoute] = useState<number | null>(null);
-  const [currentMachine, setCurrentMachine] = useState<number | null>(null);
+  const [phase, setPhase] = useState<DemoPhase>('welcome');
+  const [currentRoute, setCurrentRoute] = useState<number>(1);
+  const [currentMachine, setCurrentMachine] = useState<number>(1);
   const [currentItemIndex, setCurrentItemIndex] = useState(0);
-  const [completedItems, setCompletedItems] = useState<DemoItem[]>([]);
-  const [completedMachines, setCompletedMachines] = useState<number>(0);
-  const [demoStarted, setDemoStarted] = useState(false);
-  const [demoComplete, setDemoComplete] = useState(false);
+  const [machineDirection, setMachineDirection] = useState<'top' | 'bottom' | null>(null);
+
+  // Tracking state
+  const [completedMachines, setCompletedMachines] = useState<CompletedMachine[]>([]);
+  const [currentMachineItems, setCurrentMachineItems] = useState<DemoItem[]>([]);
+  const [skippedMachines, setSkippedMachines] = useState<number[]>([]);
+  const [itemHistory, setItemHistory] = useState<{ route: number; machine: number; index: number }[]>([]);
+  const [totalItemsCompleted, setTotalItemsCompleted] = useState(0);
+
+  // UI state
   const [aiResponse, setAiResponse] = useState('');
   const [showExitPopup, setShowExitPopup] = useState(false);
+  const [showMidCTA, setShowMidCTA] = useState(false);
   const [showNextButton, setShowNextButton] = useState(false);
   const [stuckTimer, setStuckTimer] = useState<NodeJS.Timeout | null>(null);
   const [micPermission, setMicPermission] = useState<'prompt' | 'granted' | 'denied' | 'checking'>('checking');
   const [isLoading, setIsLoading] = useState(true);
+  const [expandedMachines, setExpandedMachines] = useState<number[]>([]);
+
+  // Refs
   const processingRef = useRef(false);
   const voiceRef = useRef<any>(null);
-
-  // Refs to avoid stale closures in voice callbacks
-  const demoStartedRef = useRef(false);
-  const demoRoutesRef = useRef<DemoItem[]>([]);
-  const currentRouteRef = useRef<number | null>(null);
-  const currentMachineRef = useRef<number | null>(null);
-  const currentItemIndexRef = useRef(0);
-  const completedItemsRef = useRef<DemoItem[]>([]);
-  const completedMachinesRef = useRef(0);
-  const demoUserRef = useRef<DemoUser | null>(null);
-
-  // Refs for handlers to avoid stale closures
-  const handleStartDemoRef = useRef<() => Promise<void>>();
-  const handleNextRef = useRef<() => Promise<void>>();
+  const discoveryShownRef = useRef<Set<string>>(new Set());
 
   // Sync state to refs for voice callbacks
-  useEffect(() => { demoStartedRef.current = demoStarted; }, [demoStarted]);
-  useEffect(() => { demoRoutesRef.current = demoRoutes; }, [demoRoutes]);
+  const phaseRef = useRef(phase);
+  const currentRouteRef = useRef(currentRoute);
+  const currentMachineRef = useRef(currentMachine);
+  const currentItemIndexRef = useRef(currentItemIndex);
+  const demoRoutesRef = useRef<DemoItem[]>([]);
+  const demoUserRef = useRef<DemoUser | null>(null);
+  const currentMachineItemsRef = useRef<DemoItem[]>([]);
+  const completedMachinesRef = useRef<CompletedMachine[]>([]);
+  const totalItemsCompletedRef = useRef(0);
+  const skippedMachinesRef = useRef<number[]>([]);
+  const itemHistoryRef = useRef<{ route: number; machine: number; index: number }[]>([]);
+  const showMidCTARef = useRef(false);
+
+  useEffect(() => { phaseRef.current = phase; }, [phase]);
   useEffect(() => { currentRouteRef.current = currentRoute; }, [currentRoute]);
   useEffect(() => { currentMachineRef.current = currentMachine; }, [currentMachine]);
   useEffect(() => { currentItemIndexRef.current = currentItemIndex; }, [currentItemIndex]);
-  useEffect(() => { completedItemsRef.current = completedItems; }, [completedItems]);
-  useEffect(() => { completedMachinesRef.current = completedMachines; }, [completedMachines]);
+  useEffect(() => { demoRoutesRef.current = demoRoutes; }, [demoRoutes]);
   useEffect(() => { demoUserRef.current = demoUser; }, [demoUser]);
+  useEffect(() => { currentMachineItemsRef.current = currentMachineItems; }, [currentMachineItems]);
+  useEffect(() => { completedMachinesRef.current = completedMachines; }, [completedMachines]);
+  useEffect(() => { totalItemsCompletedRef.current = totalItemsCompleted; }, [totalItemsCompleted]);
+  useEffect(() => { skippedMachinesRef.current = skippedMachines; }, [skippedMachines]);
+  useEffect(() => { itemHistoryRef.current = itemHistory; }, [itemHistory]);
+  useEffect(() => { showMidCTARef.current = showMidCTA; }, [showMidCTA]);
 
   // Load demo user from session storage
   useEffect(() => {
@@ -123,63 +154,40 @@ export default function DemoLive() {
     checkMicPermission();
   }, []);
 
-  // beforeunload handler - show exit popup instead of leaving
+  // beforeunload handler
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (demoStarted && !demoComplete) {
+      if (phase !== 'welcome' && phase !== 'complete') {
         e.preventDefault();
         e.returnValue = '';
-        setShowExitPopup(true);
         return '';
       }
     };
 
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [demoStarted, demoComplete]);
+  }, [phase]);
 
-  // Get current item helper
-  const getCurrentItem = useCallback((): DemoItem | null => {
-    if (currentRoute === null || currentMachine === null) return null;
-
-    const machineItems = demoRoutes.filter(
-      item => item.route_number === currentRoute && item.machine_number === currentMachine
-    );
-
-    return machineItems[currentItemIndex] || null;
-  }, [demoRoutes, currentRoute, currentMachine, currentItemIndex]);
-
-  // Get items for current machine
-  const getMachineItems = useCallback(() => {
-    if (currentRoute === null || currentMachine === null) return [];
+  // Helper: Get items for a specific route and machine
+  const getMachineItems = useCallback((route: number, machine: number) => {
     return demoRoutes.filter(
-      item => item.route_number === currentRoute && item.machine_number === currentMachine
+      item => item.route_number === route && item.machine_number === machine
     );
-  }, [demoRoutes, currentRoute, currentMachine]);
+  }, [demoRoutes]);
 
-  // Get unique machines for current route
-  const getRouteMachines = useCallback(() => {
-    if (currentRoute === null) return [];
+  // Helper: Get unique machines for a route
+  const getRouteMachines = useCallback((route: number) => {
     const machines = demoRoutes
-      .filter(item => item.route_number === currentRoute)
-      .map(item => ({ number: item.machine_number, name: item.machine_name }));
+      .filter(item => item.route_number === route)
+      .map(item => ({ number: item.machine_number, name: item.machine_name, location: item.machine_location }));
     return [...new Map(machines.map(m => [m.number, m])).values()];
-  }, [demoRoutes, currentRoute]);
+  }, [demoRoutes]);
 
-  // Get unique routes
+  // Helper: Get unique routes
   const getUniqueRoutes = useCallback(() => {
     const routes = demoRoutes.map(item => ({ number: item.route_number, name: item.route_name }));
     return [...new Map(routes.map(r => [r.number, r])).values()];
   }, [demoRoutes]);
-
-  // Start stuck timer (show Next button after 10 seconds)
-  const startStuckTimer = useCallback(() => {
-    if (stuckTimer) clearTimeout(stuckTimer);
-    const timer = setTimeout(() => {
-      setShowNextButton(true);
-    }, 10000);
-    setStuckTimer(timer);
-  }, [stuckTimer]);
 
   // Clear stuck timer
   const clearStuckTimer = useCallback(() => {
@@ -190,149 +198,340 @@ export default function DemoLive() {
     setShowNextButton(false);
   }, [stuckTimer]);
 
+  // Start stuck timer (show Next button after 10 seconds)
+  const startStuckTimer = useCallback(() => {
+    clearStuckTimer();
+    const timer = setTimeout(() => {
+      setShowNextButton(true);
+    }, 10000);
+    setStuckTimer(timer);
+  }, [clearStuckTimer]);
+
   // Speak response
-  const speakResponse = useCallback(async (text: string) => {
+  const speakResponse = useCallback(async (text: string, startTimer = true) => {
     setAiResponse(text);
     const v = voiceRef.current;
     if (v) {
       await v.speak(text);
     }
-    startStuckTimer();
+    if (startTimer) {
+      startStuckTimer();
+    }
   }, [startStuckTimer]);
 
-  // Handle starting the demo
-  const handleStartDemo = useCallback(async () => {
-    if (!demoUser) return;
+  // Get current item
+  const getCurrentItem = useCallback((): DemoItem | null => {
+    return currentMachineItems[currentItemIndex] || null;
+  }, [currentMachineItems, currentItemIndex]);
 
-    clearStuckTimer();
-    setDemoStarted(true);
+  // ========== PHASE HANDLERS ==========
 
-    // Start with route 1, machine 1
-    setCurrentRoute(1);
+  // Handle route selection voice command
+  const handleRouteSelection = useCallback(async (routeChoice: 'downtown' | 'hospital') => {
+    const routeNum = routeChoice === 'downtown' ? 1 : 2;
+    const routeName = routeChoice === 'downtown' ? 'Downtown Office' : 'Hospital Campus';
+
+    setCurrentRoute(routeNum);
+    setPhase('direction_select');
     setCurrentMachine(1);
+
+    const machines = getRouteMachines(routeNum);
+    const firstMachine = machines[0];
+
+    await speakResponse(
+      `Great choice! ${routeName}. Let's start with ${firstMachine?.name}. Would you like to stock from the top or bottom?`,
+      true
+    );
+  }, [getRouteMachines, speakResponse]);
+
+  // Handle direction selection
+  const handleDirectionSelection = useCallback(async (direction: 'top' | 'bottom') => {
+    setMachineDirection(direction);
+    setPhase('stocking');
+
+    let items = getMachineItems(currentRoute, currentMachine);
+    if (direction === 'bottom') {
+      items = [...items].reverse();
+    }
+
+    setCurrentMachineItems(items);
     setCurrentItemIndex(0);
 
-    const firstItem = demoRoutes.find(i => i.route_number === 1 && i.machine_number === 1 && i.item_sequence === 1);
+    const firstItem = items[0];
     if (firstItem) {
-      const greeting = `Hey ${demoUser.firstName}! Let's stock the ${firstItem.machine_name}. Your first item is ${firstItem.item_quantity} ${firstItem.item_name}, slot ${firstItem.slot_number}. Say "next" when you've grabbed it!`;
-      await speakResponse(greeting);
+      await speakResponse(
+        `Starting from the ${direction}. Your first item: ${firstItem.item_quantity} ${firstItem.item_name}, slot ${firstItem.slot_number}. Say "next" when you've grabbed it!`
+      );
     }
-  }, [demoUser, demoRoutes, speakResponse, clearStuckTimer]);
+  }, [currentRoute, currentMachine, getMachineItems, speakResponse]);
 
-  // Sync handleStartDemo to ref
-  useEffect(() => { handleStartDemoRef.current = handleStartDemo; }, [handleStartDemo]);
-
-  // Handle next item
+  // Handle next item (main progression)
   const handleNext = useCallback(async () => {
     if (processingRef.current) return;
     processingRef.current = true;
     clearStuckTimer();
 
     const v = voiceRef.current;
-    const currentItem = getCurrentItem();
-    const machineItems = getMachineItems();
-    const routeMachines = getRouteMachines();
+    const currentItem = currentMachineItemsRef.current[currentItemIndexRef.current];
+    const route = currentRouteRef.current;
+    const machine = currentMachineRef.current;
+    const itemIdx = currentItemIndexRef.current;
+    const machineItems = currentMachineItemsRef.current;
+    const routes = demoRoutesRef.current;
+    const user = demoUserRef.current;
 
-    if (currentItem) {
-      // Add to completed
-      setCompletedItems(prev => [...prev, currentItem]);
-      v?.playSuccessBeep();
+    if (!currentItem) {
+      processingRef.current = false;
+      return;
+    }
+
+    // Save to history for go-back
+    setItemHistory(prev => [...prev, { route, machine, index: itemIdx }]);
+
+    // Update completed count
+    setTotalItemsCompleted(prev => prev + 1);
+    const newTotal = totalItemsCompletedRef.current + 1;
+
+    // Track this item as completed in current machine
+    setCurrentMachineItems(prev => prev.map((item, i) =>
+      i === itemIdx ? { ...item, _completed: true } as any : item
+    ));
+
+    v?.playSuccessBeep();
+
+    // Check for guided discovery prompts
+    const machineItemCount = itemIdx + 1; // 1-indexed count within this machine
+    const totalMachineItems = machineItems.length;
+    let extraPrompt = '';
+
+    // Item 3 overall (third item user picks)
+    if (newTotal === 3 && !discoveryShownRef.current.has('ITEM_3')) {
+      discoveryShownRef.current.add('ITEM_3');
+      extraPrompt = ' ' + DISCOVERY_PROMPTS.ITEM_3;
+    }
+    // Item 6 overall
+    else if (newTotal === 6 && !discoveryShownRef.current.has('ITEM_6')) {
+      discoveryShownRef.current.add('ITEM_6');
+      extraPrompt = ' ' + DISCOVERY_PROMPTS.ITEM_6;
+    }
+    // Machine 2, item 2 (after first machine is done, on second item of second machine)
+    else if (machine === 2 && machineItemCount === 2 && !discoveryShownRef.current.has('MACHINE_2_ITEM_2')) {
+      discoveryShownRef.current.add('MACHINE_2_ITEM_2');
+      extraPrompt = ' ' + DISCOVERY_PROMPTS.MACHINE_2_ITEM_2;
     }
 
     // Check if more items in current machine
-    if (currentItemIndex < machineItems.length - 1) {
-      setCurrentItemIndex(prev => prev + 1);
-      const nextItem = machineItems[currentItemIndex + 1];
+    if (itemIdx < machineItems.length - 1) {
+      const newIndex = itemIdx + 1;
+      setCurrentItemIndex(newIndex);
+      const nextItem = machineItems[newIndex];
 
-      // Vary the response style
       const styles = [
-        `${nextItem.item_quantity} ${nextItem.item_name}, slot ${nextItem.slot_number}`,
-        `Next up, ${nextItem.item_quantity} ${nextItem.item_name}, slot ${nextItem.slot_number}`,
-        `Grab ${nextItem.item_quantity} ${nextItem.item_name}, slot ${nextItem.slot_number}`,
-        `Got it. ${nextItem.item_quantity} ${nextItem.item_name}, slot ${nextItem.slot_number}`,
+        `${nextItem.item_quantity} ${nextItem.item_name}, slot ${nextItem.slot_number}.${extraPrompt}`,
+        `Next up, ${nextItem.item_quantity} ${nextItem.item_name}, slot ${nextItem.slot_number}.${extraPrompt}`,
+        `Grab ${nextItem.item_quantity} ${nextItem.item_name} from slot ${nextItem.slot_number}.${extraPrompt}`,
+        `Got it! ${nextItem.item_quantity} ${nextItem.item_name}, slot ${nextItem.slot_number}.${extraPrompt}`,
       ];
       await speakResponse(styles[Math.floor(Math.random() * styles.length)]);
     }
-    // Check if more machines in route
-    else if (currentMachine !== null && currentMachine < routeMachines.length) {
-      const nextMachineNum = currentMachine + 1;
-      const nextMachine = routeMachines.find(m => m.number === nextMachineNum);
-
-      setCompletedMachines(prev => prev + 1);
-      setCurrentMachine(nextMachineNum);
-      setCurrentItemIndex(0);
-
-      const nextMachineItems = demoRoutes.filter(
-        i => i.route_number === currentRoute && i.machine_number === nextMachineNum
-      );
-
-      if (nextMachine && nextMachineItems.length > 0) {
-        const firstItem = nextMachineItems[0];
-        await speakResponse(`Nice work! Moving to ${nextMachine.name}. First item: ${firstItem.item_quantity} ${firstItem.item_name}, slot ${firstItem.slot_number}`);
-      }
-    }
-    // Route complete - check for more routes or end demo
+    // Machine complete - move to next machine
     else {
-      setCompletedMachines(prev => prev + 1);
+      // Save completed machine
+      const completedItems = machineItems.filter((_, i) => i <= itemIdx);
+      const machineInfo = routes.find(i => i.route_number === route && i.machine_number === machine);
 
-      // For demo, we'll just complete after route 1 to keep it short
-      // In full demo, would check for route 2
-      setDemoComplete(true);
-      setShowExitPopup(true);
+      setCompletedMachines(prev => [...prev, {
+        machineNumber: machine,
+        machineName: machineInfo?.machine_name || `Machine ${machine}`,
+        machineLocation: machineInfo?.machine_location || '',
+        items: completedItems
+      }]);
 
-      // Update demo progress in database
-      if (demoUser?.email) {
-        await supabase
-          .from('demo_leads')
-          .update({
-            demo_completed: true,
-            items_completed: completedItems.length + 1,
-            machines_completed: completedMachines + 1,
-            updated_at: new Date().toISOString()
-          })
-          .eq('email', demoUser.email);
+      const routeMachines = getRouteMachines(route);
+      const nextMachineNum = machine + 1;
+
+      // Machine 1 done prompt
+      if (machine === 1 && !discoveryShownRef.current.has('MACHINE_1_DONE')) {
+        discoveryShownRef.current.add('MACHINE_1_DONE');
+        extraPrompt = ' ' + DISCOVERY_PROMPTS.MACHINE_1_DONE;
       }
 
-      await speakResponse(`That's it, ${demoUser?.firstName}! You just picked ${completedItems.length + 1} items across ${completedMachines + 1} machines using only your voice. Zero screen touches needed. Ready to try it with your real routes?`);
+      // Check if more machines in this route
+      if (nextMachineNum <= routeMachines.length) {
+        const nextMachine = routeMachines.find(m => m.number === nextMachineNum);
+
+        setCurrentMachine(nextMachineNum);
+        setPhase('direction_select');
+        setMachineDirection(null);
+        setCurrentItemIndex(0);
+        setCurrentMachineItems([]);
+
+        await speakResponse(
+          `${extraPrompt ? extraPrompt + ' ' : ''}Moving to ${nextMachine?.name}. Would you like to start from the top or bottom?`
+        );
+      }
+      // Route complete
+      else {
+        // Check if this is Route 1 - show mid-CTA
+        if (route === 1) {
+          setShowMidCTA(true);
+          await speakResponse(
+            `Amazing work, ${user?.firstName}! You just completed your first route — ${newTotal} items, completely hands-free. Ready for the real thing, or want to try Route 2?`,
+            false
+          );
+        } else {
+          // Route 2 complete - demo finished
+          setPhase('complete');
+          setShowExitPopup(true);
+
+          // Update demo progress
+          if (user?.email) {
+            await supabase
+              .from('demo_leads')
+              .update({
+                demo_completed: true,
+                items_completed: newTotal,
+                machines_completed: completedMachinesRef.current.length + 1,
+                updated_at: new Date().toISOString()
+              })
+              .eq('email', user.email);
+          }
+
+          await speakResponse(
+            `Incredible, ${user?.firstName}! You picked ${newTotal} items across both routes using only your voice. Zero screen touches. Imagine doing this every morning with your real routes.`,
+            false
+          );
+        }
+      }
     }
 
     processingRef.current = false;
-  }, [getCurrentItem, getMachineItems, getRouteMachines, currentItemIndex, currentMachine, currentRoute, demoRoutes, completedItems, completedMachines, demoUser, speakResponse, clearStuckTimer]);
+  }, [clearStuckTimer, getRouteMachines, speakResponse]);
 
-  // Sync handleNext to ref
-  useEffect(() => { handleNextRef.current = handleNext; }, [handleNext]);
+  // Handle "how many left?" command
+  const handleHowManyLeft = useCallback(async () => {
+    const machineItems = currentMachineItemsRef.current;
+    const itemIdx = currentItemIndexRef.current;
+    const machine = currentMachineRef.current;
+    const route = currentRouteRef.current;
 
-  // Handle voice transcript - uses refs to avoid stale closures
+    const itemsRemaining = machineItems.length - itemIdx;
+    const machines = getRouteMachines(route);
+    const machinesRemaining = machines.length - machine;
+
+    let response = `${itemsRemaining} items left on this machine.`;
+    if (machinesRemaining > 0) {
+      response += ` Then ${machinesRemaining} more machine${machinesRemaining > 1 ? 's' : ''} to go.`;
+    } else {
+      response += ` This is the last machine on the route!`;
+    }
+
+    await speakResponse(response);
+  }, [getRouteMachines, speakResponse]);
+
+  // Handle "skip machine" command
+  const handleSkipMachine = useCallback(async () => {
+    const machine = currentMachineRef.current;
+    const route = currentRouteRef.current;
+
+    setSkippedMachines(prev => [...prev, machine]);
+
+    const routeMachines = getRouteMachines(route);
+    const nextMachineNum = machine + 1;
+
+    if (nextMachineNum <= routeMachines.length) {
+      const nextMachine = routeMachines.find(m => m.number === nextMachineNum);
+
+      setCurrentMachine(nextMachineNum);
+      setPhase('direction_select');
+      setMachineDirection(null);
+      setCurrentItemIndex(0);
+      setCurrentMachineItems([]);
+
+      await speakResponse(
+        `No problem, we'll come back to it. Moving to ${nextMachine?.name}. Top or bottom?`
+      );
+    } else {
+      // No more machines - check for skipped ones
+      if (skippedMachinesRef.current.length > 0) {
+        const firstSkipped = skippedMachinesRef.current[0];
+        const skippedMachine = routeMachines.find(m => m.number === firstSkipped);
+
+        setSkippedMachines(prev => prev.filter(m => m !== firstSkipped));
+        setCurrentMachine(firstSkipped);
+        setPhase('direction_select');
+        setMachineDirection(null);
+        setCurrentItemIndex(0);
+        setCurrentMachineItems([]);
+
+        await speakResponse(
+          `Let's circle back to ${skippedMachine?.name}. Top or bottom?`
+        );
+      } else {
+        // Route complete with skip
+        await speakResponse(`That's the last machine. Route complete!`, false);
+        setPhase('complete');
+        setShowExitPopup(true);
+      }
+    }
+  }, [getRouteMachines, speakResponse]);
+
+  // Handle "go back" command
+  const handleGoBack = useCallback(async () => {
+    const history = itemHistoryRef.current;
+
+    if (history.length === 0) {
+      await speakResponse("Nothing to undo — you're at the beginning.");
+      return;
+    }
+
+    const lastItem = history[history.length - 1];
+    setItemHistory(prev => prev.slice(0, -1));
+    setTotalItemsCompleted(prev => Math.max(0, prev - 1));
+
+    // If we're on same machine, just go back one item
+    if (lastItem.machine === currentMachineRef.current) {
+      setCurrentItemIndex(lastItem.index);
+      const item = currentMachineItemsRef.current[lastItem.index];
+      if (item) {
+        await speakResponse(`Going back. ${item.item_quantity} ${item.item_name}, slot ${item.slot_number}.`);
+      }
+    } else {
+      // Need to restore previous machine state
+      await speakResponse("Undone. Say 'next' to continue from where you were.");
+    }
+  }, [speakResponse]);
+
+  // Handle starting Route 2 (after mid-CTA)
+  const handleStartRoute2 = useCallback(async () => {
+    setShowMidCTA(false);
+    setCurrentRoute(2);
+    setCurrentMachine(1);
+    setPhase('direction_select');
+    setMachineDirection(null);
+    setCurrentItemIndex(0);
+    setCurrentMachineItems([]);
+    setCompletedMachines([]);
+    discoveryShownRef.current.clear();
+
+    const machines = getRouteMachines(2);
+    const firstMachine = machines[0];
+
+    await speakResponse(
+      `Alright, let's do this! Route 2: Hospital Campus. Starting with ${firstMachine?.name}. Top or bottom?`
+    );
+  }, [getRouteMachines, speakResponse]);
+
+  // ========== VOICE HANDLER ==========
+
   const handleTranscript = useCallback(async (transcript: string, isFinal: boolean) => {
     if (!isFinal || processingRef.current) return;
 
     const lower = transcript.toLowerCase().trim();
     const v = voiceRef.current;
+    const currentPhase = phaseRef.current;
 
-    // Check for start trigger (before demo starts) - USE REF
-    if (!demoStartedRef.current) {
-      const startPhrases = ['stocker start', 'start my route', 'start route', 'start', 'lets go', "let's go", 'begin', 'ready'];
-      if (startPhrases.some(phrase => lower.includes(phrase))) {
-        await handleStartDemoRef.current?.();
-        return;
-      }
-      return;
-    }
-
-    // Handle next/confirmation commands
-    const nextPhrases = ['next', 'done', 'got it', 'okay', 'ok', 'yep', 'yes', 'yeah', 'yup', 'check', 'good', 'cool', 'great', 'perfect', 'ready'];
-    if (nextPhrases.some(phrase => lower.includes(phrase))) {
-      await handleNextRef.current?.();
-      return;
-    }
-
-    // Handle help
-    if (lower.includes('help') || lower.includes('what do i say')) {
-      await speakResponse('Say "next" when you\'ve grabbed the item. Say "stop" to end the demo.');
-      return;
-    }
-
-    // Handle stop/end - IMMEDIATELY stop all audio
+    // Handle stop/end at any time
     if (lower.includes('stop') || lower.includes('end demo') || lower.includes('quit')) {
       v?.stopAudio();
       v?.stopListening();
@@ -340,9 +539,98 @@ export default function DemoLive() {
       return;
     }
 
-    // Unknown command - be helpful
-    await speakResponse("I didn't catch that. Say next when you've grabbed the item.");
-  }, [speakResponse]); // Only speakResponse needed - handlers called via refs
+    // Handle mid-CTA "continue" command
+    if (showMidCTARef.current && (lower.includes('continue') || lower.includes('route 2') || lower.includes('keep going'))) {
+      await handleStartRoute2();
+      return;
+    }
+
+    // Welcome phase - wait for start trigger
+    if (currentPhase === 'welcome') {
+      const startPhrases = ['stocker start', 'start my route', 'start route', 'start', 'lets go', "let's go", 'begin', 'ready'];
+      if (startPhrases.some(phrase => lower.includes(phrase))) {
+        setPhase('route_select');
+        const routes = getUniqueRoutes();
+        await speakResponse(
+          `Awesome! Let's pick a route. Say "Downtown" for ${routes[0]?.name || 'Route 1'}, or "Hospital" for ${routes[1]?.name || 'Route 2'}.`,
+          true
+        );
+      }
+      return;
+    }
+
+    // Route selection phase
+    if (currentPhase === 'route_select') {
+      if (lower.includes('downtown') || lower.includes('office') || lower.includes('one') || lower.includes('first')) {
+        await handleRouteSelection('downtown');
+      } else if (lower.includes('hospital') || lower.includes('campus') || lower.includes('two') || lower.includes('second')) {
+        await handleRouteSelection('hospital');
+      } else {
+        await speakResponse('Say "Downtown" for Route 1, or "Hospital" for Route 2.');
+      }
+      return;
+    }
+
+    // Direction selection phase
+    if (currentPhase === 'direction_select') {
+      if (lower.includes('top')) {
+        await handleDirectionSelection('top');
+      } else if (lower.includes('bottom')) {
+        await handleDirectionSelection('bottom');
+      } else {
+        await speakResponse('Would you like to start from the top or bottom of the machine?');
+      }
+      return;
+    }
+
+    // Stocking phase - main commands
+    if (currentPhase === 'stocking') {
+      // Next/confirmation commands
+      const nextPhrases = ['next', 'done', 'got it', 'okay', 'ok', 'yep', 'yes', 'yeah', 'yup', 'check', 'good', 'cool', 'great', 'perfect'];
+      if (nextPhrases.some(phrase => lower.includes(phrase))) {
+        await handleNext();
+        return;
+      }
+
+      // How many left
+      if (lower.includes('how many') || lower.includes('left') || lower.includes('remaining') || lower.includes('progress')) {
+        await handleHowManyLeft();
+        return;
+      }
+
+      // Skip machine
+      if (lower.includes('skip') && lower.includes('machine')) {
+        await handleSkipMachine();
+        return;
+      }
+
+      // Go back / undo
+      if (lower.includes('go back') || lower.includes('undo') || lower.includes('back') || lower.includes('previous')) {
+        await handleGoBack();
+        return;
+      }
+
+      // What's next / repeat current
+      if (lower.includes("what's next") || lower.includes('repeat') || lower.includes('again') || lower.includes('current')) {
+        const item = currentMachineItemsRef.current[currentItemIndexRef.current];
+        if (item) {
+          await speakResponse(`${item.item_quantity} ${item.item_name}, slot ${item.slot_number}.`);
+        }
+        return;
+      }
+
+      // Help
+      if (lower.includes('help') || lower.includes('what do i say') || lower.includes('commands')) {
+        await speakResponse(
+          'Say "next" when done. "How many left" for progress. "Skip machine" to skip. "Go back" to undo.'
+        );
+        return;
+      }
+
+      // Unknown command
+      await speakResponse("I didn't catch that. Say 'next' when you've grabbed the item, or 'help' for options.");
+    }
+  }, [getUniqueRoutes, handleRouteSelection, handleDirectionSelection, handleNext, handleHowManyLeft, handleSkipMachine, handleGoBack, speakResponse]);
 
   // Handle wake phrase
   const handleWakePhrase = useCallback(async (command: string | null) => {
@@ -352,12 +640,12 @@ export default function DemoLive() {
     if (command && command !== "what's next") {
       await handleTranscript(command, true);
     } else {
-      const currentItem = getCurrentItem();
-      if (currentItem) {
-        await speakResponse(`Current item: ${currentItem.item_quantity} ${currentItem.item_name}, slot ${currentItem.slot_number}. Say next when ready.`);
+      const item = currentMachineItems[currentItemIndex];
+      if (item) {
+        await speakResponse(`${item.item_quantity} ${item.item_name}, slot ${item.slot_number}. Say next when ready.`);
       }
     }
-  }, [handleTranscript, getCurrentItem, speakResponse]);
+  }, [handleTranscript, currentMachineItems, currentItemIndex, speakResponse]);
 
   // Initialize voice
   const voice = useVoice({
@@ -377,9 +665,11 @@ export default function DemoLive() {
     if (demoUser && !isLoading && demoRoutes.length > 0) {
       voice.startListening();
 
-      // Initial greeting - wait for "Stocker, start my route!"
       setTimeout(async () => {
-        await speakResponse(`Hi ${demoUser.firstName}! Say "Stocker, start my route" to begin the demo.`);
+        await speakResponse(
+          `Hi ${demoUser.firstName}! Welcome to Stocker. Say "start my route" when you're ready to begin.`,
+          false
+        );
       }, 500);
     }
 
@@ -388,6 +678,15 @@ export default function DemoLive() {
       voice.stopAudio();
     };
   }, [demoUser, isLoading, demoRoutes.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Toggle machine expansion in completed list
+  const toggleMachineExpand = (machineNum: number) => {
+    setExpandedMachines(prev =>
+      prev.includes(machineNum)
+        ? prev.filter(m => m !== machineNum)
+        : [...prev, machineNum]
+    );
+  };
 
   // Loading state
   if (isLoading || !demoUser) {
@@ -409,12 +708,52 @@ export default function DemoLive() {
     error: 'bg-red-500'
   };
 
+  const routes = getUniqueRoutes();
+  const routeMachines = getRouteMachines(currentRoute);
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#0d1117] via-[#161b22] to-[#0d1117] text-white flex flex-col">
+
+      {/* Mid-Demo CTA Popup (After Route 1) */}
+      {showMidCTA && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+          <div className="bg-[#161b22] rounded-2xl border border-gray-700 p-6 max-w-md w-full">
+            <div className="text-center mb-6">
+              <div className="text-4xl mb-4">🎉</div>
+              <h2 className="text-2xl font-bold text-white mb-2">Nice Work!</h2>
+              <p className="text-gray-400">
+                You just completed Route 1 — {totalItemsCompleted} items picked completely hands-free.
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              <Link to="/signup" className="block w-full">
+                <Button className="w-full h-14 text-lg font-bold bg-emerald-600 hover:bg-emerald-700 rounded-xl">
+                  Start Free Trial — 1 Month FREE
+                  <ArrowRight className="ml-2 h-5 w-5" />
+                </Button>
+              </Link>
+
+              <Button
+                onClick={handleStartRoute2}
+                variant="outline"
+                className="w-full h-12 border-gray-600 hover:bg-gray-800"
+              >
+                Continue to Route 2
+              </Button>
+            </div>
+
+            <p className="text-center text-xs text-gray-500 mt-4">
+              Or just say "Continue" to keep going
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Exit Popup */}
       {showExitPopup && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
-          <div className="bg-[#161b22] rounded-2xl border border-gray-700 p-6 max-w-md w-full">
+          <div className="bg-[#161b22] rounded-2xl border border-gray-700 p-6 max-w-md w-full relative">
             <button
               onClick={() => setShowExitPopup(false)}
               className="absolute top-4 right-4 text-gray-400 hover:text-white"
@@ -427,18 +766,18 @@ export default function DemoLive() {
                 <CheckCircle className="h-8 w-8 text-emerald-400" />
               </div>
               <h2 className="text-2xl font-bold text-white mb-2">
-                {demoComplete ? 'Demo Complete!' : 'Wait! Check This Out...'}
+                {phase === 'complete' ? 'YOU EARNED IT! 🎉' : 'Great Progress!'}
               </h2>
             </div>
 
             {/* Stats */}
             <div className="grid grid-cols-3 gap-4 mb-6">
               <div className="bg-[#0d1117] rounded-xl p-4 text-center">
-                <p className="text-2xl font-bold text-emerald-400">{completedItems.length}</p>
+                <p className="text-2xl font-bold text-emerald-400">{totalItemsCompleted}</p>
                 <p className="text-xs text-gray-400">Items Picked</p>
               </div>
               <div className="bg-[#0d1117] rounded-xl p-4 text-center">
-                <p className="text-2xl font-bold text-emerald-400">{completedMachines}</p>
+                <p className="text-2xl font-bold text-emerald-400">{completedMachines.length}</p>
                 <p className="text-xs text-gray-400">Machines</p>
               </div>
               <div className="bg-[#0d1117] rounded-xl p-4 text-center">
@@ -450,19 +789,19 @@ export default function DemoLive() {
             {/* Discount Offer */}
             <div className="bg-primary/10 border border-primary/20 rounded-xl p-4 mb-6">
               <p className="text-center text-primary font-semibold mb-1">
-                You EARNED 2 extra weeks free!
+                🎁 You EARNED 2 extra weeks free!
               </p>
               <p className="text-center text-sm text-gray-400">
-                Use code <span className="font-mono text-white">{demoUser.discountCode || 'DEMO-BONUS'}</span> at signup
+                Code: <span className="font-mono text-white">{demoUser.discountCode || 'DEMO-BONUS'}</span>
               </p>
               <p className="text-center text-xs text-gray-500 mt-2">
-                Standard 2 weeks + 2 bonus weeks = 1 month free trial
+                Standard 2 weeks + 2 bonus = 1 month free trial
               </p>
             </div>
 
             <Link to="/signup" className="block w-full">
               <Button className="w-full h-14 text-lg font-bold bg-emerald-600 hover:bg-emerald-700 rounded-xl">
-                Start My Free Month
+                Claim My Free Month
                 <ArrowRight className="ml-2 h-5 w-5" />
               </Button>
             </Link>
@@ -490,16 +829,18 @@ export default function DemoLive() {
         <div className="flex-1">
           <span className="text-xs text-emerald-400 font-semibold uppercase">Demo Mode</span>
           <h1 className="text-lg font-semibold">
-            {currentItem ? currentItem.route_name : `Hi, ${demoUser.firstName}!`}
+            {phase === 'stocking' && currentItem
+              ? routes.find(r => r.number === currentRoute)?.name
+              : `Hi, ${demoUser.firstName}!`}
           </h1>
         </div>
         <div className="flex-shrink-0 mx-4">
           <img src="/stocker-ai-logo.jpg" alt="Stocker AI" className="h-12 w-12 rounded-full shadow-lg shadow-teal-500/20" />
         </div>
         <div className="flex-1 flex items-center justify-end gap-2">
-          {currentItem && (
+          {phase === 'stocking' && (
             <span className="text-sm text-gray-400">
-              Machine {currentMachine}/3
+              Machine {currentMachine}/{routeMachines.length}
             </span>
           )}
           <Button
@@ -510,7 +851,7 @@ export default function DemoLive() {
               voice.stopListening();
               setShowExitPopup(true);
             }}
-            className="text-gray-400"
+            className="text-red-400 hover:text-red-300"
           >
             End Demo
           </Button>
@@ -518,24 +859,24 @@ export default function DemoLive() {
       </header>
 
       {/* Progress Bar */}
-      {demoStarted && (
+      {phase === 'stocking' && (
         <div className="px-4 py-2 bg-[#0d1117]">
           <div className="flex items-center justify-between text-xs text-gray-400 mb-1">
-            <span>{completedItems.length} items picked</span>
-            <span>Machine {currentMachine} of 3</span>
+            <span>{totalItemsCompleted} items picked</span>
+            <span>Route {currentRoute} • Machine {currentMachine}</span>
           </div>
           <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
             <div
               className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full transition-all duration-500"
-              style={{ width: `${Math.max(5, (completedItems.length / 21) * 100)}%` }}
+              style={{ width: `${Math.max(5, (totalItemsCompleted / 21) * 100)}%` }}
             />
           </div>
         </div>
       )}
 
-      <main className="flex-1 flex flex-col p-4 gap-4 overflow-hidden pb-20">
-        {/* Pre-start instructions */}
-        {!demoStarted && (
+      <main className="flex-1 flex flex-col p-4 gap-4 overflow-hidden pb-24">
+        {/* Welcome Phase */}
+        {phase === 'welcome' && (
           <div className="flex-1 flex flex-col items-center justify-center text-center">
             <div className="bg-[#161b22] rounded-2xl border border-gray-700 p-6 max-w-sm w-full">
               <div className="w-20 h-20 bg-emerald-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -543,28 +884,36 @@ export default function DemoLive() {
               </div>
               <h2 className="text-xl font-bold text-white mb-2">Ready, {demoUser.firstName}?</h2>
               <p className="text-gray-400 mb-6">
-                Say these commands OUT LOUD to control Stocker:
+                Experience hands-free stocking. Say these commands OUT LOUD:
               </p>
 
               <div className="space-y-3 text-left mb-6">
                 <div className="flex items-center gap-3 p-3 bg-[#0d1117] rounded-lg">
-                  <Volume2 className="h-5 w-5 text-emerald-400" />
-                  <span className="text-white font-medium">"Stocker, start my route!"</span>
+                  <Volume2 className="h-5 w-5 text-emerald-400 shrink-0" />
+                  <span className="text-white font-medium">"Start my route!"</span>
                 </div>
                 <div className="flex items-center gap-3 p-3 bg-[#0d1117] rounded-lg">
-                  <Volume2 className="h-5 w-5 text-emerald-400" />
-                  <span className="text-white font-medium">"Next"</span>
-                  <span className="text-gray-500 text-sm">- after picking item</span>
+                  <Volume2 className="h-5 w-5 text-emerald-400 shrink-0" />
+                  <span className="text-white">"Next"</span>
+                  <span className="text-gray-500 text-sm ml-auto">advance</span>
                 </div>
                 <div className="flex items-center gap-3 p-3 bg-[#0d1117] rounded-lg">
-                  <Volume2 className="h-5 w-5 text-emerald-400" />
-                  <span className="text-white font-medium">"Done"</span>
-                  <span className="text-gray-500 text-sm">- same as next</span>
+                  <Volume2 className="h-5 w-5 text-emerald-400 shrink-0" />
+                  <span className="text-white">"How many left?"</span>
+                </div>
+                <div className="flex items-center gap-3 p-3 bg-[#0d1117] rounded-lg">
+                  <Volume2 className="h-5 w-5 text-emerald-400 shrink-0" />
+                  <span className="text-white">"Skip machine"</span>
+                </div>
+                <div className="flex items-center gap-3 p-3 bg-[#0d1117] rounded-lg">
+                  <Volume2 className="h-5 w-5 text-emerald-400 shrink-0" />
+                  <span className="text-white">"Go back"</span>
+                  <span className="text-gray-500 text-sm ml-auto">undo</span>
                 </div>
               </div>
 
               <p className="text-xs text-gray-500 mb-4">
-                Works best with earbuds in a quiet space
+                🎧 Works best with earbuds in a quiet space
               </p>
 
               <div className="flex items-center justify-center gap-2">
@@ -575,8 +924,68 @@ export default function DemoLive() {
           </div>
         )}
 
-        {/* Active demo view */}
-        {demoStarted && (
+        {/* Route Selection Phase */}
+        {phase === 'route_select' && (
+          <div className="flex-1 flex flex-col items-center justify-center text-center">
+            <div className="bg-[#161b22] rounded-2xl border border-gray-700 p-6 max-w-sm w-full">
+              <h2 className="text-xl font-bold text-white mb-4">Pick a Route</h2>
+              <p className="text-gray-400 mb-6">Say "Downtown" or "Hospital"</p>
+
+              <div className="space-y-3">
+                {routes.map((route) => (
+                  <button
+                    key={route.number}
+                    onClick={() => handleRouteSelection(route.number === 1 ? 'downtown' : 'hospital')}
+                    className="w-full p-4 bg-[#0d1117] rounded-xl border border-gray-700 hover:border-emerald-500 transition-colors text-left"
+                  >
+                    <div className="flex items-center gap-3">
+                      <MapPin className="h-5 w-5 text-emerald-400" />
+                      <div>
+                        <p className="font-semibold text-white">{route.name}</p>
+                        <p className="text-sm text-gray-500">3 machines • 21 items</p>
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Direction Selection Phase */}
+        {phase === 'direction_select' && (
+          <div className="flex-1 flex flex-col items-center justify-center text-center">
+            <div className="bg-[#161b22] rounded-2xl border border-gray-700 p-6 max-w-sm w-full">
+              <h2 className="text-xl font-bold text-white mb-2">
+                {routeMachines.find(m => m.number === currentMachine)?.name}
+              </h2>
+              <p className="text-gray-500 text-sm mb-4">
+                {routeMachines.find(m => m.number === currentMachine)?.location}
+              </p>
+              <p className="text-gray-400 mb-6">Start from top or bottom?</p>
+
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={() => handleDirectionSelection('top')}
+                  className="p-4 bg-[#0d1117] rounded-xl border border-gray-700 hover:border-emerald-500 transition-colors"
+                >
+                  <ChevronUp className="h-8 w-8 text-emerald-400 mx-auto mb-2" />
+                  <p className="font-semibold text-white">Top</p>
+                </button>
+                <button
+                  onClick={() => handleDirectionSelection('bottom')}
+                  className="p-4 bg-[#0d1117] rounded-xl border border-gray-700 hover:border-emerald-500 transition-colors"
+                >
+                  <ChevronDown className="h-8 w-8 text-emerald-400 mx-auto mb-2" />
+                  <p className="font-semibold text-white">Bottom</p>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Stocking Phase */}
+        {phase === 'stocking' && (
           <>
             {/* Current Item Card */}
             <div className={cn(
@@ -585,8 +994,8 @@ export default function DemoLive() {
             )}>
               <div className="flex items-center justify-between">
                 <span className="text-xs text-emerald-400 font-semibold uppercase">Pick Item</span>
-                {currentItem && voice.status === 'listening' && (
-                  <span className="text-xs text-emerald-400 animate-pulse">Say "next" when done</span>
+                {voice.status === 'listening' && (
+                  <span className="text-xs text-emerald-400 animate-pulse">Listening...</span>
                 )}
               </div>
               {currentItem ? (
@@ -596,17 +1005,16 @@ export default function DemoLive() {
                     <span className="text-2xl">{currentItem.item_name}</span>
                   </div>
                   <div className="text-lg text-gray-300 mt-2">Slot {currentItem.slot_number}</div>
-                  <div className="text-sm text-gray-500 mt-1">{currentItem.machine_name} - {currentItem.machine_location}</div>
+                  <div className="text-sm text-gray-500 mt-1">{currentItem.machine_name}</div>
                 </div>
-              ) : demoComplete ? (
-                <div className="mt-4 text-center text-emerald-400">
-                  <CheckCircle className="h-12 w-12 mx-auto mb-2" />
-                  <p className="text-xl font-bold">Demo Complete!</p>
+              ) : (
+                <div className="mt-4 text-center text-gray-500">
+                  Loading item...
                 </div>
-              ) : null}
+              )}
             </div>
 
-            {/* Voice Status + Controls */}
+            {/* Voice Status */}
             <div className="bg-[#161b22] rounded-xl p-4 border border-gray-800">
               <div className="flex items-center gap-3 mb-3">
                 <span className="text-xs text-amber-400 font-semibold uppercase">Mic</span>
@@ -617,21 +1025,16 @@ export default function DemoLive() {
                 )}
               </div>
 
-              {/* Control buttons row */}
               <div className="flex gap-2">
-                {/* Hidden Next button - only shows after 10 seconds stuck */}
-                {showNextButton && voice.status === 'listening' && (
+                {showNextButton && (
                   <Button
                     onClick={handleNext}
                     variant="ghost"
-                    className="flex-1 text-gray-500 hover:text-gray-300 border border-gray-700 hover:border-gray-600"
+                    className="flex-1 text-gray-500 hover:text-gray-300 border border-gray-700"
                   >
-                    <Play className="h-4 w-4 mr-2" />
                     Tap if voice stuck
                   </Button>
                 )}
-
-                {/* Always visible STOP button */}
                 <Button
                   onClick={() => {
                     voice.stopAudio();
@@ -640,8 +1043,8 @@ export default function DemoLive() {
                   }}
                   variant="ghost"
                   className={cn(
-                    "text-red-400 hover:text-red-300 border border-red-900/50 hover:border-red-700 hover:bg-red-950/30",
-                    showNextButton ? "" : "w-full"
+                    "text-red-400 hover:text-red-300 border border-red-900/50 hover:bg-red-950/30",
+                    !showNextButton && "w-full"
                   )}
                 >
                   <X className="h-4 w-4 mr-2" />
@@ -658,40 +1061,64 @@ export default function DemoLive() {
               </p>
             </div>
 
-            {/* Completed Items */}
-            <div className="bg-[#161b22] rounded-xl border border-gray-800 flex-1 overflow-hidden flex flex-col">
-              <div className="px-4 py-2 border-b border-gray-800 flex items-center gap-2">
-                <span className="text-xs text-gray-400 font-semibold uppercase">Done</span>
-                <span className="text-xs text-gray-500">{completedItems.length} items</span>
+            {/* Completed Machines - Grouped */}
+            {completedMachines.length > 0 && (
+              <div className="bg-[#161b22] rounded-xl border border-gray-800 flex-1 overflow-hidden flex flex-col">
+                <div className="px-4 py-2 border-b border-gray-800 flex items-center gap-2">
+                  <span className="text-xs text-gray-400 font-semibold uppercase">Completed</span>
+                  <span className="text-xs text-gray-500">{totalItemsCompleted} items</span>
+                </div>
+                <div className="flex-1 overflow-y-auto">
+                  {completedMachines.map((machine) => (
+                    <div key={machine.machineNumber} className="border-b border-gray-800 last:border-0">
+                      <button
+                        onClick={() => toggleMachineExpand(machine.machineNumber)}
+                        className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-800/50"
+                      >
+                        <div className="flex items-center gap-3">
+                          <CheckCircle className="h-5 w-5 text-emerald-500" />
+                          <div className="text-left">
+                            <p className="font-medium text-white">{machine.machineName}</p>
+                            <p className="text-xs text-gray-500">{machine.items.length} items</p>
+                          </div>
+                        </div>
+                        <ChevronDown className={cn(
+                          "h-4 w-4 text-gray-400 transition-transform",
+                          expandedMachines.includes(machine.machineNumber) && "rotate-180"
+                        )} />
+                      </button>
+
+                      {expandedMachines.includes(machine.machineNumber) && (
+                        <div className="px-4 pb-3 space-y-1">
+                          {machine.items.map((item, i) => (
+                            <div key={i} className="flex items-center gap-3 text-sm text-gray-400 pl-8">
+                              <span className="text-emerald-400">{item.item_quantity}x</span>
+                              <span className="flex-1 truncate">{item.item_name}</span>
+                              <span className="text-gray-600">{item.slot_number}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
-              <div className="flex-1 overflow-y-auto p-4">
-                {completedItems.length === 0 ? (
-                  <p className="text-gray-500 text-center">No items picked yet</p>
-                ) : (
-                  <div className="space-y-2">
-                    {[...completedItems].reverse().map((item, i) => (
-                      <div key={i} className="flex items-center gap-3 text-sm text-gray-400">
-                        <CheckCircle className="h-4 w-4 text-emerald-500" />
-                        <span>{item.item_quantity}x</span>
-                        <span className="flex-1 truncate">{item.item_name}</span>
-                        <span className="text-gray-500">{item.slot_number}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
+            )}
           </>
         )}
       </main>
 
-      {/* Quick command hints footer */}
-      {demoStarted && !demoComplete && (
+      {/* Command hints footer */}
+      {phase === 'stocking' && (
         <div className="fixed bottom-0 left-0 right-0 bg-[#0d1117] border-t border-gray-800 py-3 px-4">
-          <div className="flex justify-center gap-4 text-xs text-gray-500">
-            <span>Say: <span className="text-emerald-400">"next"</span> or <span className="text-emerald-400">"done"</span></span>
-            <span>|</span>
-            <span>Say: <span className="text-amber-400">"help"</span> for options</span>
+          <div className="flex justify-center gap-2 flex-wrap text-xs text-gray-500">
+            <span><span className="text-emerald-400">"next"</span></span>
+            <span>•</span>
+            <span><span className="text-emerald-400">"how many left"</span></span>
+            <span>•</span>
+            <span><span className="text-emerald-400">"skip machine"</span></span>
+            <span>•</span>
+            <span><span className="text-emerald-400">"go back"</span></span>
           </div>
         </div>
       )}
