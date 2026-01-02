@@ -128,7 +128,22 @@ export function useVoice(options: UseVoiceOptions = {}) {
     if (!audioContextRef.current) {
       audioContextRef.current = new AudioContext();
     }
+    // Safari requires resume() after user gesture
+    if (audioContextRef.current.state === 'suspended') {
+      audioContextRef.current.resume();
+    }
     return audioContextRef.current;
+  }, []);
+
+  // Unlock audio on first user interaction (Safari requirement)
+  const unlockAudio = useCallback(() => {
+    // Resume AudioContext
+    if (audioContextRef.current?.state === 'suspended') {
+      audioContextRef.current.resume();
+    }
+    // Play silent audio to unlock HTML5 Audio
+    const silentAudio = new Audio('data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAYYoRwmHAAAAAAD/+1DEAAAGAAGn9AAAIgAANP8AAARM//tQxBUAAADSAAAAAAAAANIAAAAA');
+    silentAudio.play().catch(() => {});
   }, []);
 
   // Success beep - for item confirmation (from original PWA)
@@ -415,6 +430,9 @@ export function useVoice(options: UseVoiceOptions = {}) {
     // Reset stopped flag when starting new session
     stoppedRef.current = false;
 
+    // Unlock audio for Safari (must happen on user gesture)
+    unlockAudio();
+
     try {
       audioStreamRef.current = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -434,7 +452,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
       setStatus('error');
       return false;
     }
-  }, [connectDeepgram, setStatus]); // Using ref for onError
+  }, [connectDeepgram, setStatus, unlockAudio]); // Using ref for onError
 
   const stopListening = useCallback(() => {
     shouldReconnectRef.current = false;
