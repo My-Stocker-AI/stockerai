@@ -912,16 +912,70 @@ export function useVoice(options: UseVoiceOptions = {}) {
 
   const setThinking = useCallback(() => setStatus('thinking'), [setStatus]);
 
+  // CRITICAL: Stop all audio immediately when user leaves/closes page
+  // This prevents the horrible UX of audio continuing after window close
   useEffect(() => {
-    return () => {
-      // Cleanup silence timer on unmount
+    // Stop everything - used for all cleanup scenarios
+    const stopEverything = () => {
+      console.log('[Voice] Stopping all audio and listening');
       if (silenceTimerRef.current) {
         clearTimeout(silenceTimerRef.current);
       }
-      stopListening();
-      stopAudio();
+      // Stop any playing audio immediately
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = '';
+        audioRef.current = null;
+      }
+      // Stop browser speech synthesis
+      try {
+        window.speechSynthesis.cancel();
+      } catch (e) {}
+      // Set stopped flag to prevent pending TTS
+      stoppedRef.current = true;
+      // Stop microphone
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        try {
+          mediaRecorderRef.current.stop();
+        } catch (e) {}
+      }
+      if (audioStreamRef.current) {
+        audioStreamRef.current.getTracks().forEach(track => track.stop());
+      }
     };
-  }, [stopListening, stopAudio]);
+
+    // Handle window/tab close
+    const handleBeforeUnload = () => {
+      stopEverything();
+    };
+
+    // Handle tab visibility change (pause when hidden, optionally resume when visible)
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        console.log('[Voice] Tab hidden - stopping audio');
+        stopEverything();
+      }
+    };
+
+    // Handle page navigation (pagehide is more reliable than beforeunload on mobile)
+    const handlePageHide = () => {
+      stopEverything();
+    };
+
+    // Add event listeners
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('pagehide', handlePageHide);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // Cleanup on unmount
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('pagehide', handlePageHide);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      stopEverything();
+      stopListening();
+    };
+  }, [stopListening]);
 
   return {
     status,
@@ -945,4 +999,4 @@ export function useVoice(options: UseVoiceOptions = {}) {
     extractWakeCommand
   };
 }
-// Build trigger Wed Jan 01 2026 - Safari/iOS audio compatibility fixes
+// Build trigger Wed Jan 01 2026 - Voice cleanup on window close + Stop button

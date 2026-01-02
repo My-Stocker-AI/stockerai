@@ -332,8 +332,9 @@ export default function DemoLive() {
       return;
     }
 
-    // Handle stop/end
+    // Handle stop/end - IMMEDIATELY stop all audio
     if (lower.includes('stop') || lower.includes('end demo') || lower.includes('quit')) {
+      v?.stopAudio();
       v?.stopListening();
       setShowExitPopup(true);
       return;
@@ -504,7 +505,11 @@ export default function DemoLive() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => setShowExitPopup(true)}
+            onClick={() => {
+              voice.stopAudio();
+              voice.stopListening();
+              setShowExitPopup(true);
+            }}
             className="text-gray-400"
           >
             End Demo
@@ -601,7 +606,7 @@ export default function DemoLive() {
               ) : null}
             </div>
 
-            {/* Voice Status */}
+            {/* Voice Status + Controls */}
             <div className="bg-[#161b22] rounded-xl p-4 border border-gray-800">
               <div className="flex items-center gap-3 mb-3">
                 <span className="text-xs text-amber-400 font-semibold uppercase">Mic</span>
@@ -612,17 +617,37 @@ export default function DemoLive() {
                 )}
               </div>
 
-              {/* Hidden Next button - only shows after 10 seconds stuck */}
-              {showNextButton && voice.status === 'listening' && (
+              {/* Control buttons row */}
+              <div className="flex gap-2">
+                {/* Hidden Next button - only shows after 10 seconds stuck */}
+                {showNextButton && voice.status === 'listening' && (
+                  <Button
+                    onClick={handleNext}
+                    variant="ghost"
+                    className="flex-1 text-gray-500 hover:text-gray-300 border border-gray-700 hover:border-gray-600"
+                  >
+                    <Play className="h-4 w-4 mr-2" />
+                    Tap if voice stuck
+                  </Button>
+                )}
+
+                {/* Always visible STOP button */}
                 <Button
-                  onClick={handleNext}
+                  onClick={() => {
+                    voice.stopAudio();
+                    voice.stopListening();
+                    setShowExitPopup(true);
+                  }}
                   variant="ghost"
-                  className="w-full text-gray-500 hover:text-gray-300 border border-gray-700 hover:border-gray-600"
+                  className={cn(
+                    "text-red-400 hover:text-red-300 border border-red-900/50 hover:border-red-700 hover:bg-red-950/30",
+                    showNextButton ? "" : "w-full"
+                  )}
                 >
-                  <Play className="h-4 w-4 mr-2" />
-                  Tap here if voice isn't working
+                  <X className="h-4 w-4 mr-2" />
+                  Stop Demo
                 </Button>
-              )}
+              </div>
             </div>
 
             {/* AI Response */}
