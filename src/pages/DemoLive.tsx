@@ -49,6 +49,30 @@ export default function DemoLive() {
   const processingRef = useRef(false);
   const voiceRef = useRef<any>(null);
 
+  // Refs to avoid stale closures in voice callbacks
+  const demoStartedRef = useRef(false);
+  const demoRoutesRef = useRef<DemoItem[]>([]);
+  const currentRouteRef = useRef<number | null>(null);
+  const currentMachineRef = useRef<number | null>(null);
+  const currentItemIndexRef = useRef(0);
+  const completedItemsRef = useRef<DemoItem[]>([]);
+  const completedMachinesRef = useRef(0);
+  const demoUserRef = useRef<DemoUser | null>(null);
+
+  // Refs for handlers to avoid stale closures
+  const handleStartDemoRef = useRef<() => Promise<void>>();
+  const handleNextRef = useRef<() => Promise<void>>();
+
+  // Sync state to refs for voice callbacks
+  useEffect(() => { demoStartedRef.current = demoStarted; }, [demoStarted]);
+  useEffect(() => { demoRoutesRef.current = demoRoutes; }, [demoRoutes]);
+  useEffect(() => { currentRouteRef.current = currentRoute; }, [currentRoute]);
+  useEffect(() => { currentMachineRef.current = currentMachine; }, [currentMachine]);
+  useEffect(() => { currentItemIndexRef.current = currentItemIndex; }, [currentItemIndex]);
+  useEffect(() => { completedItemsRef.current = completedItems; }, [completedItems]);
+  useEffect(() => { completedMachinesRef.current = completedMachines; }, [completedMachines]);
+  useEffect(() => { demoUserRef.current = demoUser; }, [demoUser]);
+
   // Load demo user from session storage
   useEffect(() => {
     const stored = sessionStorage.getItem('demo_user');
@@ -195,6 +219,9 @@ export default function DemoLive() {
     }
   }, [demoUser, demoRoutes, speakResponse, clearStuckTimer]);
 
+  // Sync handleStartDemo to ref
+  useEffect(() => { handleStartDemoRef.current = handleStartDemo; }, [handleStartDemo]);
+
   // Handle next item
   const handleNext = useCallback(async () => {
     if (processingRef.current) return;
@@ -272,18 +299,21 @@ export default function DemoLive() {
     processingRef.current = false;
   }, [getCurrentItem, getMachineItems, getRouteMachines, currentItemIndex, currentMachine, currentRoute, demoRoutes, completedItems, completedMachines, demoUser, speakResponse, clearStuckTimer]);
 
-  // Handle voice transcript
+  // Sync handleNext to ref
+  useEffect(() => { handleNextRef.current = handleNext; }, [handleNext]);
+
+  // Handle voice transcript - uses refs to avoid stale closures
   const handleTranscript = useCallback(async (transcript: string, isFinal: boolean) => {
     if (!isFinal || processingRef.current) return;
 
     const lower = transcript.toLowerCase().trim();
     const v = voiceRef.current;
 
-    // Check for start trigger (before demo starts)
-    if (!demoStarted) {
+    // Check for start trigger (before demo starts) - USE REF
+    if (!demoStartedRef.current) {
       const startPhrases = ['stocker start', 'start my route', 'start route', 'start', 'lets go', "let's go", 'begin', 'ready'];
       if (startPhrases.some(phrase => lower.includes(phrase))) {
-        await handleStartDemo();
+        await handleStartDemoRef.current?.();
         return;
       }
       return;
@@ -292,7 +322,7 @@ export default function DemoLive() {
     // Handle next/confirmation commands
     const nextPhrases = ['next', 'done', 'got it', 'okay', 'ok', 'yep', 'yes', 'yeah', 'yup', 'check', 'good', 'cool', 'great', 'perfect', 'ready'];
     if (nextPhrases.some(phrase => lower.includes(phrase))) {
-      await handleNext();
+      await handleNextRef.current?.();
       return;
     }
 
@@ -311,7 +341,7 @@ export default function DemoLive() {
 
     // Unknown command - be helpful
     await speakResponse("I didn't catch that. Say next when you've grabbed the item.");
-  }, [demoStarted, handleStartDemo, handleNext, speakResponse]);
+  }, [speakResponse]); // Only speakResponse needed - handlers called via refs
 
   // Handle wake phrase
   const handleWakePhrase = useCallback(async (command: string | null) => {
