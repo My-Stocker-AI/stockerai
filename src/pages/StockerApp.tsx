@@ -13,6 +13,7 @@ import { BottomNav } from '@/components/stocker/BottomNav';
 import { UploadTab } from '@/components/stocker/UploadTab';
 import { HelpSheet } from '@/components/stocker/HelpSheet';
 import { RouteSelectionCard } from '@/components/stocker/RouteSelectionCard';
+import { MachineListPanel } from '@/components/stocker/MachineListPanel';
 
 // Route info for selection cards
 interface RouteOption {
@@ -959,6 +960,24 @@ export default function StockerApp() {
             </div>
           )}
         </div>
+
+        {/* Machine List Panel - Collapsible */}
+        {routeState.machines.length > 0 && (
+          <MachineListPanel
+            machines={routeState.machines}
+            currentMachineId={routeState.currentMachineId}
+            onMachineSelect={(machineId) => {
+              // Handle tapping on a skipped machine to return to it
+              const machine = routeState.machines.find(m => m.id === machineId);
+              if (machine?.status === 'skipped') {
+                handleTranscript('go back to skipped machine', true);
+              }
+            }}
+            onSkipMachine={() => {
+              handleTranscript('skip machine', true);
+            }}
+          />
+        )}
 
         {/* Voice Status + Controls */}
         <div className="bg-[#161b22] rounded-xl p-4 border border-gray-800">

@@ -10,14 +10,29 @@ export interface CurrentItem {
   machineName?: string;  // Track which machine this item came from
 }
 
+export type MachineStatus = 'pending' | 'in_progress' | 'completed' | 'skipped';
+
+export interface MachineState {
+  id: string;
+  name: string;
+  location: string;
+  sequence: number;
+  totalItems: number;
+  completedItems: number;
+  status: MachineStatus;
+  skippedAtItem?: number;  // If skipped mid-machine, track position
+}
+
 export interface RouteState {
   routeName: string | null;
   routeDate: string | null;
   totalMachines: number;
   currentMachineIndex: number;
   currentMachineName: string | null;
+  currentMachineId: string | null;
   currentItem: CurrentItem | null;
   completedItems: CurrentItem[];
+  machines: MachineState[];
   completed: boolean;
 }
 
@@ -27,8 +42,10 @@ const INITIAL_STATE: RouteState = {
   totalMachines: 0,
   currentMachineIndex: 0,
   currentMachineName: null,
+  currentMachineId: null,
   currentItem: null,
   completedItems: [],
+  machines: [],
   completed: false
 };
 
@@ -64,9 +81,22 @@ export function useStockerSession(userId: string | null) {
         next.totalMachines = result.machines_count || result.total_machines || 0;
         next.currentMachineIndex = result.machine_index || 1;
         next.currentMachineName = result.machine_name || '';
+        next.currentMachineId = result.machine_id || null;
         next.currentItem = null;
         next.completedItems = [];
         next.completed = false;
+        // Store machines list from workflow
+        if (result.machines && Array.isArray(result.machines)) {
+          next.machines = result.machines.map((m: any) => ({
+            id: m.id,
+            name: m.name,
+            location: m.location,
+            sequence: m.sequence,
+            totalItems: m.totalItems || 0,
+            completedItems: m.completedItems || 0,
+            status: m.status || 'pending'
+          }));
+        }
       }
 
       if (toolName === 'start_machine') {
@@ -85,9 +115,17 @@ export function useStockerSession(userId: string | null) {
         const action = result.action || '';
 
         if (action === 'next_item' || action === 'next_machine' || action === 'route_complete') {
-          // Add current item to completed list if it exists (check slot as minimum valid item indicator)
+          // Add current item to completed list if it exists
           if (prev.currentItem && prev.currentItem.slot) {
             next.completedItems = [...prev.completedItems, prev.currentItem];
+            // Update machine's completedItems count
+            if (prev.currentMachineId) {
+              next.machines = prev.machines.map(m =>
+                m.id === prev.currentMachineId
+                  ? { ...m, completedItems: m.completedItems + 1 }
+                  : m
+              );
+            }
           }
         }
 
@@ -105,12 +143,76 @@ export function useStockerSession(userId: string | null) {
           next.currentMachineIndex = result.machine_index || prev.currentMachineIndex;
           next.currentMachineName = machineName;
         } else if (action === 'next_machine') {
+          // Mark previous machine as completed
+          if (prev.currentMachineId) {
+            next.machines = prev.machines.map(m =>
+              m.id === prev.currentMachineId
+                ? { ...m, status: 'completed' as const }
+                : m
+            );
+          }
           next.currentMachineIndex = (prev.currentMachineIndex || 0) + 1;
           next.currentMachineName = result.next_machine || '';
+          next.currentMachineId = result.next_machine_id || null;
           next.currentItem = null;
+          // Mark next machine as in_progress
+          if (result.next_machine_id) {
+            next.machines = next.machines.map(m =>
+              m.id === result.next_machine_id
+                ? { ...m, status: 'in_progress' as const }
+                : m
+            );
+          }
         } else if (action === 'route_complete' || action === 'complete') {
+          // Mark last machine as completed
+          if (prev.currentMachineId) {
+            next.machines = prev.machines.map(m =>
+              m.id === prev.currentMachineId
+                ? { ...m, status: 'completed' as const }
+                : m
+            );
+          }
           next.currentItem = null;
           next.completed = true;
+        }
+      }
+
+      if (toolName === 'skip_current_machine') {
+        // Mark current machine as skipped
+        if (prev.currentMachineId) {
+          const currentMachine = prev.machines.find(m => m.id === prev.currentMachineId);
+          next.machines = prev.machines.map(m =>
+            m.id === prev.currentMachineId
+              ? { ...m, status: 'skipped' as const, skippedAtItem: currentMachine?.completedItems || 0 }
+              : m
+          );
+        }
+        next.currentMachineIndex = (prev.currentMachineIndex || 0) + 1;
+        next.currentMachineName = result.next_machine || '';
+        next.currentMachineId = result.next_machine_id || null;
+        next.currentItem = null;
+        // Mark next machine as in_progress
+        if (result.next_machine_id) {
+          next.machines = next.machines.map(m =>
+            m.id === result.next_machine_id
+              ? { ...m, status: 'in_progress' as const }
+              : m
+          );
+        }
+      }
+
+      if (toolName === 'go_back_to_skipped') {
+        // Update the skipped machine to in_progress
+        if (result.machine_id) {
+          next.machines = prev.machines.map(m =>
+            m.id === result.machine_id
+              ? { ...m, status: 'in_progress' as const }
+              : m.id === prev.currentMachineId
+                ? { ...m, status: 'pending' as const } // Put current back to pending
+                : m
+          );
+          next.currentMachineId = result.machine_id;
+          next.currentMachineName = result.machine_name || '';
         }
       }
 
