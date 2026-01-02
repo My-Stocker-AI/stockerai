@@ -118,6 +118,99 @@ export type Database = {
         }
         Relationships: []
       }
+      demo_leads: {
+        Row: {
+          id: string
+          first_name: string
+          email: string
+          wants_contact: boolean | null
+          discount_code: string | null
+          discount_type: string | null
+          discount_used: boolean | null
+          demo_started_at: string | null
+          demo_completed: boolean | null
+          demo_progress: Json | null
+          items_completed: number | null
+          machines_completed: number | null
+          created_at: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          id?: string
+          first_name: string
+          email: string
+          wants_contact?: boolean | null
+          discount_code?: string | null
+          discount_type?: string | null
+          discount_used?: boolean | null
+          demo_started_at?: string | null
+          demo_completed?: boolean | null
+          demo_progress?: Json | null
+          items_completed?: number | null
+          machines_completed?: number | null
+          created_at?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          id?: string
+          first_name?: string
+          email?: string
+          wants_contact?: boolean | null
+          discount_code?: string | null
+          discount_type?: string | null
+          discount_used?: boolean | null
+          demo_started_at?: string | null
+          demo_completed?: boolean | null
+          demo_progress?: Json | null
+          items_completed?: number | null
+          machines_completed?: number | null
+          created_at?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      demo_routes: {
+        Row: {
+          id: string
+          route_number: number
+          route_name: string
+          machine_number: number
+          machine_name: string
+          machine_location: string
+          item_sequence: number
+          item_name: string
+          item_quantity: number
+          slot_number: string
+          created_at: string | null
+        }
+        Insert: {
+          id?: string
+          route_number: number
+          route_name: string
+          machine_number: number
+          machine_name: string
+          machine_location: string
+          item_sequence: number
+          item_name: string
+          item_quantity: number
+          slot_number: string
+          created_at?: string | null
+        }
+        Update: {
+          id?: string
+          route_number?: number
+          route_name?: string
+          machine_number?: number
+          machine_name?: string
+          machine_location?: string
+          item_sequence?: number
+          item_name?: string
+          item_quantity?: number
+          slot_number?: string
+          created_at?: string | null
+        }
+        Relationships: []
+      }
       items: {
         Row: {
           created_at: string | null

@@ -25,6 +25,8 @@ import AdminSubscriptions from "./pages/admin/AdminSubscriptions";
 import AdminMetrics from "./pages/admin/AdminMetrics";
 import AdminDiscounts from "./pages/admin/AdminDiscounts";
 import Guide from "./pages/Guide";
+import Demo from "./pages/Demo";
+import DemoLive from "./pages/DemoLive";
 
 const queryClient = new QueryClient();
 
@@ -39,6 +41,8 @@ const App = () => (
             <Route path="/" element={<Home />} />
             <Route path="/pricing" element={<Pricing />} />
             <Route path="/guide" element={<Guide />} />
+            <Route path="/demo" element={<Demo />} />
+            <Route path="/demo/live" element={<DemoLive />} />
             <Route path="/login" element={<Login />} />
             <Route path="/signup" element={<Signup />} />
             <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />

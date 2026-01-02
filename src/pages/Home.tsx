@@ -110,17 +110,23 @@ const Home = () => {
             </div>
           </div>
 
-          {/* Video Placeholder - Below hero grid */}
+          {/* Live Demo CTA - Below hero grid */}
           <div id="demo" className="mt-16 max-w-3xl mx-auto animate-fade-in-up animation-delay-300 scroll-mt-24">
-            <div className="relative aspect-video bg-slate-900 rounded-xl border border-slate-700 overflow-hidden shadow-2xl shadow-primary/10">
-              <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400">
-                <div className="w-16 h-16 rounded-full bg-primary/20 flex items-center justify-center mb-4 cursor-pointer hover:bg-primary/30 transition-colors">
-                  <svg className="w-8 h-8 text-primary ml-1" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M8 5v14l11-7z"/>
-                  </svg>
-                </div>
-                <p className="text-sm">30-second demo coming soon</p>
+            <div className="relative bg-gradient-to-br from-slate-900 to-[#161b22] rounded-xl border border-slate-700 overflow-hidden shadow-2xl shadow-primary/10 p-8 text-center">
+              <div className="w-20 h-20 rounded-full bg-emerald-500/20 flex items-center justify-center mx-auto mb-4 border-2 border-emerald-500/30">
+                <Mic className="w-10 h-10 text-emerald-400" />
               </div>
+              <h3 className="text-2xl font-bold text-white mb-2">Want to see it in action?</h3>
+              <p className="text-gray-400 mb-6 max-w-md mx-auto">
+                Experience voice-guided stocking right now. No signup needed. 30 seconds to "wow."
+              </p>
+              <Link to="/demo">
+                <Button className="h-14 px-8 text-lg font-bold bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-lg shadow-emerald-500/30">
+                  <Mic className="mr-2 h-5 w-5" />
+                  Try the Live Demo
+                </Button>
+              </Link>
+              <p className="text-xs text-gray-500 mt-4">Works best with earbuds in a quiet space</p>
             </div>
           </div>
         </div>
