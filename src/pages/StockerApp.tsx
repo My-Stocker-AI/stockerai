@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogOut, CheckCircle, Mic, MicOff, Pause, Play, Square, AlertTriangle, Settings, RefreshCw, HelpCircle, Zap } from 'lucide-react';
+import { LogOut, CheckCircle, Mic, MicOff, Pause, Play, Square, AlertTriangle, Settings, RefreshCw, HelpCircle, Zap, MapPin, Package, Truck } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useVoice } from '@/hooks/useVoice';
 import { useStockerAI } from '@/hooks/useStockerAI';
@@ -12,6 +12,15 @@ import { cn } from '@/lib/utils';
 import { BottomNav } from '@/components/stocker/BottomNav';
 import { UploadTab } from '@/components/stocker/UploadTab';
 import { HelpSheet } from '@/components/stocker/HelpSheet';
+import { RouteSelectionCard } from '@/components/stocker/RouteSelectionCard';
+
+// Route info for selection cards
+interface RouteOption {
+  id: string;
+  route_name: string;
+  machines: number;
+  items: number;
+}
 
 // Route verification - check if route still exists (from original PWA)
 async function verifyRouteExists(userId: string, routeName: string, routeDate: string): Promise<boolean> {
@@ -121,6 +130,10 @@ export default function StockerApp() {
   const [savedSession, setSavedSession] = useState<any>(null);
   const [retryCount, setRetryCount] = useState(0);
   const [micPermission, setMicPermission] = useState<'prompt' | 'granted' | 'denied' | 'checking'>('checking');
+  const [showRouteSelection, setShowRouteSelection] = useState(false);
+  const [availableRoutes, setAvailableRoutes] = useState<RouteOption[]>([]);
+  const [selectedRoute, setSelectedRoute] = useState<string | null>(null);
+  const [routeSelectionDate, setRouteSelectionDate] = useState<string>('');
   const processingRef = useRef(false);
   const initStartedRef = useRef(false); // Prevent double initialization
   const MAX_RETRIES = 2;
@@ -215,6 +228,23 @@ export default function StockerApp() {
       return;
     }
 
+    // Handle voice route selection when in route selection mode
+    if (showRouteSelection && availableRoutes.length > 1) {
+      // Try to match the transcript to a route name
+      const matchedRoute = availableRoutes.find(route => {
+        const routeLower = route.route_name.toLowerCase();
+        // Check for exact match or if route name is contained in transcript
+        return lower === routeLower || lower.includes(routeLower) || routeLower.includes(lower);
+      });
+
+      if (matchedRoute) {
+        processingRef.current = true;
+        await selectRoute(matchedRoute.route_name);
+        processingRef.current = false;
+        return;
+      }
+    }
+
     processingRef.current = true;
     v.setThinking();
 
@@ -295,7 +325,7 @@ export default function StockerApp() {
     } finally {
       processingRef.current = false;
     }
-  }, [userName, routeState, addMessage, sendToAI, executeToolCalls, updateFromTool, undoLastItem, retryCount, messagesRef]);
+  }, [userName, routeState, addMessage, sendToAI, executeToolCalls, updateFromTool, undoLastItem, retryCount, messagesRef, showRouteSelection, availableRoutes, selectRoute]);
 
   const handleWakePhrase = useCallback(async (command: string | null) => {
     const v = voiceRef.current;
@@ -472,6 +502,23 @@ export default function StockerApp() {
     }
   }, [savedSession, setRouteState, setSessionId, generateNewSessionId, setMessages, voice]);
 
+  // Handle route selection (voice or tap)
+  const selectRoute = useCallback(async (routeName: string) => {
+    setSelectedRoute(routeName);
+    setShowRouteSelection(false);
+
+    // Trigger the route start
+    const greeting = `Starting your ${routeName} route. Let's go!`;
+    setAiResponse(greeting);
+    addMessage({ role: 'assistant', content: greeting });
+    await voice.speak(greeting);
+
+    // Use handleTranscript to trigger the normal flow
+    setTimeout(() => {
+      handleTranscript(`start ${routeName} route`, true);
+    }, 500);
+  }, [voice, addMessage, handleTranscript]);
+
   const startFresh = useCallback(async () => {
     if (userId) {
       await sessionPersistence.clear(userId);
@@ -481,7 +528,7 @@ export default function StockerApp() {
     setShowResumeDialog(false);
     setInitialized(true);
 
-    // Start listening and greet
+    // Start listening
     await voice.startListening();
 
     try {
@@ -489,41 +536,55 @@ export default function StockerApp() {
       const now = new Date();
       const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
       const data = await getRoutes(today);
-      let greeting = '';
 
       if (data.routes?.length) {
+        // Store routes for display
+        setAvailableRoutes(data.routes);
+        setRouteSelectionDate(today);
+        setShowRouteSelection(true);
+
         const names = data.routes.map((r: any) => r.route_name);
+
         if (names.length === 1) {
-          // AUTO-START: Only one route - start it automatically!
-          greeting = `Hi ${userName}! Starting your ${names[0]} route automatically...`;
+          // Single route: Show card, announce, then auto-start after delay
+          const greeting = `Hi ${userName}! Here's your route for today. Let's get started!`;
           setAiResponse(greeting);
           addMessage({ role: 'assistant', content: greeting });
           await voice.speak(greeting);
-          // Trigger the route start after a brief pause
+
+          // Auto-start after announcement completes (2 second delay)
           setTimeout(() => {
-            handleTranscript(`start ${names[0]} route`, true);
-          }, 500);
-          return; // Exit early - handleTranscript will handle the rest
-        } else if (names.length === 2) {
-          greeting = `Hi ${userName}! You have the ${names[0]} and ${names[1]} routes today. Which one?`;
+            selectRoute(names[0]);
+          }, 2000);
         } else {
-          const lastRoute = names.pop();
-          greeting = `Hi ${userName}! You have ${names.join(', ')}, and ${lastRoute} routes today. Which one?`;
+          // Multiple routes: Show cards, announce options
+          let greeting = '';
+          if (names.length === 2) {
+            greeting = `Hi ${userName}! You have ${names[0]} and ${names[1]} today. Which route would you like?`;
+          } else {
+            const lastRoute = names.pop();
+            greeting = `Hi ${userName}! You have ${names.join(', ')}, and ${lastRoute} today. Which one?`;
+          }
+          setAiResponse(greeting);
+          addMessage({ role: 'assistant', content: greeting });
+          await voice.speak(greeting);
         }
       } else {
-        greeting = `Hi ${userName}! No routes for today. Upload one below or tell me a date!`;
+        // No routes
+        setShowRouteSelection(false);
+        const greeting = `Hi ${userName}! No routes for today. Upload one below or tell me a date!`;
+        setAiResponse(greeting);
+        addMessage({ role: 'assistant', content: greeting });
+        await voice.speak(greeting);
       }
-
-      setAiResponse(greeting);
-      addMessage({ role: 'assistant', content: greeting }); // Add to conversation history
-      await voice.speak(greeting);
     } catch {
+      setShowRouteSelection(false);
       const greeting = `Hi ${userName}! Ready to stock. What route would you like to work on?`;
       setAiResponse(greeting);
-      addMessage({ role: 'assistant', content: greeting }); // Add to conversation history
+      addMessage({ role: 'assistant', content: greeting });
       await voice.speak(greeting);
     }
-  }, [userId, sessionPersistence, reset, generateNewSessionId, voice, getRoutes, userName, addMessage, handleTranscript]);
+  }, [userId, sessionPersistence, reset, generateNewSessionId, voice, getRoutes, userName, addMessage, selectRoute]);
 
   // Tap-to-advance (from original PWA)
   const handleItemCardClick = useCallback(() => {
@@ -781,6 +842,58 @@ export default function StockerApp() {
       <main className="flex-1 flex flex-col p-4 gap-4 overflow-hidden pb-20">
         {activeTab === 'upload' ? (
           <UploadTab />
+        ) : showRouteSelection && availableRoutes.length > 0 ? (
+          /* Route Selection Cards - Voice first, tap as backup */
+          <div className="flex-1 flex flex-col">
+            <div className="text-center mb-6">
+              <h2 className="text-2xl font-bold text-white mb-2">
+                {availableRoutes.length === 1 ? "Your Route" : "Choose a Route"}
+              </h2>
+              <p className="text-gray-400 text-sm">
+                {availableRoutes.length === 1
+                  ? "Starting shortly..."
+                  : "Say the route name or tap to select"}
+              </p>
+            </div>
+
+            <div className="space-y-3 flex-1 overflow-y-auto">
+              {availableRoutes.map((route) => (
+                <RouteSelectionCard
+                  key={route.id}
+                  route={{
+                    route_name: route.route_name,
+                    route_date: routeSelectionDate,
+                    machine_count: route.machines,
+                    item_count: route.items,
+                    machine_names: [] // We don't have machine names in the basic route data
+                  }}
+                  onSelect={selectRoute}
+                  isSelected={selectedRoute === route.route_name}
+                  isLoading={selectedRoute === route.route_name}
+                />
+              ))}
+            </div>
+
+            {/* Voice Status during route selection */}
+            <div className="bg-[#161b22] rounded-xl p-4 border border-gray-800 mt-4">
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-amber-400 font-semibold uppercase">Mic</span>
+                <div className={cn("w-3 h-3 rounded-full", statusColors[voice.status])} />
+                <span className="text-sm text-gray-400 capitalize">{voice.status}</span>
+                {voice.lastInput && (
+                  <span className="text-sm text-amber-400 ml-auto truncate max-w-[50%]">"{voice.lastInput}"</span>
+                )}
+              </div>
+            </div>
+
+            {/* AI Response during route selection */}
+            <div className="bg-[#161b22] rounded-xl p-4 border border-gray-800 mt-3">
+              <span className="text-xs text-purple-400 font-semibold uppercase">Stocker AI Says</span>
+              <p className={cn("mt-2", aiResponse ? "text-white" : "text-gray-500 italic")}>
+                {aiResponse || 'Waiting for command...'}
+              </p>
+            </div>
+          </div>
         ) : (
         <>
         {/* Current Item - Tap to advance */}
