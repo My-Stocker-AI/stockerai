@@ -124,32 +124,107 @@ export function useVoice(options: UseVoiceOptions = {}) {
   // Audio context ref for consistent audio
   const audioContextRef = useRef<AudioContext | null>(null);
 
-  const getAudioContext = useCallback(() => {
+  // Global audio unlock state - persists across component lifecycle
+  const audioUnlockedRef = useRef(false);
+
+  // Get or create AudioContext with Safari/iOS compatibility
+  // CRITICAL: Use webkit prefix + explicit 44100 sample rate for iOS Safari
+  const getAudioContext = useCallback(async () => {
     if (!audioContextRef.current) {
-      audioContextRef.current = new AudioContext();
+      // Safari requires webkit prefix
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContextClass) {
+        console.error('[Voice] AudioContext not supported');
+        return null;
+      }
+      // iOS Safari can init with wrong sample rate - force 44100
+      audioContextRef.current = new AudioContextClass({ sampleRate: 44100 });
     }
-    // Safari requires resume() after user gesture
+
+    // CRITICAL: Safari requires resume() after user gesture
+    // Must check and resume every time before use
     if (audioContextRef.current.state === 'suspended') {
-      audioContextRef.current.resume();
+      try {
+        await audioContextRef.current.resume();
+        console.log('[Voice] AudioContext resumed');
+      } catch (e) {
+        console.warn('[Voice] AudioContext resume failed:', e);
+      }
     }
+
     return audioContextRef.current;
   }, []);
 
-  // Unlock audio on first user interaction (Safari requirement)
-  const unlockAudio = useCallback(() => {
-    // Resume AudioContext
-    if (audioContextRef.current?.state === 'suspended') {
-      audioContextRef.current.resume();
+  // Comprehensive audio unlock for Safari/iOS
+  // CRITICAL: Must be called SYNCHRONOUSLY from user gesture (click/touch)
+  // This handles: AudioContext unlock, HTML5 Audio unlock, iOS mute switch bypass
+  const unlockAudio = useCallback(async () => {
+    // Skip if already unlocked
+    if (audioUnlockedRef.current) {
+      console.log('[Voice] Audio already unlocked');
+      return;
     }
-    // Play silent audio to unlock HTML5 Audio
-    const silentAudio = new Audio('data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAYYoRwmHAAAAAAD/+1DEAAAGAAGn9AAAIgAANP8AAARM//tQxBUAAADSAAAAAAAAANIAAAAA');
-    silentAudio.play().catch(() => {});
+
+    console.log('[Voice] Unlocking audio...');
+
+    // 1. Resume AudioContext (required for Safari)
+    if (audioContextRef.current?.state === 'suspended') {
+      try {
+        await audioContextRef.current.resume();
+        console.log('[Voice] AudioContext resumed in unlock');
+      } catch (e) {
+        console.warn('[Voice] AudioContext resume failed in unlock:', e);
+      }
+    }
+
+    // 2. Create AudioContext if not exists (with user gesture)
+    if (!audioContextRef.current) {
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioContextClass) {
+        audioContextRef.current = new AudioContextClass({ sampleRate: 44100 });
+        console.log('[Voice] AudioContext created in unlock');
+      }
+    }
+
+    // 3. Play silent audio via WebAudio API (unlocks web audio)
+    if (audioContextRef.current) {
+      try {
+        const buffer = audioContextRef.current.createBuffer(1, 1, 22050);
+        const source = audioContextRef.current.createBufferSource();
+        source.buffer = buffer;
+        source.connect(audioContextRef.current.destination);
+        source.start(0);
+        console.log('[Voice] WebAudio silent buffer played');
+      } catch (e) {
+        console.warn('[Voice] WebAudio silent buffer failed:', e);
+      }
+    }
+
+    // 4. Play silent HTML5 Audio (iOS mute switch bypass)
+    // HTML5 Audio plays even when iOS mute switch is on, unlike WebAudio
+    try {
+      const silentAudio = new Audio('data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAYYoRwmHAAAAAAD/+1DEAAAGAAGn9AAAIgAANP8AAARM//tQxBUAAADSAAAAAAAAANIAAAAA');
+      // CRITICAL: play() must be synchronous from user gesture - no await before it
+      const playPromise = silentAudio.play();
+      if (playPromise) {
+        playPromise.catch(() => {
+          // Ignore errors - expected on some browsers
+        });
+      }
+      console.log('[Voice] HTML5 silent audio played');
+    } catch (e) {
+      console.warn('[Voice] HTML5 silent audio failed:', e);
+    }
+
+    audioUnlockedRef.current = true;
+    console.log('[Voice] Audio unlock complete');
   }, []);
 
   // Success beep - for item confirmation (from original PWA)
-  const playSuccessBeep = useCallback(() => {
+  const playSuccessBeep = useCallback(async () => {
     try {
-      const ctx = getAudioContext();
+      const ctx = await getAudioContext();
+      if (!ctx) return;
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.connect(gain);
@@ -160,13 +235,16 @@ export function useVoice(options: UseVoiceOptions = {}) {
       osc.frequency.setValueAtTime(659, ctx.currentTime + 0.1); // E5 ascending
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
       osc.stop(ctx.currentTime + 0.2);
-    } catch (e) {}
+    } catch (e) {
+      console.warn('[Voice] Success beep failed:', e);
+    }
   }, [getAudioContext]);
 
   // Error beep - for undo (from original PWA)
-  const playErrorBeep = useCallback(() => {
+  const playErrorBeep = useCallback(async () => {
     try {
-      const ctx = getAudioContext();
+      const ctx = await getAudioContext();
+      if (!ctx) return;
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.connect(gain);
@@ -177,13 +255,16 @@ export function useVoice(options: UseVoiceOptions = {}) {
       osc.frequency.setValueAtTime(330, ctx.currentTime + 0.15); // E4 descending
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
       osc.stop(ctx.currentTime + 0.3);
-    } catch (e) {}
+    } catch (e) {
+      console.warn('[Voice] Error beep failed:', e);
+    }
   }, [getAudioContext]);
 
   // Ready beep - plays after AI speaks to signal "your turn" (from original PWA)
-  const playReadyBeep = useCallback(() => {
+  const playReadyBeep = useCallback(async () => {
     try {
-      const ctx = getAudioContext();
+      const ctx = await getAudioContext();
+      if (!ctx) return;
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.connect(gain);
@@ -193,7 +274,9 @@ export function useVoice(options: UseVoiceOptions = {}) {
       osc.start();
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
       osc.stop(ctx.currentTime + 0.15);
-    } catch (e) {}
+    } catch (e) {
+      console.warn('[Voice] Ready beep failed:', e);
+    }
   }, [getAudioContext]);
 
   // Legacy playBeep for backward compatibility
@@ -320,27 +403,55 @@ export function useVoice(options: UseVoiceOptions = {}) {
     }
   }, [onTranscript, processAccumulatedTranscript]);
 
-  const setupMediaRecorder = useCallback(() => {
-    if (!audioStreamRef.current) return;
-
-    // Multiple MIME type fallbacks (from original PWA)
+  // Detect supported MIME type for MediaRecorder
+  // CRITICAL: Safari has limited support - must test each type
+  const getSupportedMimeType = useCallback((): string => {
+    // Priority order: Safari-friendly first, then Chrome-friendly
     const types = [
-      'audio/webm;codecs=opus',
-      'audio/webm',
-      'audio/mp4',
-      'audio/ogg;codecs=opus'
+      'audio/mp4',                    // Safari iOS/macOS - AAC in MP4
+      'audio/webm;codecs=opus',       // Chrome/Firefox - Opus in WebM
+      'audio/webm',                   // Chrome fallback
+      'audio/ogg;codecs=opus',        // Firefox fallback
+      'audio/wav',                    // Universal fallback (larger files)
     ];
-    let mimeType = '';
+
     for (const type of types) {
-      if (MediaRecorder.isTypeSupported(type)) {
-        mimeType = type;
-        break;
+      try {
+        if (MediaRecorder.isTypeSupported(type)) {
+          console.log('[Voice] Using MIME type:', type);
+          return type;
+        }
+      } catch (e) {
+        // isTypeSupported can throw on some browsers
+        console.warn('[Voice] Error checking MIME type:', type, e);
       }
     }
+
+    // Return empty string - let browser choose default
+    console.warn('[Voice] No supported MIME type found, using browser default');
+    return '';
+  }, []);
+
+  const setupMediaRecorder = useCallback(() => {
+    if (!audioStreamRef.current) {
+      console.error('[Voice] No audio stream available for MediaRecorder');
+      return;
+    }
+
+    // Check if MediaRecorder is supported
+    if (typeof MediaRecorder === 'undefined') {
+      console.error('[Voice] MediaRecorder not supported');
+      onErrorRef.current?.('Recording not supported on this browser');
+      return;
+    }
+
+    const mimeType = getSupportedMimeType();
 
     try {
       const options: MediaRecorderOptions = mimeType ? { mimeType } : {};
       const recorder = new MediaRecorder(audioStreamRef.current, options);
+
+      console.log('[Voice] MediaRecorder created with options:', options);
 
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0 && socketRef.current?.readyState === WebSocket.OPEN) {
@@ -348,17 +459,20 @@ export function useVoice(options: UseVoiceOptions = {}) {
         }
       };
 
-      recorder.onerror = () => {
+      recorder.onerror = (event) => {
+        console.error('[Voice] MediaRecorder error:', event);
         onErrorRef.current?.('MediaRecorder error');
       };
 
       mediaRecorderRef.current = recorder;
       recorder.start(100);
       isRecordingRef.current = true;
+      console.log('[Voice] MediaRecorder started');
     } catch (e: any) {
+      console.error('[Voice] Failed to create MediaRecorder:', e);
       onErrorRef.current?.(e.message || 'Failed to start recording');
     }
-  }, []); // Using ref, no deps needed
+  }, [getSupportedMimeType]); // Using ref, no deps needed
 
   const connectDeepgram = useCallback(async () => {
     if (socketRef.current?.readyState === WebSocket.OPEN) {
@@ -426,33 +540,70 @@ export function useVoice(options: UseVoiceOptions = {}) {
     });
   }, [ensureToken, startKeepAlive, stopKeepAlive, setupMediaRecorder, handleDeepgramMessage]); // Using ref for onError
 
+  // Get or reuse audio stream - CRITICAL for Safari
+  // Safari bug: Multiple getUserMedia calls can permanently mute previous tracks
+  // Solution: Reuse the same stream across reconnections
+  const getOrCreateAudioStream = useCallback(async (): Promise<MediaStream> => {
+    // Check if we have an existing active stream
+    if (audioStreamRef.current) {
+      const tracks = audioStreamRef.current.getAudioTracks();
+      const activeTrack = tracks.find(t => t.readyState === 'live');
+      if (activeTrack) {
+        console.log('[Voice] Reusing existing audio stream');
+        return audioStreamRef.current;
+      }
+      // Stream exists but tracks are ended - clean up
+      console.log('[Voice] Existing stream has ended tracks, creating new stream');
+      audioStreamRef.current = null;
+    }
+
+    console.log('[Voice] Creating new audio stream');
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        sampleRate: 16000
+      }
+    });
+    audioStreamRef.current = stream;
+    return stream;
+  }, []);
+
   const startListening = useCallback(async () => {
     // Reset stopped flag when starting new session
     stoppedRef.current = false;
 
     // Unlock audio for Safari (must happen on user gesture)
-    unlockAudio();
+    await unlockAudio();
 
     try {
-      audioStreamRef.current = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          sampleRate: 16000
-        }
-      });
+      // Get or reuse existing stream (Safari multiple stream bug fix)
+      await getOrCreateAudioStream();
 
       shouldReconnectRef.current = true;
       await connectDeepgram();
       setStatus('listening');
       return true;
     } catch (error: any) {
-      onErrorRef.current?.(error.message || 'Failed to start listening');
+      // Handle specific microphone errors
+      if (error.name === 'NotAllowedError') {
+        console.error('[Voice] Microphone permission denied');
+        onErrorRef.current?.('Microphone access denied. Please allow microphone access.');
+      } else if (error.name === 'NotFoundError') {
+        console.error('[Voice] No microphone found');
+        onErrorRef.current?.('No microphone found. Please connect a microphone.');
+      } else if (error.name === 'NotReadableError') {
+        console.error('[Voice] Microphone in use');
+        onErrorRef.current?.('Microphone is in use by another application.');
+      } else {
+        console.error('[Voice] Failed to start listening:', error);
+        onErrorRef.current?.(error.message || 'Failed to start listening');
+      }
       setStatus('error');
       return false;
     }
-  }, [connectDeepgram, setStatus, unlockAudio]); // Using ref for onError
+  }, [connectDeepgram, setStatus, unlockAudio, getOrCreateAudioStream]); // Using ref for onError
 
   const stopListening = useCallback(() => {
     shouldReconnectRef.current = false;
@@ -664,7 +815,10 @@ export function useVoice(options: UseVoiceOptions = {}) {
           return;
         }
 
-        // Play audio and wait for completion (matches original PWA playAudio)
+        // Ensure AudioContext is running before playback (Safari requirement)
+        await getAudioContext();
+
+        // Play audio and wait for completion with iOS-compatible setup
         await new Promise<void>((resolve, reject) => {
           // Final check before creating audio element
           if (stoppedRef.current) {
@@ -676,6 +830,11 @@ export function useVoice(options: UseVoiceOptions = {}) {
           const audio = new Audio();
           audioRef.current = audio;
 
+          // iOS Safari audio configuration
+          audio.preload = 'auto';
+          (audio as any).playsInline = true;  // iOS requirement
+          (audio as any).webkitPlaysInline = true;  // Older iOS Safari
+
           audio.onended = () => {
             URL.revokeObjectURL(url);
             audioRef.current = null;
@@ -683,13 +842,45 @@ export function useVoice(options: UseVoiceOptions = {}) {
           };
 
           audio.onerror = (err) => {
+            console.error('[Voice] Audio playback error:', err);
             URL.revokeObjectURL(url);
             audioRef.current = null;
             reject(err);
           };
 
+          // Handle load properly before playing
+          audio.oncanplaythrough = () => {
+            // CRITICAL: play() must NOT have async work before it
+            // The user gesture token expires if we await anything
+            const playPromise = audio.play();
+            if (playPromise) {
+              playPromise.catch((err) => {
+                // Handle NotAllowedError specifically
+                if (err.name === 'NotAllowedError') {
+                  console.warn('[Voice] Audio play blocked by browser - need user gesture');
+                  // Don't reject - fall through to browser TTS
+                  URL.revokeObjectURL(url);
+                  audioRef.current = null;
+                  reject(new Error('NotAllowedError'));
+                } else if (err.name === 'AbortError') {
+                  // AbortError is normal when audio is stopped
+                  console.log('[Voice] Audio playback aborted');
+                  URL.revokeObjectURL(url);
+                  audioRef.current = null;
+                  resolve();
+                } else {
+                  console.error('[Voice] Audio play failed:', err);
+                  URL.revokeObjectURL(url);
+                  audioRef.current = null;
+                  reject(err);
+                }
+              });
+            }
+          };
+
+          // Set source AFTER setting up event handlers
           audio.src = url;
-          audio.play().catch(reject);
+          audio.load();  // Explicitly load for iOS Safari
         });
 
       } catch (error) {
@@ -754,4 +945,4 @@ export function useVoice(options: UseVoiceOptions = {}) {
     extractWakeCommand
   };
 }
-// Build trigger Tue Dec 30 02:09:40 PST 2025
+// Build trigger Wed Jan 01 2026 - Safari/iOS audio compatibility fixes
