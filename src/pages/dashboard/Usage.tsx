@@ -146,7 +146,7 @@ const Usage = () => {
       const thirtyDaysAgo = subDays(new Date(), 30);
       const { data: sessions } = await supabase
         .from('sessions')
-        .select('created_at, items_picked')
+        .select('created_at, current_item_index')
         .in('user_id', userIds)
         .gte('created_at', thirtyDaysAgo.toISOString());
 
@@ -157,10 +157,11 @@ const Usage = () => {
         dateMap[format(date, 'yyyy-MM-dd')] = 0;
       }
 
-      sessions?.forEach(session => {
+      sessions?.forEach((session: any) => {
         const dateKey = format(new Date(session.created_at), 'yyyy-MM-dd');
         if (dateMap[dateKey] !== undefined) {
-          dateMap[dateKey] += session.items_picked || 0;
+          // Use current_item_index as a proxy for items completed
+          dateMap[dateKey] += session.current_item_index || 0;
         }
       });
 
@@ -196,10 +197,10 @@ const Usage = () => {
       if (!teamMembers || teamMembers.length === 0) return [];
 
       // Get sessions for this month for all team members
-      const userIds = teamMembers.map(m => m.user_id);
+      const userIds = teamMembers.map((m: any) => m.user_id);
       const { data: sessions } = await supabase
         .from('sessions')
-        .select('user_id, status, items_picked, machines_completed')
+        .select('user_id, status, current_item_index')
         .in('user_id', userIds)
         .gte('created_at', monthStart.toISOString())
         .lte('created_at', monthEnd.toISOString());
@@ -207,15 +208,17 @@ const Usage = () => {
       // Aggregate stats per driver
       const statsMap: Record<string, { routes: number; items: number; machines: number; days: Set<string> }> = {};
 
-      sessions?.forEach(session => {
+      sessions?.forEach((session: any) => {
         if (!statsMap[session.user_id]) {
           statsMap[session.user_id] = { routes: 0, items: 0, machines: 0, days: new Set() };
         }
         if (session.status === 'completed') {
           statsMap[session.user_id].routes += 1;
         }
-        statsMap[session.user_id].items += session.items_picked || 0;
-        statsMap[session.user_id].machines += session.machines_completed || 0;
+        // Use current_item_index as proxy for items picked
+        statsMap[session.user_id].items += session.current_item_index || 0;
+        // Estimate machines from routes (will be more accurate when proper tracking is added)
+        statsMap[session.user_id].machines += session.status === 'completed' ? 1 : 0;
       });
 
       return teamMembers.map((member: any) => {

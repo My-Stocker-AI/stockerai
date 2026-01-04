@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { format, isToday, isFuture, isPast } from "date-fns";
 import { Route, Play, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
+import { Link } from "react-router-dom";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -143,10 +144,10 @@ const MyRoutes = () => {
             asChild
             className={`w-full ${highlighted ? 'bg-primary hover:bg-primary-hover' : 'bg-dashboard-bg hover:bg-dashboard-card border border-dashboard-border text-dashboard-text'}`}
           >
-            <a href={`/app?route=${route.id}`}>
+            <Link to={`/app?route=${route.id}`}>
               <Play className="mr-2 h-4 w-4" />
               {status === 'in_progress' ? 'Continue Picking' : 'Start Picking'}
-            </a>
+            </Link>
           </Button>
         </CardContent>
       </Card>

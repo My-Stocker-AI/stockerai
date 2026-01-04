@@ -54,6 +54,8 @@ export type Database = {
           created_at: string | null
           driver_count: number | null
           id: string
+          is_platform_account: boolean | null
+          machines_per_driver: number | null
           min_drivers_required: number | null
           name: string
           stripe_customer_id: string | null
@@ -64,6 +66,8 @@ export type Database = {
           created_at?: string | null
           driver_count?: number | null
           id?: string
+          is_platform_account?: boolean | null
+          machines_per_driver?: number | null
           min_drivers_required?: number | null
           name: string
           stripe_customer_id?: string | null
@@ -74,11 +78,106 @@ export type Database = {
           created_at?: string | null
           driver_count?: number | null
           id?: string
+          is_platform_account?: boolean | null
+          machines_per_driver?: number | null
           min_drivers_required?: number | null
           name?: string
           stripe_customer_id?: string | null
           subscription_status?: string | null
           trial_ends_at?: string | null
+        }
+        Relationships: []
+      }
+      demo_leads: {
+        Row: {
+          created_at: string | null
+          demo_completed: boolean | null
+          demo_progress: Json | null
+          demo_started_at: string | null
+          discount_code: string | null
+          discount_type: string | null
+          discount_used: boolean | null
+          email: string
+          first_name: string
+          id: string
+          items_completed: number | null
+          machines_completed: number | null
+          updated_at: string | null
+          wants_contact: boolean | null
+        }
+        Insert: {
+          created_at?: string | null
+          demo_completed?: boolean | null
+          demo_progress?: Json | null
+          demo_started_at?: string | null
+          discount_code?: string | null
+          discount_type?: string | null
+          discount_used?: boolean | null
+          email: string
+          first_name: string
+          id?: string
+          items_completed?: number | null
+          machines_completed?: number | null
+          updated_at?: string | null
+          wants_contact?: boolean | null
+        }
+        Update: {
+          created_at?: string | null
+          demo_completed?: boolean | null
+          demo_progress?: Json | null
+          demo_started_at?: string | null
+          discount_code?: string | null
+          discount_type?: string | null
+          discount_used?: boolean | null
+          email?: string
+          first_name?: string
+          id?: string
+          items_completed?: number | null
+          machines_completed?: number | null
+          updated_at?: string | null
+          wants_contact?: boolean | null
+        }
+        Relationships: []
+      }
+      demo_routes: {
+        Row: {
+          created_at: string | null
+          id: string
+          item_name: string
+          item_quantity: number
+          item_sequence: number
+          machine_location: string
+          machine_name: string
+          machine_number: number
+          route_name: string
+          route_number: number
+          slot_number: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          item_name: string
+          item_quantity: number
+          item_sequence: number
+          machine_location: string
+          machine_name: string
+          machine_number: number
+          route_name: string
+          route_number: number
+          slot_number: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          item_name?: string
+          item_quantity?: number
+          item_sequence?: number
+          machine_location?: string
+          machine_name?: string
+          machine_number?: number
+          route_name?: string
+          route_number?: number
+          slot_number?: string
         }
         Relationships: []
       }
@@ -115,99 +214,6 @@ export type Database = {
           id?: string
           max_uses?: number | null
           times_used?: number | null
-        }
-        Relationships: []
-      }
-      demo_leads: {
-        Row: {
-          id: string
-          first_name: string
-          email: string
-          wants_contact: boolean | null
-          discount_code: string | null
-          discount_type: string | null
-          discount_used: boolean | null
-          demo_started_at: string | null
-          demo_completed: boolean | null
-          demo_progress: Json | null
-          items_completed: number | null
-          machines_completed: number | null
-          created_at: string | null
-          updated_at: string | null
-        }
-        Insert: {
-          id?: string
-          first_name: string
-          email: string
-          wants_contact?: boolean | null
-          discount_code?: string | null
-          discount_type?: string | null
-          discount_used?: boolean | null
-          demo_started_at?: string | null
-          demo_completed?: boolean | null
-          demo_progress?: Json | null
-          items_completed?: number | null
-          machines_completed?: number | null
-          created_at?: string | null
-          updated_at?: string | null
-        }
-        Update: {
-          id?: string
-          first_name?: string
-          email?: string
-          wants_contact?: boolean | null
-          discount_code?: string | null
-          discount_type?: string | null
-          discount_used?: boolean | null
-          demo_started_at?: string | null
-          demo_completed?: boolean | null
-          demo_progress?: Json | null
-          items_completed?: number | null
-          machines_completed?: number | null
-          created_at?: string | null
-          updated_at?: string | null
-        }
-        Relationships: []
-      }
-      demo_routes: {
-        Row: {
-          id: string
-          route_number: number
-          route_name: string
-          machine_number: number
-          machine_name: string
-          machine_location: string
-          item_sequence: number
-          item_name: string
-          item_quantity: number
-          slot_number: string
-          created_at: string | null
-        }
-        Insert: {
-          id?: string
-          route_number: number
-          route_name: string
-          machine_number: number
-          machine_name: string
-          machine_location: string
-          item_sequence: number
-          item_name: string
-          item_quantity: number
-          slot_number: string
-          created_at?: string | null
-        }
-        Update: {
-          id?: string
-          route_number?: number
-          route_name?: string
-          machine_number?: number
-          machine_name?: string
-          machine_location?: string
-          item_sequence?: number
-          item_name?: string
-          item_quantity?: number
-          slot_number?: string
-          created_at?: string | null
         }
         Relationships: []
       }
@@ -521,10 +527,33 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      account_users_view: {
+        Row: {
+          account_id: string | null
+          account_name: string | null
+          can_view_all_routes: boolean | null
+          created_at: string | null
+          email: string | null
+          first_name: string | null
+          id: string | null
+          last_name: string | null
+          role: Database["public"]["Enums"]["app_role"] | null
+          user_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "account_users_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       can_view_all_routes: { Args: { _user_id: string }; Returns: boolean }
+      generate_demo_discount_code: { Args: never; Returns: string }
       get_next_item: {
         Args: { p_session_key: string }
         Returns: {
@@ -551,13 +580,22 @@ export type Database = {
           total_machines: number
         }[]
       }
-      get_user_account_id: { Args: { _user_id: string }; Returns: string }
+      get_user_account_id: { Args: { user_uuid: string }; Returns: string }
       has_role: {
         Args: {
-          _role: Database["public"]["Enums"]["app_role"]
-          _user_id: string
+          required_role: Database["public"]["Enums"]["app_role"]
+          user_uuid: string
         }
         Returns: boolean
+      }
+      update_demo_progress: {
+        Args: {
+          p_demo_completed?: boolean
+          p_email: string
+          p_items_completed: number
+          p_machines_completed: number
+        }
+        Returns: undefined
       }
     }
     Enums: {
