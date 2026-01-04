@@ -100,7 +100,7 @@ const DashboardLayout = ({ children, title, breadcrumbs }: DashboardLayoutProps)
       {/* Logo */}
       <div className="p-4 border-b border-dashboard-border">
         <Link to="/" className="flex items-center gap-2">
-          <img src="/stocker-ai-logo.jpg" alt="Stocker AI" className="h-16 w-16" />
+          <img src="/stocker-logo.png" alt="Stocker AI" className="h-12 w-auto object-contain" />
           <span className="text-xl font-bold text-dashboard-text">Stocker AI</span>
         </Link>
       </div>
@@ -176,7 +176,7 @@ const DashboardLayout = ({ children, title, breadcrumbs }: DashboardLayoutProps)
       {/* Mobile Header - Simple, no hamburger */}
       <header className="lg:hidden flex items-center justify-center p-4 bg-dashboard-bg border-b border-dashboard-border">
         <Link to="/dashboard" className="flex items-center gap-2">
-          <img src="/stocker-ai-logo.jpg" alt="Stocker AI" className="h-12 w-12" />
+          <img src="/stocker-logo.png" alt="Stocker AI" className="h-10 w-auto object-contain" />
           <span className="text-lg font-bold text-dashboard-text">Stocker AI</span>
         </Link>
       </header>
