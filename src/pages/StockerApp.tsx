@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { LogOut, CheckCircle, Mic, MicOff, Pause, Play, Square, AlertTriangle, Settings, RefreshCw, HelpCircle, Zap, MapPin, Package, Truck } from 'lucide-react';
+import { ArrowLeft, CheckCircle, Mic, MicOff, Pause, Play, Square, AlertTriangle, Settings, RefreshCw, HelpCircle, Zap, MapPin, Package, Truck } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useVoice } from '@/hooks/useVoice';
 import { useStockerAI } from '@/hooks/useStockerAI';
@@ -121,7 +121,7 @@ export default function StockerApp() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const routeIdFromUrl = searchParams.get('route'); // Get route ID from URL
-  const { user, userProfile, signOut, loading } = useAuth();
+  const { user, userProfile, loading } = useAuth();
   const [aiResponse, setAiResponse] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [initialized, setInitialized] = useState(false);
@@ -673,10 +673,9 @@ export default function StockerApp() {
     }
   }, [routeState, voice.status, handleTranscript]);
 
-  const handleLogout = async () => {
+  const handleBackToDashboard = () => {
     voice.stopAudio();      // Stop any speaking immediately
     voice.stopListening();  // Stop microphone
-    await signOut();
     navigate('/dashboard');
   };
 
@@ -891,8 +890,8 @@ export default function StockerApp() {
           <Button variant="ghost" size="icon" onClick={() => setShowHelpSheet(true)} title="Voice Commands Help">
             <HelpCircle className="h-5 w-5 text-gray-400" />
           </Button>
-          <Button variant="ghost" size="icon" onClick={handleLogout}>
-            <LogOut className="h-5 w-5" />
+          <Button variant="ghost" size="icon" onClick={handleBackToDashboard} title="Back to Dashboard">
+            <ArrowLeft className="h-5 w-5 text-gray-400" />
           </Button>
         </div>
       </header>
