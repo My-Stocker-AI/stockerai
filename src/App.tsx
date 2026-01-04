@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/hooks/useAuth";
 import { VersionIndicator } from "@/components/VersionIndicator";
 import Home from "./pages/Home";
@@ -55,6 +55,14 @@ const App = () => (
             <Route path="/dashboard/billing" element={<ProtectedRoute adminOnly><Billing /></ProtectedRoute>} />
             <Route path="/dashboard/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
             <Route path="/app" element={<ProtectedRoute><StockerApp /></ProtectedRoute>} />
+
+            {/* Redirects for short URLs */}
+            <Route path="/my-routes" element={<Navigate to="/dashboard/my-routes" replace />} />
+            <Route path="/upload-routes" element={<Navigate to="/dashboard/upload-routes" replace />} />
+            <Route path="/team" element={<Navigate to="/dashboard/team" replace />} />
+            <Route path="/usage" element={<Navigate to="/dashboard/usage" replace />} />
+            <Route path="/billing" element={<Navigate to="/dashboard/billing" replace />} />
+            <Route path="/settings" element={<Navigate to="/dashboard/settings" replace />} />
 
             {/* Platform Admin Routes */}
             <Route path="/admin" element={<PlatformAdminRoute><AdminOverview /></PlatformAdminRoute>} />
