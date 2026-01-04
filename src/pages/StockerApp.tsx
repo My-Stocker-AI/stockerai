@@ -408,6 +408,16 @@ export default function StockerApp() {
     voiceRef.current = voice;
   }, [voice]);
 
+  // CRITICAL: Clean up voice session on unmount (navigation away from this page)
+  // This prevents mic from staying open when user navigates to other pages
+  useEffect(() => {
+    return () => {
+      console.log('[StockerApp] Unmounting - stopping voice session');
+      voice.stopListening();
+      voice.stopAudio();
+    };
+  }, [voice.stopListening, voice.stopAudio]);
+
   useEffect(() => {
     if (sessionId && userId) setSession(sessionId, userId);
   }, [sessionId, userId, setSession]);
