@@ -24,6 +24,7 @@ export interface MachineState {
 }
 
 export interface RouteState {
+  routeId: string | null;
   routeName: string | null;
   routeDate: string | null;
   totalMachines: number;
@@ -37,6 +38,7 @@ export interface RouteState {
 }
 
 const INITIAL_STATE: RouteState = {
+  routeId: null,
   routeName: null,
   routeDate: null,
   totalMachines: 0,
