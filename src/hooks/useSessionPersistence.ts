@@ -9,10 +9,12 @@ interface SessionData {
   id?: string;
   sessionId: string;
   userId: string | null;
+  routeId: string | null;
   routeName: string | null;
   routeDate: string | null;
   totalMachines: number;
   currentMachineIndex: number;
+  currentMachineId: string | null;
   currentMachineName: string | null;
   currentItem: any;
   completedItems: any[];
@@ -96,68 +98,125 @@ export function useSessionPersistence() {
     }
   }, [openDB]);
 
+  // Save session to Supabase sessions table for cross-device sync
   const saveToServer = useCallback(async (data: SessionData, userId: string): Promise<void> => {
-    if (!userId) return;
     try {
-      const { error } = await supabase
-        .from('pwa_sessions')
-        .upsert({
-          user_id: userId,
-          session_data: JSON.stringify(data),
-          updated_at: new Date().toISOString()
-        }, { onConflict: 'user_id' });
+      const sessionKey = `${userId}-${data.routeId || 'active'}`;
+      
+      // Check if session exists
+      const { data: existing } = await supabase
+        .from('sessions')
+        .select('id')
+        .eq('session_key', sessionKey)
+        .eq('user_id', userId)
+        .maybeSingle();
 
-      if (error) {
-        console.log('[Session] Server save skipped:', error.message);
+      const sessionRecord = {
+        session_key: sessionKey,
+        user_id: userId,
+        current_route_id: data.routeId,
+        current_machine_id: data.currentMachineId,
+        current_item_index: data.currentMachineIndex,
+        delivery_date: data.routeDate,
+        status: data.completed ? 'completed' : 'in_progress',
+        updated_at: new Date().toISOString(),
+      };
+
+      if (existing?.id) {
+        await supabase
+          .from('sessions')
+          .update(sessionRecord)
+          .eq('id', existing.id);
       } else {
-        console.log('[Session] Saved to server');
+        await supabase
+          .from('sessions')
+          .insert({
+            ...sessionRecord,
+            started_at: new Date().toISOString(),
+          });
       }
-    } catch (e: any) {
-      console.log('[Session] Server save error:', e.message);
+      
+      console.log('[Session] Saved to server for cross-device sync');
+    } catch (e) {
+      console.error('[Session] Server save error:', e);
     }
   }, []);
 
   const loadFromServer = useCallback(async (userId: string): Promise<SessionData | null> => {
-    if (!userId) return null;
     try {
-      const { data, error } = await supabase
-        .from('pwa_sessions')
-        .select('session_data, updated_at')
+      // Find the most recent in-progress session
+      const { data: session, error } = await supabase
+        .from('sessions')
+        .select(`
+          *,
+          routes:current_route_id (
+            id,
+            route_name,
+            delivery_date,
+            total_machines
+          ),
+          machines:current_machine_id (
+            id,
+            machine_name
+          )
+        `)
         .eq('user_id', userId)
-        .single();
+        .eq('status', 'in_progress')
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-      if (error || !data) {
-        console.log('[Session] No server session found');
-        return null;
-      }
+      if (error || !session) return null;
 
-      const sessionData = JSON.parse(data.session_data);
-      sessionData.savedAt = new Date(data.updated_at).getTime();
-      console.log('[Session] Loaded from server');
-      return sessionData;
-    } catch (e: any) {
-      console.log('[Session] Server load error:', e.message);
+      // Convert server session to local format
+      const route = session.routes as any;
+      const machine = session.machines as any;
+      
+      return {
+        sessionId: session.id,
+        userId: session.user_id,
+        routeId: session.current_route_id,
+        routeName: route?.route_name || null,
+        routeDate: session.delivery_date,
+        totalMachines: route?.total_machines || 0,
+        currentMachineIndex: session.current_item_index || 0,
+        currentMachineId: session.current_machine_id,
+        currentMachineName: machine?.machine_name || null,
+        currentItem: null, // Will be reloaded from DB
+        completedItems: [],
+        completed: session.status === 'completed',
+        conversationHistory: [],
+        savedAt: new Date(session.updated_at || session.created_at).getTime(),
+      };
+    } catch (e) {
+      console.error('[Session] Server load error:', e);
       return null;
     }
   }, []);
 
   const clearServer = useCallback(async (userId: string): Promise<void> => {
-    if (!userId) return;
     try {
+      // Mark all in-progress sessions as completed
       await supabase
-        .from('pwa_sessions')
-        .delete()
-        .eq('user_id', userId);
-      console.log('[Session] Cleared from server');
-    } catch (e: any) {
-      console.log('[Session] Server clear error:', e.message);
+        .from('sessions')
+        .update({ 
+          status: 'completed',
+          completed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .eq('user_id', userId)
+        .eq('status', 'in_progress');
+        
+      console.log('[Session] Cleared server sessions');
+    } catch (e) {
+      console.error('[Session] Server clear error:', e);
     }
   }, []);
 
   const save = useCallback(async (data: SessionData, userId: string | null): Promise<void> => {
     await saveLocal(data);
     if (userId) {
-      // Non-blocking server save
+      // Non-blocking server save for cross-device sync
       saveToServer(data, userId);
     }
   }, [saveLocal, saveToServer]);
@@ -166,7 +225,10 @@ export function useSessionPersistence() {
     // Try server first (allows cross-device sync)
     if (userId) {
       const serverData = await loadFromServer(userId);
-      if (serverData) return serverData;
+      if (serverData && serverData.routeId) {
+        console.log('[Session] Loaded from server (cross-device sync)');
+        return serverData;
+      }
     }
     // Fallback to IndexedDB
     return loadLocal();
@@ -182,7 +244,7 @@ export function useSessionPersistence() {
   const isValidSession = useCallback((data: SessionData | null): boolean => {
     if (!data || !data.savedAt) return false;
     if (Date.now() - data.savedAt > SESSION_EXPIRY_MS) return false;
-    if (!data.routeName) return false;
+    if (!data.routeName && !data.routeId) return false;
     return true;
   }, []);
 

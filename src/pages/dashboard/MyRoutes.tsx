@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { format, isToday, isFuture, isPast } from "date-fns";
+import { format, startOfDay } from "date-fns";
 import { Route, Play, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
+import { Link } from "react-router-dom";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -114,10 +115,30 @@ const MyRoutes = () => {
     }
   };
 
-  // Group routes
-  const todayRoutes = routes.filter(r => isToday(new Date(r.delivery_date)));
-  const futureRoutes = routes.filter(r => isFuture(new Date(r.delivery_date)));
-  const pastRoutes = routes.filter(r => isPast(new Date(r.delivery_date)) && !isToday(new Date(r.delivery_date)));
+  // Group routes - parse dates as local dates (not UTC) to avoid timezone issues
+  // delivery_date is stored as "YYYY-MM-DD" string, so we parse and compare at start of day
+  const today = startOfDay(new Date());
+  
+  const parseDeliveryDate = (dateStr: string) => {
+    // Parse "YYYY-MM-DD" as local date by splitting and constructing
+    const [year, month, day] = dateStr.split('-').map(Number);
+    return new Date(year, month - 1, day);
+  };
+  
+  const todayRoutes = routes.filter(r => {
+    const deliveryDate = parseDeliveryDate(r.delivery_date);
+    return deliveryDate.getTime() === today.getTime();
+  });
+  
+  const futureRoutes = routes.filter(r => {
+    const deliveryDate = parseDeliveryDate(r.delivery_date);
+    return deliveryDate.getTime() > today.getTime();
+  });
+  
+  const pastRoutes = routes.filter(r => {
+    const deliveryDate = parseDeliveryDate(r.delivery_date);
+    return deliveryDate.getTime() < today.getTime();
+  });
 
   const RouteCard = ({ route, highlighted = false }: { route: RouteData; highlighted?: boolean }) => {
     const { status, progress } = getRouteStatus(route);
@@ -143,10 +164,10 @@ const MyRoutes = () => {
             asChild
             className={`w-full ${highlighted ? 'bg-primary hover:bg-primary-hover' : 'bg-dashboard-bg hover:bg-dashboard-card border border-dashboard-border text-dashboard-text'}`}
           >
-            <a href={`/app?route=${route.id}`}>
+            <Link to={`/app?route=${route.id}`}>
               <Play className="mr-2 h-4 w-4" />
               {status === 'in_progress' ? 'Continue Picking' : 'Start Picking'}
-            </a>
+            </Link>
           </Button>
         </CardContent>
       </Card>
@@ -203,7 +224,7 @@ const MyRoutes = () => {
             ).map(([date, dateRoutes]) => (
               <div key={date} className="space-y-3">
                 <h3 className="text-sm font-medium text-dashboard-text-secondary uppercase tracking-wider">
-                  {format(new Date(date), "EEEE, MMMM d")}
+                  {format(parseDeliveryDate(date), "EEEE, MMMM d")}
                 </h3>
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                   {dateRoutes.map((route) => (
@@ -242,7 +263,7 @@ const MyRoutes = () => {
               ).map(([date, dateRoutes]) => (
                 <div key={date} className="space-y-3">
                   <h3 className="text-sm font-medium text-dashboard-text-secondary uppercase tracking-wider">
-                    {format(new Date(date), "EEEE, MMMM d")}
+                    {format(parseDeliveryDate(date), "EEEE, MMMM d")}
                   </h3>
                   <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                     {dateRoutes.map((route) => (

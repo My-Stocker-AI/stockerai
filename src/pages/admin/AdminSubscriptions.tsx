@@ -78,33 +78,27 @@ const AdminSubscriptions = () => {
 
       if (accountsError) throw accountsError;
 
-      // Fetch primary admin for each account
+      // Fetch primary admin for each account using account_users_view
       const accountsWithAdmins = await Promise.all(
         (accountsData || []).map(async (account) => {
           const { data: adminData } = await supabase
-            .from('account_users')
-            .select(`
-              profiles:user_id (
-                email,
-                first_name,
-                last_name
-              )
-            `)
+            .from('account_users_view')
+            .select('email, first_name, last_name')
             .eq('account_id', account.id)
             .eq('role', 'primary_admin')
             .single();
 
           return {
             ...account,
-            primary_admin_email: adminData?.profiles?.email || 'N/A',
-            primary_admin_name: adminData?.profiles
-              ? `${adminData.profiles.first_name || ''} ${adminData.profiles.last_name || ''}`.trim() || adminData.profiles.email
+            primary_admin_email: adminData?.email || 'N/A',
+            primary_admin_name: adminData
+              ? `${adminData.first_name || ''} ${adminData.last_name || ''}`.trim() || adminData.email
               : 'N/A',
           };
         })
       );
 
-      setAccounts(accountsWithAdmins);
+      setAccounts(accountsWithAdmins as Account[]);
     } catch (error: any) {
       console.error('Error fetching accounts:', error);
       toast({
