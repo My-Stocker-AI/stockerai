@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { format, isToday, isFuture, isPast } from "date-fns";
+import { format, isToday, isFuture, isPast, parseISO, startOfDay } from "date-fns";
 import { Route, Play, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
@@ -115,10 +115,30 @@ const MyRoutes = () => {
     }
   };
 
-  // Group routes
-  const todayRoutes = routes.filter(r => isToday(new Date(r.delivery_date)));
-  const futureRoutes = routes.filter(r => isFuture(new Date(r.delivery_date)));
-  const pastRoutes = routes.filter(r => isPast(new Date(r.delivery_date)) && !isToday(new Date(r.delivery_date)));
+  // Group routes - parse dates as local dates (not UTC) to avoid timezone issues
+  // delivery_date is stored as "YYYY-MM-DD" string, so we parse and compare at start of day
+  const today = startOfDay(new Date());
+  
+  const parseDeliveryDate = (dateStr: string) => {
+    // Parse "YYYY-MM-DD" as local date by splitting and constructing
+    const [year, month, day] = dateStr.split('-').map(Number);
+    return new Date(year, month - 1, day);
+  };
+  
+  const todayRoutes = routes.filter(r => {
+    const deliveryDate = parseDeliveryDate(r.delivery_date);
+    return deliveryDate.getTime() === today.getTime();
+  });
+  
+  const futureRoutes = routes.filter(r => {
+    const deliveryDate = parseDeliveryDate(r.delivery_date);
+    return deliveryDate.getTime() > today.getTime();
+  });
+  
+  const pastRoutes = routes.filter(r => {
+    const deliveryDate = parseDeliveryDate(r.delivery_date);
+    return deliveryDate.getTime() < today.getTime();
+  });
 
   const RouteCard = ({ route, highlighted = false }: { route: RouteData; highlighted?: boolean }) => {
     const { status, progress } = getRouteStatus(route);
