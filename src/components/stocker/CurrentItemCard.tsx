@@ -33,7 +33,7 @@ export function CurrentItemCard({ item, machineName, isRouteComplete }: CurrentI
         
         <div className="flex flex-col items-center justify-center py-4 text-center">
           <div className="w-40 h-40 rounded-2xl bg-muted flex items-center justify-center mb-4">
-            <img src="/stocker-ai-logo.jpg" alt="Stocker AI" className="w-28 h-28" />
+            <img src="/stocker-ai-logo.jpg" alt="Stocker AI" className="w-28 h-28 object-contain" />
           </div>
           <p className="text-lg text-muted-foreground">Say "start my route" to begin</p>
         </div>

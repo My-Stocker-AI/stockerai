@@ -84,7 +84,7 @@ const Login = () => {
       {/* Simple Header */}
       <header className="p-4">
         <Link to="/" className="flex items-center gap-2 w-fit">
-          <img src="/stocker-ai-logo.jpg" alt="Stocker AI" className="h-28 w-28" />
+          <img src="/stocker-ai-logo.jpg" alt="Stocker AI" className="h-28 w-28 object-contain" />
           <span className="text-xl font-bold text-foreground">Stocker AI</span>
         </Link>
       </header>
