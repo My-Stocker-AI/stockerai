@@ -96,62 +96,20 @@ export function useSessionPersistence() {
     }
   }, [openDB]);
 
-  const saveToServer = useCallback(async (data: SessionData, userId: string): Promise<void> => {
-    if (!userId) return;
-    try {
-      const { error } = await supabase
-        .from('pwa_sessions')
-        .upsert({
-          user_id: userId,
-          session_data: JSON.stringify(data),
-          updated_at: new Date().toISOString()
-        }, { onConflict: 'user_id' });
-
-      if (error) {
-        console.log('[Session] Server save skipped:', error.message);
-      } else {
-        console.log('[Session] Saved to server');
-      }
-    } catch (e: any) {
-      console.log('[Session] Server save error:', e.message);
-    }
+  // Server sync is disabled until pwa_sessions table is created
+  // For now, sessions are stored locally in IndexedDB only
+  const saveToServer = useCallback(async (_data: SessionData, _userId: string): Promise<void> => {
+    // Server sync disabled - using IndexedDB only
+    console.log('[Session] Server sync disabled, using local storage only');
   }, []);
 
-  const loadFromServer = useCallback(async (userId: string): Promise<SessionData | null> => {
-    if (!userId) return null;
-    try {
-      const { data, error } = await supabase
-        .from('pwa_sessions')
-        .select('session_data, updated_at')
-        .eq('user_id', userId)
-        .single();
-
-      if (error || !data) {
-        console.log('[Session] No server session found');
-        return null;
-      }
-
-      const sessionData = JSON.parse(data.session_data);
-      sessionData.savedAt = new Date(data.updated_at).getTime();
-      console.log('[Session] Loaded from server');
-      return sessionData;
-    } catch (e: any) {
-      console.log('[Session] Server load error:', e.message);
-      return null;
-    }
+  const loadFromServer = useCallback(async (_userId: string): Promise<SessionData | null> => {
+    // Server sync disabled - using IndexedDB only
+    return null;
   }, []);
 
-  const clearServer = useCallback(async (userId: string): Promise<void> => {
-    if (!userId) return;
-    try {
-      await supabase
-        .from('pwa_sessions')
-        .delete()
-        .eq('user_id', userId);
-      console.log('[Session] Cleared from server');
-    } catch (e: any) {
-      console.log('[Session] Server clear error:', e.message);
-    }
+  const clearServer = useCallback(async (_userId: string): Promise<void> => {
+    // Server sync disabled - using IndexedDB only
   }, []);
 
   const save = useCallback(async (data: SessionData, userId: string | null): Promise<void> => {

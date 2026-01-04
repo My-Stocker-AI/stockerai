@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { LogOut, CheckCircle, Mic, MicOff, Pause, Play, Square, AlertTriangle, Settings, RefreshCw, HelpCircle, Zap, MapPin, Package, Truck } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useVoice } from '@/hooks/useVoice';
@@ -119,6 +119,8 @@ function trimConversationHistory(history: any[]): any[] {
 
 export default function StockerApp() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const routeIdFromUrl = searchParams.get('route'); // Get route ID from URL
   const { user, userProfile, signOut, loading } = useAuth();
   const [aiResponse, setAiResponse] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -136,6 +138,7 @@ export default function StockerApp() {
   const [availableRoutes, setAvailableRoutes] = useState<RouteOption[]>([]);
   const [selectedRoute, setSelectedRoute] = useState<string | null>(null);
   const [routeSelectionDate, setRouteSelectionDate] = useState<string>('');
+  const [urlRouteProcessed, setUrlRouteProcessed] = useState(false); // Track if URL route was processed
   const processingRef = useRef(false);
   const initStartedRef = useRef(false); // Prevent double initialization
   const MAX_RETRIES = 2;
@@ -199,6 +202,19 @@ export default function StockerApp() {
       item: lastItem
     };
   }, [routeState, setRouteState]);
+
+  // Handle route selection (voice or tap) - defined before handleTranscript
+  const selectRoute = useCallback(async (routeName: string) => {
+    const v = voiceRef.current;
+    setSelectedRoute(routeName);
+    setShowRouteSelection(false);
+
+    // Trigger the route start
+    const greeting = `Starting your ${routeName} route. Let's go!`;
+    setAiResponse(greeting);
+    addMessage({ role: 'assistant', content: greeting });
+    if (v) await v.speak(greeting);
+  }, [addMessage]);
 
   const handleTranscript = useCallback(async (transcript: string, isFinal: boolean) => {
     if (!isFinal || processingRef.current) return;
@@ -439,11 +455,59 @@ export default function StockerApp() {
   }, []);
 
   // Check for saved session on mount (with route verification from original PWA)
+  // Also handle route ID from URL parameter
   useEffect(() => {
     const checkSavedSession = async () => {
       // Prevent double initialization
       if (!userId || initialized || initStartedRef.current) return;
       initStartedRef.current = true;
+
+      // If we have a route ID from URL, skip saved session and start that route directly
+      if (routeIdFromUrl && !urlRouteProcessed) {
+        console.log('[Stocker] Route ID from URL:', routeIdFromUrl);
+        setUrlRouteProcessed(true);
+        
+        // Fetch route details from database
+        const { data: routeData, error: routeError } = await supabase
+          .from('routes')
+          .select('id, route_name, delivery_date')
+          .eq('id', routeIdFromUrl)
+          .single();
+        
+        if (!routeError && routeData) {
+          // Clear any existing session and start fresh with this route
+          await sessionPersistence.clear(userId);
+          reset();
+          generateNewSessionId();
+          setInitialized(true);
+          
+          // Start listening
+          await voice.startListening();
+          
+          // Set up route for selection and auto-start
+          setAvailableRoutes([{
+            id: routeData.id,
+            route_name: routeData.route_name,
+            machines: 0,
+            items: 0,
+            machine_names: []
+          }]);
+          setRouteSelectionDate(routeData.delivery_date);
+          
+          // Announce and auto-start
+          const greeting = `Hi ${userName}! Starting ${routeData.route_name} route. Let's go!`;
+          setAiResponse(greeting);
+          addMessage({ role: 'assistant', content: greeting });
+          await voice.speak(greeting);
+          
+          // Trigger route start
+          setSelectedRoute(routeData.route_name);
+          return;
+        } else {
+          console.log('[Stocker] Route not found:', routeIdFromUrl, routeError);
+          // Fall through to normal flow if route not found
+        }
+      }
 
       const saved = await sessionPersistence.load(userId);
       if (sessionPersistence.isValidSession(saved) && saved?.userId === userId) {
@@ -466,7 +530,7 @@ export default function StockerApp() {
     if (!loading && user && !initialized) {
       checkSavedSession();
     }
-  }, [loading, user, userId, initialized, sessionPersistence]);
+  }, [loading, user, userId, initialized, sessionPersistence, routeIdFromUrl, urlRouteProcessed, voice, userName, addMessage, reset, generateNewSessionId]);
 
   const resumeSession = useCallback(async () => {
     if (!savedSession) return;
@@ -477,8 +541,10 @@ export default function StockerApp() {
       totalMachines: savedSession.totalMachines,
       currentMachineIndex: savedSession.currentMachineIndex,
       currentMachineName: savedSession.currentMachineName,
+      currentMachineId: savedSession.currentMachineId || null,
       currentItem: savedSession.currentItem,
       completedItems: savedSession.completedItems || [],
+      machines: savedSession.machines || [],
       completed: savedSession.completed || false
     });
     // Restore saved session ID, or generate new one if missing
@@ -504,22 +570,21 @@ export default function StockerApp() {
     }
   }, [savedSession, setRouteState, setSessionId, generateNewSessionId, setMessages, voice]);
 
-  // Handle route selection (voice or tap)
-  const selectRoute = useCallback(async (routeName: string) => {
-    setSelectedRoute(routeName);
-    setShowRouteSelection(false);
-
-    // Trigger the route start
-    const greeting = `Starting your ${routeName} route. Let's go!`;
-    setAiResponse(greeting);
-    addMessage({ role: 'assistant', content: greeting });
-    await voice.speak(greeting);
-
-    // Use handleTranscript to trigger the normal flow
+  // selectRoute is now defined above handleTranscript to avoid "used before declaration" error
+  // Trigger the normal flow after route selection
+  const triggerRouteStart = useCallback((routeName: string) => {
     setTimeout(() => {
       handleTranscript(`start ${routeName} route`, true);
     }, 500);
-  }, [voice, addMessage, handleTranscript]);
+  }, [handleTranscript]);
+
+  // Effect to trigger route start after selection
+  useEffect(() => {
+    if (selectedRoute && !showRouteSelection) {
+      triggerRouteStart(selectedRoute);
+      setSelectedRoute(null); // Reset to prevent re-triggering
+    }
+  }, [selectedRoute, showRouteSelection, triggerRouteStart]);
 
   const startFresh = useCallback(async () => {
     if (userId) {
