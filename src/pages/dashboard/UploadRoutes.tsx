@@ -76,6 +76,13 @@ const UploadRoutes = () => {
   const [selectedRoute, setSelectedRoute] = useState<Route | null>(null);
   const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
 
+  // delivery_date is stored as "YYYY-MM-DD". Parsing with `new Date("YYYY-MM-DD")` treats it as UTC,
+  // which can display as the previous day in some timezones. Always parse as a local date.
+  const parseDeliveryDate = (dateStr: string) => {
+    const [year, month, day] = dateStr.split('-').map(Number);
+    return new Date(year, month - 1, day);
+  };
+
   // Fetch routes for the account
   const { data: routes = [], isLoading: routesLoading } = useQuery({
     queryKey: ['routes', userRole?.account_id],
@@ -478,7 +485,7 @@ const UploadRoutes = () => {
             Object.entries(routesByDate).map(([date, dateRoutes]) => (
               <div key={date} className="space-y-3">
                 <h3 className="text-sm font-medium text-dashboard-text-secondary uppercase tracking-wider">
-                  {format(new Date(date), "EEEE, MMMM d, yyyy")}
+                  {format(parseDeliveryDate(date), "EEEE, MMMM d, yyyy")}
                 </h3>
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                   {dateRoutes.map((route) => (

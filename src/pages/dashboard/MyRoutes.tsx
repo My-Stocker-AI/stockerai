@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { format, isToday, isFuture, isPast, parseISO, startOfDay } from "date-fns";
+import { format, startOfDay } from "date-fns";
 import { Route, Play, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
@@ -224,7 +224,7 @@ const MyRoutes = () => {
             ).map(([date, dateRoutes]) => (
               <div key={date} className="space-y-3">
                 <h3 className="text-sm font-medium text-dashboard-text-secondary uppercase tracking-wider">
-                  {format(new Date(date), "EEEE, MMMM d")}
+                  {format(parseDeliveryDate(date), "EEEE, MMMM d")}
                 </h3>
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                   {dateRoutes.map((route) => (
@@ -263,7 +263,7 @@ const MyRoutes = () => {
               ).map(([date, dateRoutes]) => (
                 <div key={date} className="space-y-3">
                   <h3 className="text-sm font-medium text-dashboard-text-secondary uppercase tracking-wider">
-                    {format(new Date(date), "EEEE, MMMM d")}
+                    {format(parseDeliveryDate(date), "EEEE, MMMM d")}
                   </h3>
                   <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                     {dateRoutes.map((route) => (
