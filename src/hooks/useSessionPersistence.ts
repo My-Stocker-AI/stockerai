@@ -9,10 +9,12 @@ interface SessionData {
   id?: string;
   sessionId: string;
   userId: string | null;
+  routeId: string | null;
   routeName: string | null;
   routeDate: string | null;
   totalMachines: number;
   currentMachineIndex: number;
+  currentMachineId: string | null;
   currentMachineName: string | null;
   currentItem: any;
   completedItems: any[];
@@ -96,26 +98,125 @@ export function useSessionPersistence() {
     }
   }, [openDB]);
 
-  // Server sync is disabled until pwa_sessions table is created
-  // For now, sessions are stored locally in IndexedDB only
-  const saveToServer = useCallback(async (_data: SessionData, _userId: string): Promise<void> => {
-    // Server sync disabled - using IndexedDB only
-    console.log('[Session] Server sync disabled, using local storage only');
+  // Save session to Supabase sessions table for cross-device sync
+  const saveToServer = useCallback(async (data: SessionData, userId: string): Promise<void> => {
+    try {
+      const sessionKey = `${userId}-${data.routeId || 'active'}`;
+      
+      // Check if session exists
+      const { data: existing } = await supabase
+        .from('sessions')
+        .select('id')
+        .eq('session_key', sessionKey)
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      const sessionRecord = {
+        session_key: sessionKey,
+        user_id: userId,
+        current_route_id: data.routeId,
+        current_machine_id: data.currentMachineId,
+        current_item_index: data.currentMachineIndex,
+        delivery_date: data.routeDate,
+        status: data.completed ? 'completed' : 'in_progress',
+        updated_at: new Date().toISOString(),
+      };
+
+      if (existing?.id) {
+        await supabase
+          .from('sessions')
+          .update(sessionRecord)
+          .eq('id', existing.id);
+      } else {
+        await supabase
+          .from('sessions')
+          .insert({
+            ...sessionRecord,
+            started_at: new Date().toISOString(),
+          });
+      }
+      
+      console.log('[Session] Saved to server for cross-device sync');
+    } catch (e) {
+      console.error('[Session] Server save error:', e);
+    }
   }, []);
 
-  const loadFromServer = useCallback(async (_userId: string): Promise<SessionData | null> => {
-    // Server sync disabled - using IndexedDB only
-    return null;
+  const loadFromServer = useCallback(async (userId: string): Promise<SessionData | null> => {
+    try {
+      // Find the most recent in-progress session
+      const { data: session, error } = await supabase
+        .from('sessions')
+        .select(`
+          *,
+          routes:current_route_id (
+            id,
+            route_name,
+            delivery_date,
+            total_machines
+          ),
+          machines:current_machine_id (
+            id,
+            machine_name
+          )
+        `)
+        .eq('user_id', userId)
+        .eq('status', 'in_progress')
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error || !session) return null;
+
+      // Convert server session to local format
+      const route = session.routes as any;
+      const machine = session.machines as any;
+      
+      return {
+        sessionId: session.id,
+        userId: session.user_id,
+        routeId: session.current_route_id,
+        routeName: route?.route_name || null,
+        routeDate: session.delivery_date,
+        totalMachines: route?.total_machines || 0,
+        currentMachineIndex: session.current_item_index || 0,
+        currentMachineId: session.current_machine_id,
+        currentMachineName: machine?.machine_name || null,
+        currentItem: null, // Will be reloaded from DB
+        completedItems: [],
+        completed: session.status === 'completed',
+        conversationHistory: [],
+        savedAt: new Date(session.updated_at || session.created_at).getTime(),
+      };
+    } catch (e) {
+      console.error('[Session] Server load error:', e);
+      return null;
+    }
   }, []);
 
-  const clearServer = useCallback(async (_userId: string): Promise<void> => {
-    // Server sync disabled - using IndexedDB only
+  const clearServer = useCallback(async (userId: string): Promise<void> => {
+    try {
+      // Mark all in-progress sessions as completed
+      await supabase
+        .from('sessions')
+        .update({ 
+          status: 'completed',
+          completed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .eq('user_id', userId)
+        .eq('status', 'in_progress');
+        
+      console.log('[Session] Cleared server sessions');
+    } catch (e) {
+      console.error('[Session] Server clear error:', e);
+    }
   }, []);
 
   const save = useCallback(async (data: SessionData, userId: string | null): Promise<void> => {
     await saveLocal(data);
     if (userId) {
-      // Non-blocking server save
+      // Non-blocking server save for cross-device sync
       saveToServer(data, userId);
     }
   }, [saveLocal, saveToServer]);
@@ -124,7 +225,10 @@ export function useSessionPersistence() {
     // Try server first (allows cross-device sync)
     if (userId) {
       const serverData = await loadFromServer(userId);
-      if (serverData) return serverData;
+      if (serverData && serverData.routeId) {
+        console.log('[Session] Loaded from server (cross-device sync)');
+        return serverData;
+      }
     }
     // Fallback to IndexedDB
     return loadLocal();
@@ -140,7 +244,7 @@ export function useSessionPersistence() {
   const isValidSession = useCallback((data: SessionData | null): boolean => {
     if (!data || !data.savedAt) return false;
     if (Date.now() - data.savedAt > SESSION_EXPIRY_MS) return false;
-    if (!data.routeName) return false;
+    if (!data.routeName && !data.routeId) return false;
     return true;
   }, []);
 

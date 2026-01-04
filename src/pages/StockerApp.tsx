@@ -158,10 +158,12 @@ export default function StockerApp() {
     const sessionData = {
       sessionId,
       userId,
+      routeId: routeState.routeId,
       routeName: routeState.routeName,
       routeDate: routeState.routeDate,
       totalMachines: routeState.totalMachines,
       currentMachineIndex: routeState.currentMachineIndex,
+      currentMachineId: routeState.currentMachineId,
       currentMachineName: routeState.currentMachineName,
       currentItem: routeState.currentItem,
       completedItems: routeState.completedItems,
@@ -536,6 +538,7 @@ export default function StockerApp() {
     if (!savedSession) return;
 
     setRouteState({
+      routeId: savedSession.routeId || null,
       routeName: savedSession.routeName,
       routeDate: savedSession.routeDate,
       totalMachines: savedSession.totalMachines,
