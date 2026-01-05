@@ -833,9 +833,14 @@ export default function DemoLive() {
               </Button>
             </div>
 
-            <p className="text-center text-xs text-gray-500 mt-4">
-              Or just say "Continue" to keep going
-            </p>
+            <div className="flex justify-between mt-4">
+              <p className="text-xs text-gray-500">
+                Or say "Continue" to keep going
+              </p>
+              <Link to="/" className="text-xs text-gray-500 hover:text-gray-300">
+                Return to website
+              </Link>
+            </div>
           </div>
         </div>
       )}
@@ -896,12 +901,17 @@ export default function DemoLive() {
               </Button>
             </Link>
 
-            <button
-              onClick={() => setShowExitPopup(false)}
-              className="w-full text-gray-500 hover:text-gray-300 text-sm mt-4"
-            >
-              Keep exploring the demo
-            </button>
+            <div className="flex justify-between mt-4">
+              <button
+                onClick={() => setShowExitPopup(false)}
+                className="text-gray-500 hover:text-gray-300 text-sm"
+              >
+                Keep exploring the demo
+              </button>
+              <Link to="/" className="text-gray-500 hover:text-gray-300 text-sm">
+                Return to website
+              </Link>
+            </div>
           </div>
         </div>
       )}

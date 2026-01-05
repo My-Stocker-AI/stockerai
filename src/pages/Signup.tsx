@@ -241,11 +241,17 @@ const Signup = () => {
               </Button>
             </form>
 
-            <div className="mt-6 text-center">
+            <div className="mt-6 text-center space-y-2">
               <p className="text-muted-foreground">
                 Already have an account?{" "}
                 <Link to="/login" className="text-primary hover:underline font-medium">
                   Login
+                </Link>
+              </p>
+              <p className="text-muted-foreground text-sm">
+                Not ready yet?{" "}
+                <Link to="/" className="text-muted-foreground hover:text-foreground underline">
+                  Return to website
                 </Link>
               </p>
             </div>
