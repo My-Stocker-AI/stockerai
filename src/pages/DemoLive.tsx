@@ -286,7 +286,7 @@ export default function DemoLive() {
     const firstMachine = machines[0];
 
     await speakResponse(
-      `Great choice! ${routeName}. Let's start with ${firstMachine?.name}. Would you like to stock from the top or bottom?`,
+      `Great choice! ${routeName}. Let's start with ${firstMachine?.name}. Would you like to start at the top of the list, or the bottom?`,
       true
     );
   }, [getRouteMachines, speakResponse]);
@@ -419,7 +419,7 @@ export default function DemoLive() {
         setCurrentMachineItems([]);
 
         await speakResponse(
-          `${extraPrompt ? extraPrompt + ' ' : ''}Moving to ${nextMachine?.name}. Would you like to start from the top or bottom?`
+          `${extraPrompt ? extraPrompt + ' ' : ''}Moving to ${nextMachine?.name}. Would you like to start at the top of the list, or the bottom?`
         );
       }
       // Route complete
@@ -501,7 +501,7 @@ export default function DemoLive() {
       setCurrentMachineItems([]);
 
       await speakResponse(
-        `No problem, we'll come back to it. Moving to ${nextMachine?.name}. Top or bottom?`
+        `No problem, we'll come back to it. Moving to ${nextMachine?.name}. Would you like to start at the top of the list, or the bottom?`
       );
     } else {
       // No more machines - check for skipped ones
@@ -517,7 +517,7 @@ export default function DemoLive() {
         setCurrentMachineItems([]);
 
         await speakResponse(
-          `Let's circle back to ${skippedMachine?.name}. Top or bottom?`
+          `Let's circle back to ${skippedMachine?.name}. Would you like to start at the top of the list, or the bottom?`
         );
       } else {
         // Route complete with skip
@@ -570,7 +570,7 @@ export default function DemoLive() {
     const firstMachine = machines[0];
 
     await speakResponse(
-      `Alright, let's do this! Route 2: Hospital Campus. Starting with ${firstMachine?.name}. Top or bottom?`
+      `Alright, let's do this! Route 2: Hospital Campus. Starting with ${firstMachine?.name}. Would you like to start at the top of the list, or the bottom?`
     );
   }, [getRouteMachines, speakResponse]);
 

@@ -256,6 +256,8 @@ CRITICAL - Date handling:
 - Convert spoken dates to YYYY-MM-DD format
 - NEVER just respond with text when a date is mentioned - ALWAYS call the tool first
 - If user asks about routes without a date, use today's date
+- IMPORTANT: If get_routes_for_date returns 0 routes for today, AUTOMATICALLY call it again with tomorrow's date before responding
+- If both today and tomorrow have no routes, say "No routes for today or tomorrow. Try saying a specific date."
 
 CRITICAL - Starting a route (MUST call set_route_sequence):
 When user confirms they want to start a route, you MUST call set_route_sequence with the route name.
