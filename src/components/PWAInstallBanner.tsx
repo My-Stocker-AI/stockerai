@@ -1,14 +1,26 @@
 import { X, Download } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { usePWAInstall } from '@/hooks/usePWAInstall';
 import { Button } from '@/components/ui/button';
+
+// Detect mobile device
+function isMobileDevice(): boolean {
+  if (typeof window === 'undefined') return false;
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+    || (window.innerWidth <= 768);
+}
 
 export function PWAInstallBanner() {
   const { isInstallable, isInstalled, promptInstall } = usePWAInstall();
   const [dismissed, setDismissed] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
 
-  // Don't show if already installed, not installable, or dismissed
-  if (isInstalled || !isInstallable || dismissed) {
+  useEffect(() => {
+    setIsMobile(isMobileDevice());
+  }, []);
+
+  // Don't show if already installed, not installable, dismissed, or on desktop
+  if (isInstalled || !isInstallable || dismissed || !isMobile) {
     return null;
   }
 
