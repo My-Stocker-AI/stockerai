@@ -206,17 +206,13 @@ export default function StockerApp() {
   }, [routeState, setRouteState]);
 
   // Handle route selection (voice or tap) - defined before handleTranscript
+  // This is called AFTER the initial greeting, so we just trigger the route start silently
   const selectRoute = useCallback(async (routeName: string) => {
-    const v = voiceRef.current;
     setSelectedRoute(routeName);
     setShowRouteSelection(false);
-
-    // Trigger the route start
-    const greeting = `Starting your ${routeName} route. Let's go!`;
-    setAiResponse(greeting);
-    addMessage({ role: 'assistant', content: greeting });
-    if (v) await v.speak(greeting);
-  }, [addMessage]);
+    // Don't announce here - the initial greeting already introduced the route
+    // The triggerRouteStart effect will handle sending the command to the AI
+  }, []);
 
   const handleTranscript = useCallback(async (transcript: string, isFinal: boolean) => {
     if (!isFinal || processingRef.current) return;
@@ -615,44 +611,69 @@ export default function StockerApp() {
       // Use local date, not UTC
       const now = new Date();
       const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-      const data = await getRoutes(today);
+
+      // Calculate tomorrow's date
+      const tomorrow = new Date(now);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const tomorrowStr = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}`;
+
+      // Check today's routes first
+      let data = await getRoutes(today);
+      let routeDate = today;
+      let dateLabel = 'today';
+
+      // If no routes today, check tomorrow
+      if (!data.routes?.length) {
+        const tomorrowData = await getRoutes(tomorrowStr);
+        if (tomorrowData.routes?.length) {
+          data = tomorrowData;
+          routeDate = tomorrowStr;
+          dateLabel = 'tomorrow';
+        }
+      }
 
       if (data.routes?.length) {
         // Store routes for display
         setAvailableRoutes(data.routes);
-        setRouteSelectionDate(today);
+        setRouteSelectionDate(routeDate);
         setShowRouteSelection(true);
 
         const names = data.routes.map((r: any) => r.route_name);
 
         if (names.length === 1) {
-          // Single route: Show card, announce, then auto-start after delay
-          const greeting = `Hi ${userName}! Here's your route for today. Let's get started!`;
+          // SINGLE ROUTE: One smooth greeting that includes everything
+          const routeName = names[0];
+          const greeting = dateLabel === 'today'
+            ? `Hi ${userName}! You've got ${routeName} today. Starting now.`
+            : `Hi ${userName}! You've got ${routeName} for tomorrow. Starting now.`;
           setAiResponse(greeting);
           addMessage({ role: 'assistant', content: greeting });
           await voice.speak(greeting);
 
-          // Auto-start after announcement completes (2 second delay)
-          setTimeout(() => {
-            selectRoute(names[0]);
-          }, 2000);
+          // Auto-start immediately after greeting - no redundant announcement needed
+          selectRoute(routeName);
         } else {
-          // Multiple routes: Show cards, announce options
+          // MULTIPLE ROUTES: Ask user to choose
           let greeting = '';
           if (names.length === 2) {
-            greeting = `Hi ${userName}! You have ${names[0]} and ${names[1]} today. Which route would you like?`;
+            greeting = dateLabel === 'today'
+              ? `Hi ${userName}! You have ${names[0]} and ${names[1]} today. Which one?`
+              : `Hi ${userName}! You have ${names[0]} and ${names[1]} for tomorrow. Which one?`;
           } else {
-            const lastRoute = names.pop();
-            greeting = `Hi ${userName}! You have ${names.join(', ')}, and ${lastRoute} today. Which one?`;
+            const routeList = [...names];
+            const lastRoute = routeList.pop();
+            greeting = dateLabel === 'today'
+              ? `Hi ${userName}! You have ${routeList.join(', ')}, and ${lastRoute} today. Which one?`
+              : `Hi ${userName}! You have ${routeList.join(', ')}, and ${lastRoute} for tomorrow. Which one?`;
           }
           setAiResponse(greeting);
           addMessage({ role: 'assistant', content: greeting });
           await voice.speak(greeting);
         }
       } else {
-        // No routes
+        // NO ROUTES for today or tomorrow
         setShowRouteSelection(false);
-        const greeting = `Hi ${userName}! No routes for today. Upload one below or tell me a date!`;
+        const greeting = `Hi ${userName}! No routes for today or tomorrow. Upload one below, or tell me a specific date.`;
         setAiResponse(greeting);
         addMessage({ role: 'assistant', content: greeting });
         await voice.speak(greeting);
