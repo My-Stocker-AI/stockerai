@@ -35,12 +35,13 @@ interface CompletedMachine {
 
 type DemoPhase = 'welcome' | 'route_select' | 'direction_select' | 'stocking' | 'mid_cta' | 'complete';
 
-// Guided discovery prompt triggers
+// Guided discovery prompt triggers - appear earlier so users learn commands faster
 const DISCOVERY_PROMPTS = {
-  ITEM_3: "Got it. Hey, quick tip — try asking me 'how many left?' anytime to check your progress.",
-  ITEM_6: "Nice! By the way, if you ever need to skip a machine and come back later, just say 'skip machine'.",
+  ITEM_1: "Great! Remember: say 'next' after each item. Try 'how many left' or 'skip machine' anytime.",
+  ITEM_2: "Nice! Quick tip — ask me 'how many left?' to check your progress anytime.",
+  ITEM_4: "Perfect! By the way, say 'skip machine' if you need to come back later.",
   MACHINE_1_DONE: "Machine done! Notice you didn't touch your screen once? That's the whole point.",
-  MACHINE_2_ITEM_2: "Got it. Oh, and you can always say 'go back' if you need to undo the last item."
+  MACHINE_2_ITEM_1: "Got it. And remember, you can say 'go back' if you need to undo the last item."
 };
 
 export default function DemoLive() {
@@ -299,25 +300,30 @@ export default function DemoLive() {
 
     v?.playSuccessBeep();
 
-    // Check for guided discovery prompts
+    // Check for guided discovery prompts - appear earlier so users learn commands faster
     const machineItemCount = itemIdx + 1; // 1-indexed count within this machine
     const totalMachineItems = machineItems.length;
     let extraPrompt = '';
 
-    // Item 3 overall (third item user picks)
-    if (newTotal === 3 && !discoveryShownRef.current.has('ITEM_3')) {
-      discoveryShownRef.current.add('ITEM_3');
-      extraPrompt = ' ' + DISCOVERY_PROMPTS.ITEM_3;
+    // Item 1 (first item user picks) - remind them of key commands
+    if (newTotal === 1 && !discoveryShownRef.current.has('ITEM_1')) {
+      discoveryShownRef.current.add('ITEM_1');
+      extraPrompt = ' ' + DISCOVERY_PROMPTS.ITEM_1;
     }
-    // Item 6 overall
-    else if (newTotal === 6 && !discoveryShownRef.current.has('ITEM_6')) {
-      discoveryShownRef.current.add('ITEM_6');
-      extraPrompt = ' ' + DISCOVERY_PROMPTS.ITEM_6;
+    // Item 2 - "how many left" hint
+    else if (newTotal === 2 && !discoveryShownRef.current.has('ITEM_2')) {
+      discoveryShownRef.current.add('ITEM_2');
+      extraPrompt = ' ' + DISCOVERY_PROMPTS.ITEM_2;
     }
-    // Machine 2, item 2 (after first machine is done, on second item of second machine)
-    else if (machine === 2 && machineItemCount === 2 && !discoveryShownRef.current.has('MACHINE_2_ITEM_2')) {
-      discoveryShownRef.current.add('MACHINE_2_ITEM_2');
-      extraPrompt = ' ' + DISCOVERY_PROMPTS.MACHINE_2_ITEM_2;
+    // Item 4 - "skip machine" hint
+    else if (newTotal === 4 && !discoveryShownRef.current.has('ITEM_4')) {
+      discoveryShownRef.current.add('ITEM_4');
+      extraPrompt = ' ' + DISCOVERY_PROMPTS.ITEM_4;
+    }
+    // Machine 2, item 1 - "go back" hint (earlier than before)
+    else if (machine === 2 && machineItemCount === 1 && !discoveryShownRef.current.has('MACHINE_2_ITEM_1')) {
+      discoveryShownRef.current.add('MACHINE_2_ITEM_1');
+      extraPrompt = ' ' + DISCOVERY_PROMPTS.MACHINE_2_ITEM_1;
     }
 
     // Check if more items in current machine
@@ -571,12 +577,27 @@ export default function DemoLive() {
       return;
     }
 
-    // Direction selection phase
+    // Direction selection phase - also handle common commands here
     if (currentPhase === 'direction_select') {
       if (lower.includes('top')) {
         await handleDirectionSelection('top');
       } else if (lower.includes('bottom')) {
         await handleDirectionSelection('bottom');
+      } else if (lower.includes('how many') || lower.includes('left') || lower.includes('remaining')) {
+        // Let user ask how many items before starting
+        const items = getMachineItems(currentRouteRef.current, currentMachineRef.current);
+        const machines = getRouteMachines(currentRouteRef.current);
+        const machinesRemaining = machines.length - currentMachineRef.current + 1;
+        await speakResponse(
+          `This machine has ${items.length} items. You have ${machinesRemaining} machine${machinesRemaining > 1 ? 's' : ''} on this route. Would you like to start from the top or bottom?`
+        );
+      } else if (lower.includes('skip') && lower.includes('machine')) {
+        // Allow skipping during direction selection too
+        await handleSkipMachine();
+      } else if (lower.includes('help') || lower.includes('commands')) {
+        await speakResponse(
+          'Say "top" or "bottom" to start. You can also ask "how many left" or "skip machine". Once stocking, say "next" after each item.'
+        );
       } else {
         await speakResponse('Would you like to start from the top or bottom of the machine?');
       }
