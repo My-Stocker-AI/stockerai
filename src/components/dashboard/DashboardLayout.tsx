@@ -99,9 +99,9 @@ const DashboardLayout = ({ children, title, breadcrumbs }: DashboardLayoutProps)
     <div className="flex flex-col h-full w-64 bg-dashboard-bg border-r border-dashboard-border">
       {/* Logo */}
       <div className="p-4 border-b border-dashboard-border">
-        <Link to="/" className="flex items-center gap-2">
-          <img src="/stocker-ai-logo.jpg" alt="Stocker AI" className="h-16 w-16 object-contain" />
-          <span className="text-xl font-bold text-dashboard-text">Stocker AI</span>
+        <Link to="/" className="flex items-center gap-3">
+          <img src="/stocker-ai-logo.jpg" alt="Stocker AI" className="h-32 w-32 object-contain" />
+          <span className="text-2xl font-bold text-dashboard-text">Stocker AI</span>
         </Link>
       </div>
 
