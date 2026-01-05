@@ -460,7 +460,7 @@ export default function DemoLive() {
     processingRef.current = false;
   }, [clearStuckTimer, getRouteMachines, speakResponse]);
 
-  // Handle "how many left?" command
+  // Handle "how many left?" command - items left to PICK (progress)
   const handleHowManyLeft = useCallback(async () => {
     const machineItems = currentMachineItemsRef.current;
     const itemIdx = currentItemIndexRef.current;
@@ -471,7 +471,7 @@ export default function DemoLive() {
     const machines = getRouteMachines(route);
     const machinesRemaining = machines.length - machine;
 
-    let response = `${itemsRemaining} items left on this machine.`;
+    let response = `${itemsRemaining} items left to pick on this machine.`;
     if (machinesRemaining > 0) {
       response += ` Then ${machinesRemaining} more machine${machinesRemaining > 1 ? 's' : ''} to go.`;
     } else {
@@ -480,6 +480,19 @@ export default function DemoLive() {
 
     await speakResponse(response);
   }, [getRouteMachines, speakResponse]);
+
+  // Handle "inventory count" command - par level / what's in the machine
+  const handleInventoryCount = useCallback(async () => {
+    const item = currentMachineItemsRef.current[currentItemIndexRef.current];
+    if (item) {
+      // Demo doesn't have real inventory data, so explain what this would show
+      await speakResponse(
+        `In the full app, I'd tell you how many ${item.item_name} are currently in the machine versus its capacity. This helps you know if the machine is running low.`
+      );
+    } else {
+      await speakResponse("No current item to check inventory for.");
+    }
+  }, [speakResponse]);
 
   // Handle "skip machine" command
   const handleSkipMachine = useCallback(async () => {
@@ -629,13 +642,17 @@ export default function DemoLive() {
         await handleDirectionSelection('top');
       } else if (lower.includes('bottom')) {
         await handleDirectionSelection('bottom');
-      } else if (lower.includes('how many') || lower.includes('left') || lower.includes('remaining') || lower.includes('inventory') || lower.includes('count')) {
-        // Let user ask how many items before starting
+      } else if (lower.includes('how many') || lower.includes('left') || lower.includes('remaining')) {
+        // Let user ask how many items to pick before starting
         const items = getMachineItems(currentRouteRef.current, currentMachineRef.current);
         const machines = getRouteMachines(currentRouteRef.current);
         const machinesRemaining = machines.length - currentMachineRef.current + 1;
         await speakResponse(
-          `This machine has ${items.length} items. You have ${machinesRemaining} machine${machinesRemaining > 1 ? 's' : ''} on this route. Would you like to start at the top of the list for this machine, or the bottom?`
+          `This machine has ${items.length} items to pick. You have ${machinesRemaining} machine${machinesRemaining > 1 ? 's' : ''} on this route. Would you like to start at the top of the list for this machine, or the bottom?`
+        );
+      } else if (lower.includes('inventory') || lower.includes('par level') || lower.includes('capacity')) {
+        await speakResponse(
+          `Inventory info is available once you start stocking. Say top or bottom to begin.`
         );
       } else if (lower.includes('skip') && lower.includes('machine')) {
         // Allow skipping during direction selection too
@@ -659,8 +676,14 @@ export default function DemoLive() {
         return;
       }
 
-      // How many left / inventory count
-      if (lower.includes('how many') || lower.includes('left') || lower.includes('remaining') || lower.includes('progress') || lower.includes('inventory') || lower.includes('count')) {
+      // Inventory count (par level - what's in the machine)
+      if (lower.includes('inventory') || lower.includes('par level') || lower.includes('capacity') || (lower.includes('in') && lower.includes('machine'))) {
+        await handleInventoryCount();
+        return;
+      }
+
+      // How many left to pick (progress through route)
+      if (lower.includes('how many') || lower.includes('left') || lower.includes('remaining') || lower.includes('progress')) {
         await handleHowManyLeft();
         return;
       }
@@ -689,7 +712,7 @@ export default function DemoLive() {
       // Help
       if (lower.includes('help') || lower.includes('what do i say') || lower.includes('commands')) {
         await speakResponse(
-          'Say "next" when done. "How many left" for progress. "Skip machine" to skip. "Go back" to undo.'
+          'Say "next" when done. "How many left" for picking progress. "Inventory" for machine stock levels. "Skip machine" to skip. "Go back" to undo.'
         );
         return;
       }

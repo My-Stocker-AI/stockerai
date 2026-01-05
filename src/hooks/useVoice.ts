@@ -698,6 +698,10 @@ export function useVoice(options: UseVoiceOptions = {}) {
     // Set stopped flag to prevent any pending TTS from playing
     stoppedRef.current = true;
 
+    // Clear the speak queue to prevent queued TTS from starting
+    speakQueueRef.current = [];
+    speakLockRef.current = false;
+
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.src = '';
@@ -749,8 +753,21 @@ export function useVoice(options: UseVoiceOptions = {}) {
   const speak = useCallback(async (text: string): Promise<void> => {
     if (!text || !text.trim()) return;
 
+    // Bail out immediately if audio was stopped (user closed/navigated away)
+    if (stoppedRef.current) {
+      console.log('[Voice] Speak cancelled - audio was stopped');
+      return;
+    }
+
     // 1. Acquire lock - only one speak at a time (matches original PWA)
     await acquireSpeakLock();
+
+    // Check again after acquiring lock - user might have closed while waiting
+    if (stoppedRef.current) {
+      console.log('[Voice] Speak cancelled after lock - audio was stopped');
+      releaseSpeakLock();
+      return;
+    }
 
     try {
       // 2. Set state FIRST (before stopping recognition) - matches original PWA
