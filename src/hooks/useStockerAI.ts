@@ -180,7 +180,7 @@ export function useStockerAI() {
     userIdRef.current = userId;
   }, []);
 
-  const buildSystemPrompt = useCallback((userName: string, currentItem: any, routeContext?: { availableRoutes: string[], date: string }) => {
+  const buildSystemPrompt = useCallback((userName: string, currentItem: any, routeContext?: { availableRoutes: string[], date: string, currentRouteName?: string }) => {
     // Use local date, not UTC (toISOString gives UTC which can be wrong timezone)
     const now = new Date();
     const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -195,8 +195,16 @@ export function useStockerAI() {
       }
     }
 
+    // Add current route status to help AI make decisions
+    let currentRouteStatus = '';
+    if (routeContext?.currentRouteName) {
+      currentRouteStatus = `\nCURRENT ACTIVE ROUTE: ${routeContext.currentRouteName}`;
+    } else {
+      currentRouteStatus = '\nCURRENT ACTIVE ROUTE: None (user not yet on a route)';
+    }
+
     let routeSelectionContext = '';
-    if (routeContext) {
+    if (routeContext && routeContext.availableRoutes) {
       routeSelectionContext = `\n\nROUTE SELECTION MODE:
 User is currently choosing from these routes for ${routeContext.date}:
 ${routeContext.availableRoutes.map(r => `- ${r}`).join('\n')}
@@ -350,10 +358,10 @@ When user says they want to switch to a different route while already working on
 When user asks about inventory, machine count, or "what's in the machine" - respond with the current item's inventory data if available.
 
 Current session ID: ${sessionIdRef.current}
-Today's date: ${today}${itemContext}${routeSelectionContext}`;
+Today's date: ${today}${currentRouteStatus}${itemContext}${routeSelectionContext}`;
   }, []);
 
-  const sendToAI = useCallback(async (messages: any[], userName: string, currentItem: any, routeContext?: { availableRoutes: string[], date: string }) => {
+  const sendToAI = useCallback(async (messages: any[], userName: string, currentItem: any, routeContext?: { availableRoutes: string[], date: string, currentRouteName?: string }) => {
     // Check online status (from original PWA)
     if (!navigator.onLine) {
       throw new Error('No internet connection');

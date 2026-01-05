@@ -209,7 +209,7 @@ export default function StockerApp() {
   // This is called AFTER the initial greeting, so we just trigger the route start silently
   const selectRoute = useCallback(async (routeName: string, dateForRoute?: string) => {
     setSelectedRoute(routeName);
-    setShowRouteSelection(false);
+    // DON'T hide route selection yet - wait for first item to load
     // Store the date if provided, so triggerRouteStart can use it
     if (dateForRoute) {
       (window as any).__routeStartDate = dateForRoute;
@@ -295,8 +295,13 @@ export default function StockerApp() {
       // Pass route selection context if in selection mode
       const routeContext = showRouteSelection && availableRoutes.length > 0 ? {
         availableRoutes: availableRoutes.map(r => r.route_name),
-        date: routeSelectionDate
-      } : undefined;
+        date: routeSelectionDate,
+        currentRouteName: routeState.routeName || undefined
+      } : (routeState.routeName ? {
+        availableRoutes: [],
+        date: routeState.routeDate || '',
+        currentRouteName: routeState.routeName
+      } : undefined);
 
       let response = await sendToAI(allMessages, userName, routeState.currentItem, routeContext);
 
@@ -622,11 +627,18 @@ export default function StockerApp() {
 
   // Effect to trigger route start after selection
   useEffect(() => {
-    if (selectedRoute && !showRouteSelection) {
+    if (selectedRoute && showRouteSelection) {
       triggerRouteStart(selectedRoute);
       setSelectedRoute(null); // Reset to prevent re-triggering
     }
   }, [selectedRoute, showRouteSelection, triggerRouteStart]);
+
+  // Effect to hide route selection once first item is loaded
+  useEffect(() => {
+    if (showRouteSelection && routeState.currentItem) {
+      setShowRouteSelection(false);
+    }
+  }, [showRouteSelection, routeState.currentItem]);
 
   const startFresh = useCallback(async () => {
     if (userId) {
