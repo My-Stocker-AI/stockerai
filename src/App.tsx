@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/hooks/useAuth";
 import { VersionIndicator } from "@/components/VersionIndicator";
+import { PWAInstallBanner } from "@/components/PWAInstallBanner";
 import Home from "./pages/Home";
 import Pricing from "./pages/Pricing";
 import Login from "./pages/Login";
@@ -37,6 +38,7 @@ const App = () => (
       <Toaster />
       <Sonner />
       <VersionIndicator />
+      <PWAInstallBanner />
       <BrowserRouter>
         <AuthProvider>
           <Routes>
