@@ -139,6 +139,23 @@ const TOOLS = [
         required: ["session_id", "direction"]
       }
     }
+  },
+  {
+    type: "function",
+    function: {
+      name: "switch_route",
+      description: "Switch to a different route, with option to preserve or reset progress on current route",
+      parameters: {
+        type: "object",
+        properties: {
+          session_id: { type: "string", description: "Session ID" },
+          target_route: { type: "string", description: "Name of route to switch to" },
+          date: { type: "string", description: "Delivery date in YYYY-MM-DD format" },
+          preserve_progress: { type: "boolean", description: "True to save progress, false to reset" }
+        },
+        required: ["session_id", "target_route", "date", "preserve_progress"]
+      }
+    }
   }
 ];
 
@@ -150,7 +167,8 @@ const WEBHOOK_MAP: Record<string, string> = {
   'update_session_state': '/update-state',
   'start_machine': '/start-machine',
   'skip_current_machine': '/skip-machine',
-  'go_back_to_skipped': '/back-to-skipped'
+  'go_back_to_skipped': '/back-to-skipped',
+  'switch_route': '/switch-route'
 };
 
 export function useStockerAI() {
@@ -252,26 +270,32 @@ Common mishearings to watch for:
 If you suspect a mishearing, say: "Did you mean [likely word]?"
 
 CRITICAL - Date handling:
-- When user mentions ANY date (like "December 27", "the 27th", "yesterday", "last Friday"), you MUST call get_routes_for_date with that date
-- Convert spoken dates to YYYY-MM-DD format
+- When user mentions ANY date (like "December 27", "the 27th", "yesterday", "tomorrow", "last Friday"), you MUST call get_routes_for_date with that date
+- Convert spoken dates to YYYY-MM-DD format (e.g., "tomorrow" becomes the next day's date)
 - NEVER just respond with text when a date is mentioned - ALWAYS call the tool first
-- If user asks about routes without a date, use today's date
-- If get_routes_for_date returns 0 routes, suggest checking another date
+- If user asks about routes without a date, use today's date FIRST
+- SMART FALLBACK: If get_routes_for_date returns 0 routes for today, check tomorrow (today + 1 day)
+- If still no routes, suggest: "I don't see any routes for today or tomorrow. What date were you looking for?"
 
 CRITICAL - Starting a route (MUST call set_route_sequence):
-When user says to start a route, you MUST call set_route_sequence immediately with the route name.
-Trigger phrases that REQUIRE calling set_route_sequence:
-- "start [Route Name]", "start [Route Name] route"
-- "start my route", "start the route", "let's start", "let's go", "start"
-- Route name by itself: "North Route", "the north one"
-- "ready", "yes", "yeah", "yep", "sure" (after being asked which route)
+When user says to start a route, follow this INTELLIGENT flow:
+1. If user specifies a date (e.g., "start South route for tomorrow"), use that date
+2. If NO date specified (e.g., "start South route"):
+   a. Call get_routes_for_date with today's date
+   b. If that route is NOT found today, say: "I don't see [Route Name] for today. Did you mean tomorrow, or a different date?"
+   c. Wait for user to clarify the date, then call set_route_sequence with the correct date
+3. Trigger phrases that REQUIRE calling set_route_sequence:
+   - "start [Route Name]", "start [Route Name] route"
+   - "start my route", "start the route", "let's start", "let's go", "start"
+   - Route name by itself: "North Route", "the north one"
+   - "ready", "yes", "yeah", "yep", "sure" (after being asked which route)
+4. ONLY call set_route_sequence when you have BOTH the route name AND the correct date
 
-IMPORTANT: The app has already announced the route to the user. Do NOT repeat the route name.
-Just call set_route_sequence and then ask about direction.
-
-After set_route_sequence returns machine info, ask ONLY about direction:
-"[machine_name], [X] items. Top or bottom?"
-Keep it SHORT - the user already knows which route they're starting.
+IMPORTANT: The workflows return a "spoken" field with the complete response for TTS.
+The frontend uses this directly - you don't need to generate a response for tool results.
+If you DO generate a response, use the FULL direction question to be consistent:
+"Would you like to start at the top of the list for this machine, or the bottom?"
+NEVER say just "Top or bottom?" - always use the full question.
 
 CRITICAL - Direction responses (MUST call start_machine tool):
 When user responds with direction after being asked about list order:
@@ -295,6 +319,16 @@ Skip is a significant action - DON'T skip on garbled/unclear input!
 CRITICAL - Go back commands (MUST call go_back_to_skipped tool):
 - "go back", "back to skipped", "return to skipped" = call go_back_to_skipped
 - NEVER just acknowledge - ALWAYS call the tool first
+
+CRITICAL - Switch route commands (REQUIRES USER CHOICE):
+When user says they want to switch to a different route while already working on a route:
+1. First, ASK the user: "Do you want to keep your progress on [current route], or start fresh?"
+2. Wait for user response:
+   - "keep progress", "keep it", "save it", "preserve" = call switch_route with preserve_progress=true
+   - "start fresh", "reset", "start over", "from scratch" = call switch_route with preserve_progress=false
+3. Then call switch_route with the target_route name and their preserve_progress choice
+- If user is NOT currently on a route, just call set_route_sequence normally (no need for switch_route)
+- Trigger phrases: "switch to [Route]", "change to [Route]", "do [Route] instead", "actually [Route]"
 
 When user asks about inventory, machine count, or "what's in the machine" - respond with the current item's inventory data if available.
 

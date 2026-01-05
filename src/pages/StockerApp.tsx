@@ -207,9 +207,13 @@ export default function StockerApp() {
 
   // Handle route selection (voice or tap) - defined before handleTranscript
   // This is called AFTER the initial greeting, so we just trigger the route start silently
-  const selectRoute = useCallback(async (routeName: string) => {
+  const selectRoute = useCallback(async (routeName: string, dateForRoute?: string) => {
     setSelectedRoute(routeName);
     setShowRouteSelection(false);
+    // Store the date if provided, so triggerRouteStart can use it
+    if (dateForRoute) {
+      (window as any).__routeStartDate = dateForRoute;
+    }
     // Don't announce here - the initial greeting already introduced the route
     // The triggerRouteStart effect will handle sending the command to the AI
   }, []);
@@ -246,16 +250,35 @@ export default function StockerApp() {
 
     // Handle voice route selection when in route selection mode
     if (showRouteSelection && availableRoutes.length > 1) {
-      // Try to match the transcript to a route name
+      // Enhanced fuzzy matching with phonetic alternatives for common mishearings
       const matchedRoute = availableRoutes.find(route => {
         const routeLower = route.route_name.toLowerCase();
-        // Check for exact match or if route name is contained in transcript
-        return lower === routeLower || lower.includes(routeLower) || routeLower.includes(lower);
+        const routeWords = routeLower.split(/\s+/);
+
+        // Exact or substring match
+        if (lower === routeLower || lower.includes(routeLower) || routeLower.includes(lower)) {
+          return true;
+        }
+
+        // Check if transcript contains any significant word from route name (2+ chars)
+        const transcriptWords = lower.split(/\s+/);
+        const hasSignificantMatch = routeWords.some(word =>
+          word.length >= 2 && transcriptWords.some(tw =>
+            tw.includes(word) || word.includes(tw) ||
+            // Phonetic similarity for common mishearings
+            (word === 'south' && (tw === 'sout' || tw === 'sowth' || tw === 'mouth')) ||
+            (word === 'north' && (tw === 'nort' || tw === 'northe')) ||
+            (word === 'east' && (tw === 'eest' || tw === 'ist')) ||
+            (word === 'west' && (tw === 'wes' || tw === 'vest'))
+          )
+        );
+
+        return hasSignificantMatch;
       });
 
       if (matchedRoute) {
         processingRef.current = true;
-        await selectRoute(matchedRoute.route_name);
+        await selectRoute(matchedRoute.route_name, routeSelectionDate);
         processingRef.current = false;
         return;
       }
@@ -583,7 +606,11 @@ export default function StockerApp() {
   // Trigger the normal flow after route selection
   const triggerRouteStart = useCallback((routeName: string) => {
     setTimeout(() => {
-      handleTranscript(`start ${routeName} route`, true);
+      const storedDate = (window as any).__routeStartDate;
+      const dateStr = storedDate ? ` for ${storedDate}` : '';
+      handleTranscript(`start ${routeName} route${dateStr}`, true);
+      // Clean up stored date
+      delete (window as any).__routeStartDate;
     }, 500);
   }, [handleTranscript]);
 
@@ -973,7 +1000,7 @@ export default function StockerApp() {
                     item_count: route.items,
                     machine_names: route.machine_names || []
                   }}
-                  onSelect={selectRoute}
+                  onSelect={(name) => selectRoute(name, routeSelectionDate)}
                   isSelected={selectedRoute === route.route_name}
                   isLoading={selectedRoute === route.route_name}
                 />

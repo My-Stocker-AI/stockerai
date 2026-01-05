@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { format, startOfDay } from "date-fns";
-import { Route, Play, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
+import { Route, Play, ChevronDown, ChevronUp, Loader2, Trash2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { Button } from "@/components/ui/button";
@@ -8,9 +8,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useToast } from "@/hooks/use-toast";
 
 interface RouteData {
   id: string;
@@ -30,6 +32,11 @@ interface Session {
 const MyRoutes = () => {
   const { user, userRole } = useAuth();
   const [pastRoutesOpen, setPastRoutesOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [routeToDelete, setRouteToDelete] = useState<RouteData | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
 
   const isPrimaryAdmin = userRole?.role === 'primary_admin';
   const canViewAllRoutes = userRole?.can_view_all_routes || isPrimaryAdmin;
@@ -115,6 +122,48 @@ const MyRoutes = () => {
     }
   };
 
+  const handleDeleteClick = (route: RouteData) => {
+    setRouteToDelete(route);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!routeToDelete || !user) return;
+
+    setIsDeleting(true);
+    try {
+      const response = await fetch('https://visionairy.app.n8n.cloud/webhook/delete-route', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          route_id: routeToDelete.id,
+          user_id: user.id
+        })
+      });
+
+      if (!response.ok) throw new Error('Failed to delete route');
+
+      toast({
+        title: "Route deleted",
+        description: `${routeToDelete.route_name} has been removed.`,
+      });
+
+      // Refresh the routes list
+      queryClient.invalidateQueries({ queryKey: ['my-routes'] });
+    } catch (error) {
+      console.error('Delete error:', error);
+      toast({
+        title: "Delete failed",
+        description: "Could not delete the route. Please try again.",
+        variant: "destructive"
+      });
+    } finally {
+      setIsDeleting(false);
+      setDeleteDialogOpen(false);
+      setRouteToDelete(null);
+    }
+  };
+
   // Group routes - parse dates as local dates (not UTC) to avoid timezone issues
   // delivery_date is stored as "YYYY-MM-DD" string, so we parse and compare at start of day
   const today = startOfDay(new Date());
@@ -142,13 +191,26 @@ const MyRoutes = () => {
 
   const RouteCard = ({ route, highlighted = false }: { route: RouteData; highlighted?: boolean }) => {
     const { status, progress } = getRouteStatus(route);
-    
+
     return (
       <Card className={`bg-dashboard-card border-dashboard-border ${highlighted ? 'ring-2 ring-primary' : ''}`}>
         <CardContent className="p-4">
           <div className="flex items-start justify-between mb-3">
-            <div>
-              <h4 className="font-medium text-dashboard-text">{route.route_name}</h4>
+            <div className="flex-1">
+              <div className="flex items-center justify-between">
+                <h4 className="font-medium text-dashboard-text">{route.route_name}</h4>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    handleDeleteClick(route);
+                  }}
+                  className="h-8 w-8 p-0 text-dashboard-text-secondary hover:text-destructive hover:bg-destructive/10"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
               <p className="text-sm text-dashboard-text-secondary">
                 {route.total_machines || 0} machines · {route.total_items || 0} items
               </p>
@@ -283,7 +345,7 @@ const MyRoutes = () => {
               <Route className="h-12 w-12 mx-auto text-dashboard-text-secondary mb-4" />
               <h3 className="text-lg font-medium text-dashboard-text mb-2">No routes assigned</h3>
               <p className="text-dashboard-text-secondary">
-                {isPrimaryAdmin 
+                {isPrimaryAdmin
                   ? "Upload routes to get started"
                   : "Contact your admin to get routes assigned"
                 }
@@ -292,6 +354,37 @@ const MyRoutes = () => {
           </Card>
         )}
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent className="bg-dashboard-card border-dashboard-border">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-dashboard-text">Delete Route</AlertDialogTitle>
+            <AlertDialogDescription className="text-dashboard-text-secondary">
+              Are you sure you want to delete "{routeToDelete?.route_name}"? This will permanently remove the route and all its associated machines and items. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="bg-dashboard-bg border-dashboard-border text-dashboard-text hover:bg-dashboard-card">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteConfirm}
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                'Delete Route'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </DashboardLayout>
   );
 };
