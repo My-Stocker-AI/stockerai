@@ -77,6 +77,7 @@ export default function DemoLive() {
   const processingRef = useRef(false);
   const voiceRef = useRef<any>(null);
   const discoveryShownRef = useRef<Set<string>>(new Set());
+  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
 
   // Sync state to refs for voice callbacks
   const phaseRef = useRef(phase);
@@ -167,6 +168,51 @@ export default function DemoLive() {
 
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [phase]);
+
+  // Wake lock to keep screen on during demo
+  useEffect(() => {
+    const requestWakeLock = async () => {
+      if ('wakeLock' in navigator && phase !== 'welcome' && phase !== 'complete') {
+        try {
+          wakeLockRef.current = await navigator.wakeLock.request('screen');
+          console.log('[Demo] Wake lock acquired - screen will stay on');
+
+          wakeLockRef.current.addEventListener('release', () => {
+            console.log('[Demo] Wake lock released');
+          });
+        } catch (err) {
+          console.log('[Demo] Wake lock failed:', err);
+        }
+      }
+    };
+
+    const releaseWakeLock = async () => {
+      if (wakeLockRef.current) {
+        await wakeLockRef.current.release();
+        wakeLockRef.current = null;
+      }
+    };
+
+    // Request wake lock when actively using demo
+    if (phase !== 'welcome' && phase !== 'complete') {
+      requestWakeLock();
+    } else {
+      releaseWakeLock();
+    }
+
+    // Re-acquire wake lock when page becomes visible again
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && phase !== 'welcome' && phase !== 'complete') {
+        requestWakeLock();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      releaseWakeLock();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [phase]);
 
   // Helper: Get items for a specific route and machine
@@ -583,13 +629,13 @@ export default function DemoLive() {
         await handleDirectionSelection('top');
       } else if (lower.includes('bottom')) {
         await handleDirectionSelection('bottom');
-      } else if (lower.includes('how many') || lower.includes('left') || lower.includes('remaining')) {
+      } else if (lower.includes('how many') || lower.includes('left') || lower.includes('remaining') || lower.includes('inventory') || lower.includes('count')) {
         // Let user ask how many items before starting
         const items = getMachineItems(currentRouteRef.current, currentMachineRef.current);
         const machines = getRouteMachines(currentRouteRef.current);
         const machinesRemaining = machines.length - currentMachineRef.current + 1;
         await speakResponse(
-          `This machine has ${items.length} items. You have ${machinesRemaining} machine${machinesRemaining > 1 ? 's' : ''} on this route. Would you like to start from the top or bottom?`
+          `This machine has ${items.length} items. You have ${machinesRemaining} machine${machinesRemaining > 1 ? 's' : ''} on this route. Would you like to start at the top of the list for this machine, or the bottom?`
         );
       } else if (lower.includes('skip') && lower.includes('machine')) {
         // Allow skipping during direction selection too
@@ -599,7 +645,7 @@ export default function DemoLive() {
           'Say "top" or "bottom" to start. You can also ask "how many left" or "skip machine". Once stocking, say "next" after each item.'
         );
       } else {
-        await speakResponse('Would you like to start from the top or bottom of the machine?');
+        await speakResponse('Would you like to start at the top of the list for this machine, or the bottom?');
       }
       return;
     }
@@ -613,8 +659,8 @@ export default function DemoLive() {
         return;
       }
 
-      // How many left
-      if (lower.includes('how many') || lower.includes('left') || lower.includes('remaining') || lower.includes('progress')) {
+      // How many left / inventory count
+      if (lower.includes('how many') || lower.includes('left') || lower.includes('remaining') || lower.includes('progress') || lower.includes('inventory') || lower.includes('count')) {
         await handleHowManyLeft();
         return;
       }
