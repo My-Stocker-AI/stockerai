@@ -180,7 +180,7 @@ export function useStockerAI() {
     userIdRef.current = userId;
   }, []);
 
-  const buildSystemPrompt = useCallback((userName: string, currentItem: any) => {
+  const buildSystemPrompt = useCallback((userName: string, currentItem: any, routeContext?: { availableRoutes: string[], date: string }) => {
     // Use local date, not UTC (toISOString gives UTC which can be wrong timezone)
     const now = new Date();
     const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -193,6 +193,23 @@ export function useStockerAI() {
       if (currentItem.machine_name) {
         itemContext += `\nMachine: ${currentItem.machine_name}`;
       }
+    }
+
+    let routeSelectionContext = '';
+    if (routeContext) {
+      routeSelectionContext = `\n\nROUTE SELECTION MODE:
+User is currently choosing from these routes for ${routeContext.date}:
+${routeContext.availableRoutes.map(r => `- ${r}`).join('\n')}
+
+CRITICAL - Phonetic Matching for Route Selection:
+- Speech recognition may mishear route names (e.g., "South" → "So", "Self", "Sout")
+- Use phonetic similarity to match user input:
+  * "So", "Self", "Sout", "Sowth" → likely means "South"
+  * "Nort", "Nora" → likely means "North"
+  * "Ease", "Ist" → likely means "East"
+  * "Wes", "Rest" → likely means "West"
+- If user says something that SOUNDS LIKE a route name, call set_route_sequence with the actual route name and the date ${routeContext.date}
+- Don't ask for clarification on obvious phonetic matches - just proceed`;
     }
 
     // Full system prompt matching original PWA
@@ -333,10 +350,10 @@ When user says they want to switch to a different route while already working on
 When user asks about inventory, machine count, or "what's in the machine" - respond with the current item's inventory data if available.
 
 Current session ID: ${sessionIdRef.current}
-Today's date: ${today}${itemContext}`;
+Today's date: ${today}${itemContext}${routeSelectionContext}`;
   }, []);
 
-  const sendToAI = useCallback(async (messages: any[], userName: string, currentItem: any) => {
+  const sendToAI = useCallback(async (messages: any[], userName: string, currentItem: any, routeContext?: { availableRoutes: string[], date: string }) => {
     // Check online status (from original PWA)
     if (!navigator.onLine) {
       throw new Error('No internet connection');
@@ -347,7 +364,7 @@ Today's date: ${today}${itemContext}`;
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: 'gpt-4o-mini',
-        messages: [{ role: 'system', content: buildSystemPrompt(userName, currentItem) }, ...messages],
+        messages: [{ role: 'system', content: buildSystemPrompt(userName, currentItem, routeContext) }, ...messages],
         tools: TOOLS,
         tool_choice: 'auto'
       })

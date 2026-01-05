@@ -266,10 +266,10 @@ export default function StockerApp() {
           word.length >= 2 && transcriptWords.some(tw =>
             tw.includes(word) || word.includes(tw) ||
             // Phonetic similarity for common mishearings
-            (word === 'south' && (tw === 'sout' || tw === 'sowth' || tw === 'mouth')) ||
-            (word === 'north' && (tw === 'nort' || tw === 'northe')) ||
-            (word === 'east' && (tw === 'eest' || tw === 'ist')) ||
-            (word === 'west' && (tw === 'wes' || tw === 'vest'))
+            (word === 'south' && (tw === 'sout' || tw === 'sowth' || tw === 'mouth' || tw === 'so' || tw === 'self' || tw === 'south')) ||
+            (word === 'north' && (tw === 'nort' || tw === 'northe' || tw === 'nora' || tw === 'north')) ||
+            (word === 'east' && (tw === 'eest' || tw === 'ist' || tw === 'ease' || tw === 'east')) ||
+            (word === 'west' && (tw === 'wes' || tw === 'vest' || tw === 'west' || tw === 'rest'))
           )
         );
 
@@ -292,7 +292,13 @@ export default function StockerApp() {
       // Use messagesRef.current to avoid stale closure (ref is updated immediately by addMessage)
       const allMessages = trimConversationHistory(sanitizeConversationHistory([...messagesRef.current]));
 
-      let response = await sendToAI(allMessages, userName, routeState.currentItem);
+      // Pass route selection context if in selection mode
+      const routeContext = showRouteSelection && availableRoutes.length > 0 ? {
+        availableRoutes: availableRoutes.map(r => r.route_name),
+        date: routeSelectionDate
+      } : undefined;
+
+      let response = await sendToAI(allMessages, userName, routeState.currentItem, routeContext);
 
       // CRITICAL: Loop while there are tool_calls (matches original PWA behavior)
       // OpenAI can return BOTH content AND tool_calls - we must process all tool_calls first
@@ -321,7 +327,7 @@ export default function StockerApp() {
 
         if (!usedFastPath) {
           // Use messagesRef.current for the follow-up call too
-          response = await sendToAI(trimConversationHistory(sanitizeConversationHistory([...messagesRef.current])), userName, routeState.currentItem);
+          response = await sendToAI(trimConversationHistory(sanitizeConversationHistory([...messagesRef.current])), userName, routeState.currentItem, routeContext);
         } else {
           break; // Exit loop if using fast path
         }
