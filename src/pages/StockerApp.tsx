@@ -250,6 +250,10 @@ export default function StockerApp() {
 
     // Handle voice route selection when in route selection mode
     if (showRouteSelection && availableRoutes.length > 1) {
+      // DEBUG: Log what we're trying to match
+      console.log('[Route Selection] Transcript:', transcript);
+      console.log('[Route Selection] Available routes:', availableRoutes.map(r => r.route_name));
+
       // Enhanced fuzzy matching with phonetic alternatives for common mishearings
       const matchedRoute = availableRoutes.find(route => {
         const routeLower = route.route_name.toLowerCase();
@@ -277,11 +281,16 @@ export default function StockerApp() {
       });
 
       if (matchedRoute) {
+        console.log('[Route Selection] MATCHED:', matchedRoute.route_name);
         processingRef.current = true;
         await selectRoute(matchedRoute.route_name, routeSelectionDate);
         processingRef.current = false;
         return;
+      } else {
+        console.log('[Route Selection] NO MATCH - sending to AI');
       }
+    } else {
+      console.log('[Route Selection] SKIPPED - showRouteSelection:', showRouteSelection, 'availableRoutes.length:', availableRoutes.length);
     }
 
     processingRef.current = true;
@@ -302,6 +311,8 @@ export default function StockerApp() {
         date: routeState.routeDate || '',
         currentRouteName: routeState.routeName
       } : undefined);
+
+      console.log('[AI Context] Route context:', routeContext);
 
       let response = await sendToAI(allMessages, userName, routeState.currentItem, routeContext);
 
