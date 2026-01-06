@@ -769,8 +769,8 @@ export default function StockerApp() {
     return (
       <div className="min-h-screen bg-[#0d1117] flex flex-col items-center justify-center p-6">
         {/* Logo */}
-        <div className="h-24 w-24 bg-white rounded-full shadow-lg shadow-teal-500/30 mb-6 flex items-center justify-center p-2">
-          <img src="/icon-512.png" alt="Stocker AI" className="w-full h-full object-contain" />
+        <div className="h-24 w-24 bg-white rounded-full shadow-lg shadow-teal-500/30 mb-6 overflow-hidden">
+          <img src="/stocker-ai-logo.jpg" alt="Stocker AI" className="w-full h-full object-cover object-center" />
         </div>
 
         {/* Route info card */}
@@ -924,8 +924,8 @@ export default function StockerApp() {
           <h1 className="text-lg font-semibold">{routeState.routeName || `Hi, ${userName}`}</h1>
         </div>
         <div className="flex-shrink-0 mx-4">
-          <div className="h-16 w-16 bg-white rounded-full shadow-lg shadow-teal-500/20 flex items-center justify-center p-2">
-            <img src="/icon-512.png" alt="Stocker AI" className="w-full h-full object-contain" />
+          <div className="h-16 w-16 bg-white rounded-full shadow-lg shadow-teal-500/20 overflow-hidden">
+            <img src="/stocker-ai-logo.jpg" alt="Stocker AI" className="w-full h-full object-cover object-center" />
           </div>
         </div>
         <div className="flex-1 flex items-center justify-end gap-2">
