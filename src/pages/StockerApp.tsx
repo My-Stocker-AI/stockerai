@@ -248,42 +248,9 @@ export default function StockerApp() {
       return;
     }
 
-    // Handle voice route selection when in route selection mode (cards visible)
-    // NOTE: Cards are now disabled for multiple routes - AI handles selection via prompt
-    if (showRouteSelection && availableRoutes.length > 1) {
-      // Enhanced fuzzy matching with phonetic alternatives for common mishearings
-      const matchedRoute = availableRoutes.find(route => {
-        const routeLower = route.route_name.toLowerCase();
-        const routeWords = routeLower.split(/\s+/);
-
-        // Exact or substring match
-        if (lower === routeLower || lower.includes(routeLower) || routeLower.includes(lower)) {
-          return true;
-        }
-
-        // Check if transcript contains any significant word from route name (2+ chars)
-        const transcriptWords = lower.split(/\s+/);
-        const hasSignificantMatch = routeWords.some(word =>
-          word.length >= 2 && transcriptWords.some(tw =>
-            tw.includes(word) || word.includes(tw) ||
-            // Phonetic similarity for common mishearings
-            (word === 'south' && (tw === 'sout' || tw === 'sowth' || tw === 'mouth' || tw === 'so' || tw === 'self' || tw === 'south')) ||
-            (word === 'north' && (tw === 'nort' || tw === 'northe' || tw === 'nora' || tw === 'north')) ||
-            (word === 'east' && (tw === 'eest' || tw === 'ist' || tw === 'ease' || tw === 'east')) ||
-            (word === 'west' && (tw === 'wes' || tw === 'vest' || tw === 'west' || tw === 'rest'))
-          )
-        );
-
-        return hasSignificantMatch;
-      });
-
-      if (matchedRoute) {
-        processingRef.current = true;
-        await selectRoute(matchedRoute.route_name, routeSelectionDate);
-        processingRef.current = false;
-        return;
-      }
-    }
+    // NO frontend matching - let AI handle ALL route selection
+    // AI has semantic understanding that works for ANY route name
+    // This scales to thousands of users with arbitrary route names
 
     processingRef.current = true;
     v.setThinking();

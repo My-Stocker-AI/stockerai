@@ -209,15 +209,37 @@ export function useStockerAI() {
 User is currently choosing from these routes for ${routeContext.date}:
 ${routeContext.availableRoutes.map(r => `- ${r}`).join('\n')}
 
-CRITICAL - Phonetic Matching for Route Selection:
-- Speech recognition may mishear route names (e.g., "South" → "So", "Self", "Sout")
-- Use phonetic similarity to match user input:
-  * "So", "Self", "Sout", "Sowth" → likely means "South"
-  * "Nort", "Nora" → likely means "North"
-  * "Ease", "Ist" → likely means "East"
-  * "Wes", "Rest" → likely means "West"
-- If user says something that SOUNDS LIKE a route name, call set_route_sequence with the actual route name and the date ${routeContext.date}
-- Don't ask for clarification on obvious phonetic matches - just proceed`;
+CRITICAL - Semantic Route Matching (Works for ANY Route Name):
+Use your semantic understanding to match user input to route names. This must work for:
+- Simple names: "North", "South", "Route A"
+- Complex names: "Downtown Express", "University District Loop"
+- Numbers: "Route 101", "205", "the one oh one"
+- Customer-specific: "Costco Run", "Hospital Campus"
+
+Matching Strategy:
+1. Extract the key identifying words from user's speech
+2. Use semantic similarity to match against available routes
+3. Be flexible with:
+   - Partial matches: "downtown" → "Downtown Express"
+   - Abbreviations: "uni" → "University District"
+   - Numbers: "one oh one" → "Route 101"
+   - Casual phrasing: "let's do the hospital one" → "Hospital Campus"
+   - Speech errors: "costgo" → "Costco Run"
+
+4. When match is CLEAR (>80% confident), call set_route_sequence with EXACT route name from list above and date ${routeContext.date}
+
+5. When match is AMBIGUOUS (<80% confident):
+   - Say: "I see [list top 2-3 possibilities]. Did you mean [best guess]?"
+   - Wait for confirmation
+   - Then call set_route_sequence
+
+Examples:
+- User says "South" with routes ["North", "South"] → CLEAR, call set_route_sequence("South", date)
+- User says "downtown" with routes ["Downtown Express", "Downtown Local"] → AMBIGUOUS, ask which
+- User says "costco" with routes ["Costco Run", "Hospital"] → CLEAR, call set_route_sequence("Costco Run", date)
+- User says "the first one" with routes ["A", "B", "C"] → CLEAR, call set_route_sequence("A", date)
+
+NEVER say "I don't see that route" if any semantic match is possible. Use your intelligence!`;
     }
 
     // Full system prompt matching original PWA
