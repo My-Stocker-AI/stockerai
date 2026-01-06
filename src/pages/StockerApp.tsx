@@ -1066,15 +1066,10 @@ export default function StockerApp() {
               <p className="text-gray-400 text-sm mt-2">Great job! Say "next route" or tap below</p>
             </div>
           ) : (
-            <div className="mt-6 text-center">
-              <Button
-                onClick={() => handleTranscript('start my route', true)}
-                className="w-full max-w-xs mx-auto h-20 text-2xl font-bold bg-emerald-600 hover:bg-emerald-700 rounded-2xl shadow-lg shadow-emerald-500/30 animate-pulse"
-              >
-                <Play className="h-8 w-8 mr-3" />
-                START ROUTE
-              </Button>
-              <p className="text-gray-500 text-sm mt-4">Or just say "start my route"</p>
+            <div className="mt-6 py-8 text-center">
+              <p className="text-sm text-gray-500 italic">
+                Your current item to pick will show here
+              </p>
             </div>
           )}
         </div>
