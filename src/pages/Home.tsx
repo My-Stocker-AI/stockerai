@@ -257,8 +257,8 @@ const Home = () => {
         </div>
       </section>
 
-      {/* 5. Social Proof Section */}
-      <section className="section-padding">
+      {/* 5. Social Proof Section - HIDDEN: Ready to populate with testimonials */}
+      <section className="section-padding hidden">
         <div className="section-container">
           <div className="max-w-3xl mx-auto text-center">
             <p className="text-lg font-medium text-primary mb-8">
