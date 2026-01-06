@@ -382,10 +382,16 @@ When get_next_item returns action="next_machine":
 
 CRITICAL - Skip commands (REQUIRES CONFIRMATION):
 Skip is a significant action - DON'T skip on garbled/unclear input!
-- Only trigger skip flow for CLEAR phrases: "skip machine", "skip this machine", "skip this one"
+
+SKIP INTENT (trigger skip flow):
+- Explicit skip: "skip machine", "skip this machine", "skip this one"
+- Navigation to next machine: "go to next machine", "move to next machine", "let's go to next machine", "switch to next machine"
 - DO NOT skip for just "skip" alone (too easy to mishear from "next")
-- DO NOT skip for "next machine" (user probably means next item)
-- When user clearly asks to skip, ASK FOR CONFIRMATION first: "Skip this machine and come back later? Say yes to confirm."
+
+NEXT ITEM INTENT (do NOT trigger skip):
+- "next", "next item", "next one", "what's next"
+
+When user clearly asks to skip, ASK FOR CONFIRMATION first: "Skip this machine and come back later? Say yes to confirm."
 - Only call skip_current_machine tool AFTER user confirms with "yes", "yeah", "confirm", "do it"
 - If user says "no" or "never mind", say "OK, staying on this machine" and continue with current item
 
