@@ -671,14 +671,14 @@ export default function StockerApp() {
           let greeting = '';
           if (names.length === 2) {
             greeting = dateLabel === 'today'
-              ? `Hi ${userName}! You have ${names[0]} and ${names[1]} today. Which one?`
-              : `Hi ${userName}! You have ${names[0]} and ${names[1]} for tomorrow. Which one?`;
+              ? `Hi ${userName}! You have the ${names[0]} and ${names[1]} Routes for today, which would you like to start with?`
+              : `Hi ${userName}! You have the ${names[0]} and ${names[1]} Routes for tomorrow, which would you like to start with?`;
           } else {
             const routeList = [...names];
             const lastRoute = routeList.pop();
             greeting = dateLabel === 'today'
-              ? `Hi ${userName}! You have ${routeList.join(', ')}, and ${lastRoute} today. Which one?`
-              : `Hi ${userName}! You have ${routeList.join(', ')}, and ${lastRoute} for tomorrow. Which one?`;
+              ? `Hi ${userName}! You have the ${routeList.join(', ')}, and ${lastRoute} Routes for today, which would you like to start with?`
+              : `Hi ${userName}! You have the ${routeList.join(', ')}, and ${lastRoute} Routes for tomorrow, which would you like to start with?`;
           }
           setAiResponse(greeting);
           addMessage({ role: 'assistant', content: greeting });
