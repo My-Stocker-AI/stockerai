@@ -8,81 +8,92 @@ interface HelpSheetProps {
 
 const quickCommands = [
   {
-    category: "Next Item",
+    category: "Moving to Next Item",
     icon: ArrowRight,
     color: "text-emerald-400",
     commands: [
-      '"next" / "done" / "got it"',
-      '"yes" / "yep" / "okay"',
-      '"check" / "good" / "perfect"',
+      '"Got it" / "Next" / "Done"',
+      '"Yep, next one" / "Okay, what\'s next?"',
+      '"Perfect" / "Good" / "Alright"',
+      'Speak naturally - Stocker understands!',
     ]
   },
   {
-    category: "Machine Direction",
-    icon: CheckCircle,
+    category: "Checking Inventory",
+    icon: Package,
     color: "text-blue-400",
     commands: [
-      'Top: "top" / "beginning" / "start"',
-      'Bottom: "bottom" / "end" / "reverse"',
+      '"How many are in the machine?"',
+      '"What\'s the current inventory?"',
+      '"How many should be in there?"',
+      '"What\'s the par level?"',
     ]
   },
   {
-    category: "Skip Machine",
+    category: "Checking Your Progress",
+    icon: CheckCircle,
+    color: "text-yellow-400",
+    commands: [
+      '"How many items do I have left?"',
+      '"What\'s my progress?"',
+      '"How many machines are left?"',
+      '"What route am I on?"',
+      '"Which machine am I working on?"',
+      '"Which machines did I skip?"',
+    ]
+  },
+  {
+    category: "Starting a Machine",
+    icon: MapPin,
+    color: "text-teal-400",
+    commands: [
+      '"Start from the top"',
+      '"Stock from the beginning"',
+      '"Start from the bottom"',
+      '"Work from the end of the list"',
+    ]
+  },
+  {
+    category: "Skipping a Machine",
     icon: SkipForward,
     color: "text-orange-400",
     commands: [
-      '"skip machine"',
-      '"go to next machine"',
-      'Requires "yes" confirmation',
+      '"Skip this machine"',
+      '"Go to the next machine"',
+      '"Come back to this one later"',
+      '(Stocker will ask you to confirm with "yes")',
     ]
   },
   {
-    category: "Go Back",
+    category: "Fixing Mistakes",
     icon: RotateCcw,
     color: "text-purple-400",
     commands: [
-      'One item: "undo" / "go back"',
-      'To skipped: "back to skipped"',
+      '"Undo that" / "Go back one"',
+      '"Oops, that was wrong"',
+      '"That was a mistake"',
+      '"Go back to the skipped machine"',
     ]
   },
   {
-    category: "Route Selection",
+    category: "Picking Your Route",
     icon: Route,
-    color: "text-teal-400",
+    color: "text-cyan-400",
     commands: [
-      'Say route name: "North Route"',
-      '"start [route]" / "ready"',
-      '"switch to [route]"',
+      '"Start North Route"',
+      '"Switch to the West Route"',
+      '"Let\'s do the downtown route"',
+      'Just say the route name - Stocker will find it!',
     ]
   },
   {
-    category: "Status Queries",
-    icon: HelpCircle,
-    color: "text-yellow-400",
-    commands: [
-      '"What route am I on?"',
-      '"What machine am I on?"',
-      '"How many machines left?"',
-      '"What\'s my progress?"',
-    ]
-  },
-  {
-    category: "Pause & Resume",
+    category: "Pause & Wake Up",
     icon: Mic,
     color: "text-red-400",
     commands: [
-      'Pause: "pause" / "mute"',
-      'Resume: "Hey Stocker"',
-    ]
-  },
-  {
-    category: "Undo Last Item",
-    icon: Repeat,
-    color: "text-pink-400",
-    commands: [
-      '"undo" / "oops"',
-      '"wrong" / "mistake"',
-      '"go back"',
+      'Pause: "Pause" / "Mute"',
+      'Wake up: "Hey Stocker"',
+      'Stocker auto-pauses when you stop talking',
     ]
   },
 ];
