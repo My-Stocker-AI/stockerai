@@ -330,10 +330,26 @@ export default function StockerApp() {
                             errorMsg.includes('Failed to fetch');
       const isRateLimited = errorMsg.includes('429') || errorMsg.includes('rate limit');
 
+      // DETAILED ERROR LOGGING for troubleshooting
+      console.error('[Stocker] Command failed:', {
+        transcript,
+        error: errorMsg,
+        errorStack: err.stack,
+        isNetworkError,
+        isRateLimited,
+        retryCount,
+        routeState: {
+          routeName: routeState.routeName,
+          currentItem: routeState.currentItem?.product,
+          machineIndex: routeState.currentMachineIndex
+        }
+      });
+
       // Auto-retry on network errors (up to MAX_RETRIES)
       if (isNetworkError && retryCount < MAX_RETRIES) {
         setRetryCount(prev => prev + 1);
         setAiResponse('Connection issue, retrying...');
+        console.log(`[Stocker] Retrying (${retryCount + 1}/${MAX_RETRIES})...`);
         // Wait 1 second then retry
         await new Promise(resolve => setTimeout(resolve, 1000));
         processingRef.current = false;
@@ -341,14 +357,17 @@ export default function StockerApp() {
       }
 
       // Friendly messages for common errors
+      let userFriendlyError: string;
       if (isRateLimited) {
-        setError('Service is busy. Please wait a moment and say that again.');
+        userFriendlyError = 'Service is busy. Please wait a moment and say that again.';
       } else if (isNetworkError) {
-        setError('Connection lost. Check your internet and try again.');
+        userFriendlyError = 'Connection lost. Check your internet and try again.';
       } else {
-        setError(errorMsg);
+        // Show detailed error in development, friendly message in production
+        userFriendlyError = `Error: ${errorMsg}. Triple-tap for details.`;
       }
 
+      setError(userFriendlyError);
       setRetryCount(0); // Reset retry count on final failure
       v.playErrorBeep();
     } finally {

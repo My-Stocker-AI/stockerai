@@ -462,6 +462,13 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
       throw new Error('No internet connection');
     }
 
+    console.log('[AI] Sending to OpenAI:', {
+      messageCount: messages.length,
+      lastMessage: messages[messages.length - 1]?.content,
+      currentItem: currentItem?.product,
+      routeName: routeContext?.currentRouteName
+    });
+
     const response = await fetchWithTimeout(`${N8N_BASE}/openai-chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -473,8 +480,23 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
       })
     });
 
-    if (!response.ok) throw new Error('AI service error');
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[AI] Request failed:', {
+        status: response.status,
+        statusText: response.statusText,
+        body: errorText
+      });
+      throw new Error(`AI service error (${response.status}): ${errorText}`);
+    }
+
     const data = await response.json();
+    console.log('[AI] Response received:', {
+      hasContent: !!data.choices?.[0]?.message?.content,
+      hasToolCalls: !!data.choices?.[0]?.message?.tool_calls?.length,
+      toolNames: data.choices?.[0]?.message?.tool_calls?.map((tc: any) => tc.function.name)
+    });
+
     return data.choices[0].message;
   }, [buildSystemPrompt]);
 
@@ -484,17 +506,22 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
   ) => {
     const results: any[] = [];
 
+    console.log('[Tools] Executing tool calls:', toolCalls.map(tc => tc.function.name));
+
     for (const tc of toolCalls) {
       const name = tc.function.name;
       const args = JSON.parse(tc.function.arguments);
       const path = WEBHOOK_MAP[name];
 
       if (!path) {
+        console.error('[Tools] Unknown tool:', name);
         results.push({ tool_call_id: tc.id, result: { error: 'Unknown tool' } });
         continue;
       }
 
       try {
+        console.log(`[Tools] Calling ${name}:`, { args, endpoint: `${N8N_BASE}${path}` });
+
         const resp = await fetchWithTimeout(`${N8N_BASE}${path}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -505,14 +532,32 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
           })
         });
 
-        if (!resp.ok) throw new Error('Workflow error');
+        if (!resp.ok) {
+          const errorText = await resp.text();
+          console.error(`[Tools] ${name} failed:`, {
+            status: resp.status,
+            statusText: resp.statusText,
+            body: errorText
+          });
+          throw new Error(`Workflow error (${resp.status}): ${errorText}`);
+        }
+
         const result = await resp.json();
+        console.log(`[Tools] ${name} succeeded:`, result);
+
         onResult?.(name, result);
         results.push({ tool_call_id: tc.id, result });
       } catch (e: any) {
+        console.error(`[Tools] ${name} exception:`, e);
         results.push({ tool_call_id: tc.id, result: { error: e.message } });
       }
     }
+
+    console.log('[Tools] All tool calls completed:', {
+      total: toolCalls.length,
+      successful: results.filter(r => !r.result.error).length,
+      failed: results.filter(r => r.result.error).length
+    });
 
     return results;
   }, []);
