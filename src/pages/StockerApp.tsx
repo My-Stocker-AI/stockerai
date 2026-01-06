@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils';
 import { HelpSheet } from '@/components/stocker/HelpSheet';
 import { RouteSelectionCard } from '@/components/stocker/RouteSelectionCard';
 import { MachineListPanel } from '@/components/stocker/MachineListPanel';
+import { DiagnosticOverlay } from '@/components/DiagnosticOverlay';
 
 // Route info for selection cards
 interface RouteOption {
@@ -127,6 +128,7 @@ export default function StockerApp() {
   const [showStopConfirm, setShowStopConfirm] = useState(false);
   const [showMicHelp, setShowMicHelp] = useState(false);
   const [showHelpSheet, setShowHelpSheet] = useState(false);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [savedSession, setSavedSession] = useState<any>(null);
   const [retryCount, setRetryCount] = useState(0);
@@ -722,6 +724,32 @@ export default function StockerApp() {
     navigate('/dashboard');
   };
 
+  // Triple-tap to show diagnostics (hidden troubleshooting feature)
+  const tapTimesRef = useRef<number[]>([]);
+  useEffect(() => {
+    const handleTripleTap = (e: TouchEvent | MouseEvent) => {
+      const now = Date.now();
+      tapTimesRef.current.push(now);
+
+      // Keep only taps within last second
+      tapTimesRef.current = tapTimesRef.current.filter(t => now - t < 1000);
+
+      // If 3 taps within 1 second, show diagnostics
+      if (tapTimesRef.current.length >= 3) {
+        setShowDiagnostics(true);
+        tapTimesRef.current = [];
+      }
+    };
+
+    window.addEventListener('touchend', handleTripleTap);
+    window.addEventListener('click', handleTripleTap);
+
+    return () => {
+      window.removeEventListener('touchend', handleTripleTap);
+      window.removeEventListener('click', handleTripleTap);
+    };
+  }, []);
+
   const handleMuteToggle = () => {
     if (voice.status === 'muted') {
       voice.unmute();
@@ -964,6 +992,13 @@ export default function StockerApp() {
 
       {/* Help Sheet */}
       <HelpSheet isOpen={showHelpSheet} onClose={() => setShowHelpSheet(false)} />
+
+      {/* Diagnostic Overlay - Triple-tap to reveal */}
+      <DiagnosticOverlay
+        voiceStatus={voice.status}
+        isVisible={showDiagnostics}
+        onClose={() => setShowDiagnostics(false)}
+      />
 
       <main className="flex-1 flex flex-col p-4 gap-4 overflow-hidden">
         {showRouteSelection && availableRoutes.length > 0 ? (

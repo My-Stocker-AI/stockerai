@@ -18,6 +18,15 @@ const WAKE_PHRASES = [
   'ok stock', 'okay stock', 'hey stock'
 ];
 
+// Helper to emit diagnostic events for troubleshooting
+function emitDiagnostic(type: string, data: any) {
+  try {
+    window.dispatchEvent(new CustomEvent('voice-diagnostic', { detail: { type, data } }));
+  } catch (e) {
+    // Silent fail - diagnostics are optional
+  }
+}
+
 interface UseVoiceOptions {
   onTranscript?: (transcript: string, isFinal: boolean) => void;
   onError?: (error: string) => void;
@@ -373,6 +382,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
 
         if (isFinal) {
           setLastInput(transcript.trim());
+          emitDiagnostic('transcript', transcript.trim());
 
           // If Deepgram detected utterance end, process immediately (matches original PWA)
           if (isUtteranceEnd) {
@@ -461,7 +471,20 @@ export function useVoice(options: UseVoiceOptions = {}) {
 
       recorder.onerror = (event) => {
         console.error('[Voice] MediaRecorder error:', event);
+        emitDiagnostic('error', 'MediaRecorder error');
         onErrorRef.current?.('MediaRecorder error');
+      };
+
+      recorder.onstart = () => {
+        emitDiagnostic('mediarecorder-state', 'recording');
+      };
+
+      recorder.onstop = () => {
+        emitDiagnostic('mediarecorder-state', 'stopped');
+      };
+
+      recorder.onpause = () => {
+        emitDiagnostic('mediarecorder-state', 'paused');
       };
 
       mediaRecorderRef.current = recorder;
@@ -470,6 +493,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
       console.log('[Voice] MediaRecorder started');
     } catch (e: any) {
       console.error('[Voice] Failed to create MediaRecorder:', e);
+      emitDiagnostic('error', 'MediaRecorder setup failed: ' + String(e));
       onErrorRef.current?.(e.message || 'Failed to start recording');
     }
   }, [getSupportedMimeType]); // Using ref, no deps needed
@@ -504,6 +528,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
       socket.onopen = () => {
         clearTimeout(timeout);
         isConnectedRef.current = true;
+        emitDiagnostic('deepgram-connected', true);
         startKeepAlive();
         setupMediaRecorder();
         resolve();
@@ -516,8 +541,9 @@ export function useVoice(options: UseVoiceOptions = {}) {
         } catch (e) {}
       };
 
-      socket.onerror = () => {
+      socket.onerror = (event) => {
         clearTimeout(timeout);
+        emitDiagnostic('error', 'Deepgram WebSocket error');
         onErrorRef.current?.('WebSocket error');
       };
 
@@ -525,6 +551,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
         clearTimeout(timeout);
         isConnectedRef.current = false;
         isRecordingRef.current = false;
+        emitDiagnostic('deepgram-disconnected', true);
         stopKeepAlive();
 
         // Use statusRef.current to avoid stale closure (matches original PWA)
@@ -533,7 +560,9 @@ export function useVoice(options: UseVoiceOptions = {}) {
           setTimeout(async () => {
             try {
               await connectDeepgram();
-            } catch (e) {}
+            } catch (e) {
+              emitDiagnostic('error', 'Deepgram reconnection failed: ' + String(e));
+            }
           }, 1000);
         }
       };
@@ -810,13 +839,17 @@ export function useVoice(options: UseVoiceOptions = {}) {
 
       // 5. Fetch and play audio
       try {
+        emitDiagnostic('spoken', processed);
         const response = await fetch(TTS_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ text: processed, voice: 'nova' })
         });
 
-        if (!response.ok) throw new Error('TTS failed');
+        if (!response.ok) {
+          emitDiagnostic('error', 'TTS fetch failed: ' + response.status);
+          throw new Error('TTS failed');
+        }
 
         // Check if stopped while fetching - don't play if user already exited
         if (stoppedRef.current) {
