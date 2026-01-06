@@ -686,7 +686,25 @@ export function useVoice(options: UseVoiceOptions = {}) {
     setStatus('paused');
   }, [setStatus]);
 
-  const resumeListening = useCallback(() => {
+  const resumeListening = useCallback(async () => {
+    // CRITICAL: Check if AudioContext is suspended (Safari auto-suspends after idle)
+    // If suspended, we need a new user gesture to resume it
+    if (audioContextRef.current?.state === 'suspended') {
+      console.warn('[Voice] AudioContext is suspended - need user gesture to resume');
+      emitDiagnostic('error', 'AudioContext suspended - tap screen to resume');
+
+      // Try to resume anyway (will fail without user gesture, but worth trying)
+      try {
+        await audioContextRef.current.resume();
+        console.log('[Voice] AudioContext resumed successfully');
+      } catch (e) {
+        console.error('[Voice] Cannot resume AudioContext without user gesture:', e);
+        // Don't set status to listening since it won't actually work
+        onErrorRef.current?.('Tap screen to resume voice');
+        return;
+      }
+    }
+
     if (mediaRecorderRef.current?.state === 'paused') {
       mediaRecorderRef.current.resume();
       isRecordingRef.current = true;
@@ -952,7 +970,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
       await new Promise(r => setTimeout(r, 100));
 
       // 10. Restart recognition (matches original PWA)
-      resumeListening();
+      await resumeListening();
 
     } finally {
       // Always release lock (matches original PWA unlock in finally)
@@ -1046,7 +1064,8 @@ export function useVoice(options: UseVoiceOptions = {}) {
     playErrorBeep,
     playReadyBeep,
     hasWakePhrase,
-    extractWakeCommand
+    extractWakeCommand,
+    unlockAudio  // Export for manual audio unlock on iOS/Safari
   };
 }
 // Build trigger Wed Jan 01 2026 - Voice cleanup on window close + Stop button

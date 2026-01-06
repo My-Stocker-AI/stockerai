@@ -133,6 +133,7 @@ export default function StockerApp() {
   const [savedSession, setSavedSession] = useState<any>(null);
   const [retryCount, setRetryCount] = useState(0);
   const [micPermission, setMicPermission] = useState<'prompt' | 'granted' | 'denied' | 'checking'>('checking');
+  const [audioUnlocked, setAudioUnlocked] = useState(false);
   const [showRouteSelection, setShowRouteSelection] = useState(false);
   const [availableRoutes, setAvailableRoutes] = useState<RouteOption[]>([]);
   const [selectedRoute, setSelectedRoute] = useState<string | null>(null);
@@ -724,20 +725,35 @@ export default function StockerApp() {
     navigate('/dashboard');
   };
 
-  // Triple-tap to show diagnostics (hidden troubleshooting feature)
+  // Triple-tap to show diagnostics AND recover voice system (hidden troubleshooting feature)
   const tapTimesRef = useRef<number[]>([]);
   useEffect(() => {
-    const handleTripleTap = (e: TouchEvent | MouseEvent) => {
+    const handleTripleTap = async (e: TouchEvent | MouseEvent) => {
       const now = Date.now();
       tapTimesRef.current.push(now);
 
       // Keep only taps within last second
       tapTimesRef.current = tapTimesRef.current.filter(t => now - t < 1000);
 
-      // If 3 taps within 1 second, show diagnostics
+      // If 3 taps within 1 second, show diagnostics AND attempt recovery
       if (tapTimesRef.current.length >= 3) {
+        console.log('[Triple-Tap] Triggered - showing diagnostics and attempting voice recovery');
         setShowDiagnostics(true);
         tapTimesRef.current = [];
+
+        // Attempt to recover voice system
+        try {
+          await voice.unlockAudio();
+          console.log('[Triple-Tap] Audio unlocked');
+
+          // If not already listening, start
+          if (voice.status !== 'listening' && voice.status !== 'speaking') {
+            await voice.startListening();
+            console.log('[Triple-Tap] Voice system restarted');
+          }
+        } catch (e) {
+          console.error('[Triple-Tap] Recovery failed:', e);
+        }
       }
     };
 
@@ -748,7 +764,7 @@ export default function StockerApp() {
       window.removeEventListener('touchend', handleTripleTap);
       window.removeEventListener('click', handleTripleTap);
     };
-  }, []);
+  }, [voice]);
 
   const handleMuteToggle = () => {
     if (voice.status === 'muted') {
@@ -787,6 +803,65 @@ export default function StockerApp() {
     return (
       <div className="min-h-screen bg-[#0d1117] flex items-center justify-center">
         <div className="text-gray-400">Loading...</div>
+      </div>
+    );
+  }
+
+  // Safari/iOS Audio Unlock Overlay - MUST happen before any other UI
+  // This ensures audio is unlocked with the first user gesture, before async operations
+  if ((isIOS || isSafari) && !audioUnlocked) {
+    return (
+      <div className="min-h-screen bg-[#0d1117] flex flex-col items-center justify-center p-6">
+        {/* Logo */}
+        <div className="h-32 w-32 bg-white rounded-full shadow-lg shadow-teal-500/30 mb-8 overflow-hidden">
+          <img src="/stocker-ai-logo.jpg" alt="Stocker AI" className="w-full h-full object-cover object-center" />
+        </div>
+
+        {/* Unlock prompt */}
+        <div className="bg-amber-500/10 border-2 border-amber-500/50 rounded-2xl p-8 max-w-md w-full mb-6">
+          <div className="text-center mb-6">
+            <h2 className="text-3xl font-bold text-amber-400 mb-3">👆 Tap to Begin</h2>
+            <p className="text-amber-300 text-lg mb-2">
+              Safari requires a tap to enable voice
+            </p>
+            <p className="text-amber-200/70 text-sm">
+              This unlocks audio and microphone for the voice assistant
+            </p>
+          </div>
+        </div>
+
+        {/* Big unlock button */}
+        <Button
+          onClick={async () => {
+            try {
+              console.log('[Safari Unlock] Attempting audio unlock...');
+              await voice.unlockAudio();
+              console.log('[Safari Unlock] Audio unlocked successfully');
+              setAudioUnlocked(true);
+            } catch (e) {
+              console.error('[Safari Unlock] Failed:', e);
+              // Try again - sometimes it needs a second tap
+              try {
+                await voice.unlockAudio();
+                setAudioUnlocked(true);
+              } catch (e2) {
+                console.error('[Safari Unlock] Second attempt failed:', e2);
+                setError('Unable to unlock audio. Please try refreshing the page.');
+              }
+            }
+          }}
+          className="w-full max-w-md h-24 text-3xl font-bold bg-amber-600 hover:bg-amber-700 rounded-2xl shadow-lg shadow-amber-500/30 animate-pulse"
+        >
+          TAP HERE
+        </Button>
+
+        {/* Skip button for non-voice usage */}
+        <button
+          onClick={() => setAudioUnlocked(true)}
+          className="mt-6 text-gray-500 hover:text-gray-300 text-sm underline"
+        >
+          Skip (voice won't work)
+        </button>
       </div>
     );
   }
@@ -1113,8 +1188,18 @@ export default function StockerApp() {
             <div className="mt-6 py-8 text-center">
               {/* iOS Safari tap instruction - CRITICAL for audio unlock */}
               {(isIOS || isSafari) && !routeState.routeName && (
-                <div className="mb-4 bg-amber-500/10 border border-amber-500/30 rounded-lg p-4">
-                  <p className="text-lg font-semibold text-amber-400 mb-2">👆 Tap Anywhere to Begin</p>
+                <div
+                  className="mb-4 bg-amber-500/10 border border-amber-500/30 rounded-lg p-4 cursor-pointer hover:bg-amber-500/20 transition-colors"
+                  onClick={async () => {
+                    try {
+                      await voice.unlockAudio();
+                      console.log('[iOS] Audio unlocked via tap');
+                    } catch (e) {
+                      console.error('[iOS] Audio unlock failed:', e);
+                    }
+                  }}
+                >
+                  <p className="text-lg font-semibold text-amber-400 mb-2">👆 Tap Here to Enable Voice</p>
                   <p className="text-sm text-amber-300">
                     Safari requires a tap before voice and audio can work
                   </p>
