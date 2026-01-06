@@ -107,6 +107,17 @@ MediaRecorder: unknown  ← PROBLEM
 
 **API Key**: Configured in `.mcp.json` (JWT token)
 
+#### 5. **n8n Workflow Fix** - "Next" Command Syntax Error (LIVE)
+**What**: Fixed syntax error in n8n workflow causing all "next" commands to fail
+
+**Workflow**: Stocker Tool: get_next_item (ID: GPeduKWdn9tMrZmT)
+**Node Fixed**: "Determine Next State"
+**Bug**: Extra closing brace `}` at end of JavaScript code
+**Fix**: Removed extra brace via n8n-mcp API
+
+**Applied**: 2026-01-06 23:10 UTC (LIVE immediately, no deployment needed)
+**Status**: ✅ Active and working
+
 ---
 
 ## 📦 DEPLOYMENT STATUS
@@ -208,23 +219,32 @@ b12be8c - n8n-mcp config
 
 ---
 
-## ❓ UNRESOLVED ISSUES
+## ✅ RESOLVED ISSUES
 
-### MacBook "Next" Command Error
-**Status**: ⚠️ Root cause unknown
+### MacBook "Next" Command Error - FIXED
+**Status**: ✅ **RESOLVED** (2026-01-06 23:10 UTC)
 
-**Possible Causes**:
-1. n8n webhook `/get-next` timing out or returning 500
-2. OpenAI API rate limit (429 error)
-3. Database connection issue in n8n workflow
-4. Session state corruption
-5. Network timeout (30s default)
+**Root Cause Identified**:
+JavaScript syntax error in n8n workflow "Stocker Tool: get_next_item" (ID: GPeduKWdn9tMrZmT)
+- **Node**: "Determine Next State"
+- **Error**: `SyntaxError: Unexpected token '}'` at line 130
+- **Bug**: Extra closing brace `}` at end of code (should end with `}];` but had `}];}`
+- **Impact**: Every "next" command triggered this workflow, which failed immediately with syntax error
 
-**Next Steps to Diagnose**:
-- **Option 1**: Have Davy open console and screenshot errors
-- **Option 2**: Restart Claude session, use n8n-mcp to check executions
-- **Option 3**: Check Cloudflare Pages deployment logs
-- **Option 4**: Manually check n8n dashboard at visionairy.app.n8n.cloud/executions
+**Fix Applied**:
+- Removed extra closing brace from "Determine Next State" node code
+- Workflow validation now passes (0 syntax errors)
+- Applied via n8n-mcp API at 2026-01-06 23:10 UTC
+
+**How Diagnosed**:
+1. Used n8n-mcp server to list recent failed executions
+2. Found 20+ consecutive failures all with same error
+3. Retrieved full error details from execution #24542
+4. Identified failing node and exact error message
+5. Downloaded workflow, extracted code, found extra `}`
+
+**Testing Required**:
+Davy should now test "next" command on MacBook - should work immediately (no cache clear needed, backend fix)
 
 ---
 

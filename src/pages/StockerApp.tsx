@@ -502,26 +502,33 @@ export default function StockerApp() {
       if (!userId || initialized || initStartedRef.current) return;
       initStartedRef.current = true;
 
+      // CRITICAL: If Safari/iOS needs audio unlock, wait for it before continuing
+      if ((isSafari || isIOS) && !audioUnlocked) {
+        console.log('[Stocker] Waiting for audio unlock before initializing...');
+        initStartedRef.current = false; // Reset so we can try again when unlocked
+        return; // This useEffect will re-run when audioUnlocked changes
+      }
+
       // If we have a route ID from URL, skip saved session and start that route directly
       if (routeIdFromUrl && !urlRouteProcessed) {
         console.log('[Stocker] Route ID from URL:', routeIdFromUrl);
         setUrlRouteProcessed(true);
-        
+
         // Fetch route details from database
         const { data: routeData, error: routeError } = await supabase
           .from('routes')
           .select('id, route_name, delivery_date')
           .eq('id', routeIdFromUrl)
           .single();
-        
+
         if (!routeError && routeData) {
           // Clear any existing session and start fresh with this route
           await sessionPersistence.clear(userId);
           reset();
           generateNewSessionId();
           setInitialized(true);
-          
-          // Start listening
+
+          // Start listening (safe now - audio is unlocked)
           await voice.startListening();
           
           // Set up route for selection and auto-start
@@ -729,7 +736,7 @@ export default function StockerApp() {
       addMessage({ role: 'assistant', content: greeting });
       await voice.speak(greeting);
     }
-  }, [userId, sessionPersistence, reset, generateNewSessionId, voice, getRoutes, userName, addMessage, selectRoute]);
+  }, [userId, sessionPersistence, reset, generateNewSessionId, voice, getRoutes, userName, addMessage, selectRoute, audioUnlocked, isSafari, isIOS]);
 
   // Tap-to-advance (from original PWA)
   const handleItemCardClick = useCallback(() => {
