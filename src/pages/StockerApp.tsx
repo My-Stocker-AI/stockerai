@@ -248,12 +248,9 @@ export default function StockerApp() {
       return;
     }
 
-    // Handle voice route selection when in route selection mode
+    // Handle voice route selection when in route selection mode (cards visible)
+    // NOTE: Cards are now disabled for multiple routes - AI handles selection via prompt
     if (showRouteSelection && availableRoutes.length > 1) {
-      // DEBUG: Log what we're trying to match
-      console.log('[Route Selection] Transcript:', transcript);
-      console.log('[Route Selection] Available routes:', availableRoutes.map(r => r.route_name));
-
       // Enhanced fuzzy matching with phonetic alternatives for common mishearings
       const matchedRoute = availableRoutes.find(route => {
         const routeLower = route.route_name.toLowerCase();
@@ -281,16 +278,11 @@ export default function StockerApp() {
       });
 
       if (matchedRoute) {
-        console.log('[Route Selection] MATCHED:', matchedRoute.route_name);
         processingRef.current = true;
         await selectRoute(matchedRoute.route_name, routeSelectionDate);
         processingRef.current = false;
         return;
-      } else {
-        console.log('[Route Selection] NO MATCH - sending to AI');
       }
-    } else {
-      console.log('[Route Selection] SKIPPED - showRouteSelection:', showRouteSelection, 'availableRoutes.length:', availableRoutes.length);
     }
 
     processingRef.current = true;
@@ -301,18 +293,18 @@ export default function StockerApp() {
       // Use messagesRef.current to avoid stale closure (ref is updated immediately by addMessage)
       const allMessages = trimConversationHistory(sanitizeConversationHistory([...messagesRef.current]));
 
-      // Pass route selection context if in selection mode
-      const routeContext = showRouteSelection && availableRoutes.length > 0 ? {
+      // Pass route context: either available routes (before selection) or current route (after selection)
+      const routeContext = availableRoutes.length > 0 && !routeState.routeName ? {
+        // User is choosing from available routes
         availableRoutes: availableRoutes.map(r => r.route_name),
         date: routeSelectionDate,
-        currentRouteName: routeState.routeName || undefined
+        currentRouteName: undefined
       } : (routeState.routeName ? {
+        // User is on a route
         availableRoutes: [],
         date: routeState.routeDate || '',
         currentRouteName: routeState.routeName
       } : undefined);
-
-      console.log('[AI Context] Route context:', routeContext);
 
       let response = await sendToAI(allMessages, userName, routeState.currentItem, routeContext);
 
@@ -689,10 +681,9 @@ export default function StockerApp() {
       }
 
       if (data.routes?.length) {
-        // Store routes for display
+        // Store routes for AI context (but don't show cards - voice only!)
         setAvailableRoutes(data.routes);
         setRouteSelectionDate(routeDate);
-        setShowRouteSelection(true);
 
         const names = data.routes.map((r: any) => r.route_name);
 
@@ -709,7 +700,7 @@ export default function StockerApp() {
           // Auto-start immediately after greeting - no redundant announcement needed
           selectRoute(routeName);
         } else {
-          // MULTIPLE ROUTES: Ask user to choose
+          // MULTIPLE ROUTES: Pure voice - no cards
           let greeting = '';
           if (names.length === 2) {
             greeting = dateLabel === 'today'
@@ -725,6 +716,8 @@ export default function StockerApp() {
           setAiResponse(greeting);
           addMessage({ role: 'assistant', content: greeting });
           await voice.speak(greeting);
+
+          // Stay on voice app screen - AI will handle the response
         }
       } else {
         // NO ROUTES for today or tomorrow
