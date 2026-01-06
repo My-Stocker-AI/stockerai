@@ -55,9 +55,10 @@ const Home = () => {
             {/* Left Column - Text Content */}
             <div className="md:text-left text-center">
               <p
-                className="text-xl md:text-2xl font-extrabold tracking-wide mb-4 animate-fade-in-up text-primary relative inline-block uppercase"
+                className="text-xl md:text-2xl font-extrabold tracking-wide mb-4 animate-fade-in-up relative inline-block uppercase"
                 style={{
-                  textShadow: '2px 2px 8px rgba(255, 107, 53, 0.4), -1px -1px 6px rgba(255, 165, 89, 0.3)'
+                  color: '#0cb08b',
+                  textShadow: '2px 2px 8px rgba(12, 176, 139, 0.4), -1px -1px 6px rgba(12, 176, 139, 0.3)'
                 }}
               >
                 VOICE PICKING FOR VENDING ROUTE OPERATORS
@@ -65,7 +66,7 @@ const Home = () => {
               <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight text-foreground mb-6 animate-fade-in-up">
                 Enterprise Warehouse Speed.{" "}
                 <br className="hidden sm:block" />
-                <span className="text-primary">Zero Hardware Cost.</span>
+                <span style={{ color: '#0cb08b' }}>Zero Hardware Cost.</span>
               </h1>
               <p className="text-lg sm:text-xl text-muted-foreground mb-8 max-w-2xl animate-fade-in-up animation-delay-100">
                 Hardware automation runs $100k+. Stocker AI runs on the phone in your
