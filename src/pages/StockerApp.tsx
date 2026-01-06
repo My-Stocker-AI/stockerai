@@ -9,8 +9,6 @@ import { useSessionPersistence } from '@/hooks/useSessionPersistence';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { BottomNav } from '@/components/stocker/BottomNav';
-import { UploadTab } from '@/components/stocker/UploadTab';
 import { HelpSheet } from '@/components/stocker/HelpSheet';
 import { RouteSelectionCard } from '@/components/stocker/RouteSelectionCard';
 import { MachineListPanel } from '@/components/stocker/MachineListPanel';
@@ -125,7 +123,6 @@ export default function StockerApp() {
   const [aiResponse, setAiResponse] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [initialized, setInitialized] = useState(false);
-  const [activeTab, setActiveTab] = useState<'voice' | 'upload'>('voice');
   const [showResumeDialog, setShowResumeDialog] = useState(false);
   const [showStopConfirm, setShowStopConfirm] = useState(false);
   const [showMicHelp, setShowMicHelp] = useState(false);
@@ -768,7 +765,7 @@ export default function StockerApp() {
     return (
       <div className="min-h-screen bg-[#0d1117] flex flex-col items-center justify-center p-6">
         {/* Logo */}
-        <img src="/stocker-ai-logo.jpg" alt="Stocker AI" className="h-24 w-24 object-contain rounded-full shadow-lg shadow-teal-500/30 mb-6" />
+        <img src="/stocker-ai-logo.jpg" alt="Stocker AI" className="h-24 w-24 bg-white p-3 object-contain rounded-full shadow-lg shadow-teal-500/30 mb-6" />
 
         {/* Route info card */}
         <div className="bg-[#161b22] rounded-2xl border border-gray-700 p-6 max-w-sm w-full mb-6">
@@ -921,7 +918,7 @@ export default function StockerApp() {
           <h1 className="text-lg font-semibold">{routeState.routeName || `Hi, ${userName}`}</h1>
         </div>
         <div className="flex-shrink-0 mx-4">
-          <img src="/stocker-ai-logo.jpg" alt="Stocker AI" className="h-12 w-12 object-contain rounded-full shadow-lg shadow-teal-500/20" />
+          <img src="/stocker-ai-logo.jpg" alt="Stocker AI" className="h-16 w-16 bg-white p-2 object-contain rounded-full shadow-lg shadow-teal-500/20" />
         </div>
         <div className="flex-1 flex items-center justify-end gap-2">
           {routeState.routeName && (
@@ -960,10 +957,8 @@ export default function StockerApp() {
       {/* Help Sheet */}
       <HelpSheet isOpen={showHelpSheet} onClose={() => setShowHelpSheet(false)} />
 
-      <main className="flex-1 flex flex-col p-4 gap-4 overflow-hidden pb-20">
-        {activeTab === 'upload' ? (
-          <UploadTab />
-        ) : showRouteSelection && availableRoutes.length > 0 ? (
+      <main className="flex-1 flex flex-col p-4 gap-4 overflow-hidden">
+        {showRouteSelection && availableRoutes.length > 0 ? (
           /* Route Selection Cards - Voice first, tap as backup */
           <div className="flex-1 flex flex-col max-w-4xl mx-auto w-full">
             <div className="text-center mb-6">
@@ -1215,9 +1210,6 @@ export default function StockerApp() {
         </>
         )}
       </main>
-
-      {/* Bottom Nav */}
-      <BottomNav activeTab={activeTab} onTabChange={setActiveTab} />
     </div>
   );
 }
