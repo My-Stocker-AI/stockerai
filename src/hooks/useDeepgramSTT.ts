@@ -143,12 +143,20 @@ export function useDeepgramSTT(options: UseDeepgramSTTOptions = {}) {
     if (!token) throw new Error('No token available');
 
     const wsUrl = 'wss://api.deepgram.com/v1/listen?' +
-      'model=nova-2&' +
+      'model=nova-3&' +
       'language=en-US&' +
       'smart_format=true&' +
       'interim_results=true&' +
       'vad_events=true&' +
-      'endpointing=200';
+      'endpointing=200&' +
+      'keywords=north:3&' +
+      'keywords=south:3&' +
+      'keywords=east:3&' +
+      'keywords=west:3&' +
+      'keywords=route:2&' +
+      'keywords=next:2&' +
+      'keywords=skip:2&' +
+      'keywords=done:2';
 
     return new Promise<void>((resolve, reject) => {
       const socket = new WebSocket(wsUrl, ['token', token]);
@@ -203,7 +211,7 @@ export function useDeepgramSTT(options: UseDeepgramSTTOptions = {}) {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
-          sampleRate: 16000
+          sampleRate: 48000
         }
       });
 
