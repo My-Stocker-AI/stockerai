@@ -267,10 +267,15 @@ export default function StockerApp() {
         date: routeSelectionDate,
         currentRouteName: undefined
       } : (routeState.routeName ? {
-        // User is on a route
-        availableRoutes: [],
+        // User is on a route - include full state for status queries
+        availableRoutes: availableRoutes.map(r => r.route_name), // Cache routes for switch_route
         date: routeState.routeDate || '',
-        currentRouteName: routeState.routeName
+        currentRouteName: routeState.routeName,
+        totalMachines: routeState.totalMachines,
+        currentMachineIndex: routeState.currentMachineIndex,
+        completedItemsCount: routeState.completedItems.length,
+        totalItems: routeState.machines.reduce((sum, m) => sum + (m.totalItems || 0), 0),
+        machines: routeState.machines // For skipped machine tracking
       } : undefined);
 
       let response = await sendToAI(allMessages, userName, routeState.currentItem, routeContext);

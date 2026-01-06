@@ -180,7 +180,16 @@ export function useStockerAI() {
     userIdRef.current = userId;
   }, []);
 
-  const buildSystemPrompt = useCallback((userName: string, currentItem: any, routeContext?: { availableRoutes: string[], date: string, currentRouteName?: string }) => {
+  const buildSystemPrompt = useCallback((userName: string, currentItem: any, routeContext?: {
+    availableRoutes: string[],
+    date: string,
+    currentRouteName?: string,
+    totalMachines?: number,
+    currentMachineIndex?: number,
+    completedItemsCount?: number,
+    totalItems?: number,
+    machines?: any[]
+  }) => {
     // Use local date, not UTC (toISOString gives UTC which can be wrong timezone)
     const now = new Date();
     const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -201,6 +210,23 @@ export function useStockerAI() {
       currentRouteStatus = `\nCURRENT ACTIVE ROUTE: ${routeContext.currentRouteName}`;
     } else {
       currentRouteStatus = '\nCURRENT ACTIVE ROUTE: None (user not yet on a route)';
+    }
+
+    // Add route state for status queries
+    let routeStateContext = '';
+    if (routeContext?.currentRouteName && routeContext.totalMachines !== undefined) {
+      const skippedMachines = (routeContext.machines || []).filter((m: any) => m.status === 'skipped').map((m: any) => m.name);
+      const machinesLeft = routeContext.totalMachines - (routeContext.currentMachineIndex || 0);
+
+      routeStateContext = `
+ROUTE PROGRESS (for status queries):
+- Total machines: ${routeContext.totalMachines}
+- Current machine: ${routeContext.currentMachineIndex} of ${routeContext.totalMachines}
+- Machines remaining: ${machinesLeft}
+- Items completed: ${routeContext.completedItemsCount || 0}
+- Total items in route: ${routeContext.totalItems || 0}
+- Skipped machines: ${skippedMachines.length > 0 ? skippedMachines.join(', ') : 'None'}
+- Available routes for today: ${routeContext.availableRoutes.length > 0 ? routeContext.availableRoutes.join(', ') : 'None cached'}`;
     }
 
     let routeSelectionContext = '';
@@ -379,11 +405,49 @@ When user says they want to switch to a different route while already working on
 
 When user asks about inventory, machine count, or "what's in the machine" - respond with the current item's inventory data if available.
 
+CRITICAL - Status Query Responses:
+When user asks about their progress or status, answer using the ROUTE PROGRESS data above:
+- "What route am I on?" → "You're on [currentRouteName] route."
+- "What machine am I on?" → "You're working on [machine_name] at [location]."
+- "Which machines did I skip?" → List skipped machines OR "You haven't skipped any machines yet."
+- "How many machines left?" → "[machines remaining] machines left out of [total]."
+- "What's my progress?" → "You're on machine [current] of [total]. [completed items] items completed out of [total items] total."
+- "How many items left?" → Use current machine's remaining items
+
+CRITICAL - Graceful Handling for Unsupported Requests:
+
+NAVIGATION REQUESTS (Unsupported → Redirect):
+- "Switch machines" / "Go to machine X" → "I can't switch machines, but I can skip this one and either save your place or reset the list for you. Tell me what you would like to do." (recognize "save" → skip_current_machine, "reset" → user must manually restart)
+- "Go back 3 items" / "undo last 3" → "I can't go back that far, but would you like to know the last item, continue, or start over on this machine?" ("last item" → repeat current, "continue" → proceed, "start over" → they'll need to manually reset)
+- "Start this machine over" → "I can't restart just this machine, but I can skip it and save your place, or you can say 'undo' to go back one item. What would you like?"
+- "Jump to the end" → "I can't jump to the end, but I can skip this machine and save your spot for when we come back to it or reset. Tell me what you'd like to do."
+
+ROUTE MANAGEMENT (Unsupported → Reject):
+- "Switch routes" (without route name) → "You have [list routes]. Which one would you like to switch to?"
+- "Switch to [different day]" → "I can only work with routes for the day you started with. To work on a different day's routes, end this session and start a new one."
+- "Cancel this route" → "Do you want to save your progress on [Route Name], or abandon it completely?" ("save" → pause, "abandon" → clear session)
+
+EMERGENCY/BREAK:
+- "I need a break" / "Pause" / "Stop" → "Great, we'll pause. Just say 'Hey Stocker' when you're ready to resume."
+
+UNIVERSAL FALLBACK:
+If user says something you don't recognize or can't help with, respond:
+"That's not one of my options, but here's what we can do from here: say 'next' to continue, 'skip machine' to move on, 'go back' for the previous item, or 'switch routes' to change routes. What would you like to do?"
+
 Current session ID: ${sessionIdRef.current}
-Today's date: ${today}${currentRouteStatus}${itemContext}${routeSelectionContext}`;
+Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${routeSelectionContext}`;
   }, []);
 
-  const sendToAI = useCallback(async (messages: any[], userName: string, currentItem: any, routeContext?: { availableRoutes: string[], date: string, currentRouteName?: string }) => {
+  const sendToAI = useCallback(async (messages: any[], userName: string, currentItem: any, routeContext?: {
+    availableRoutes: string[],
+    date: string,
+    currentRouteName?: string,
+    totalMachines?: number,
+    currentMachineIndex?: number,
+    completedItemsCount?: number,
+    totalItems?: number,
+    machines?: any[]
+  }) => {
     // Check online status (from original PWA)
     if (!navigator.onLine) {
       throw new Error('No internet connection');
