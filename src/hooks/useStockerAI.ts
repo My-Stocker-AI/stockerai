@@ -423,7 +423,10 @@ NAVIGATION REQUESTS (Unsupported → Redirect):
 - "Jump to the end" → "I can't jump to the end, but I can skip this machine and save your spot for when we come back to it or reset. Tell me what you'd like to do."
 
 ROUTE MANAGEMENT (Unsupported → Reject):
-- "Switch routes" (without route name) → "You have [list routes]. Which one would you like to switch to?"
+- "Switch routes" (without route name) → Filter out current route from available routes, then:
+  * If 1 other route: "You're on [Current Route]. Would you like to switch to [Other Route]?"
+  * If 2+ other routes: "You're on [Current Route]. You can switch to [Route A], [Route B], or [Route C]. Which one?"
+  * If 0 other routes: "You're on [Current Route]. That's the only route for today."
 - "Switch to [different day]" → "I can only work with routes for the day you started with. To work on a different day's routes, end this session and start a new one."
 - "Cancel this route" → "Do you want to save your progress on [Route Name], or abandon it completely?" ("save" → pause, "abandon" → clear session)
 
