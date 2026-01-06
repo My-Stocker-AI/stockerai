@@ -1000,9 +1000,9 @@ export default function StockerApp() {
               ))}
             </div>
 
-            {/* Voice indicator - more prominent with mic icon */}
+            {/* Voice indicator + iOS tap instruction */}
             <div className="bg-[#161b22] rounded-xl p-4 border border-gray-800 mt-4">
-              <div className="flex items-center justify-center gap-3">
+              <div className="flex items-center justify-center gap-3 mb-3">
                 <div className={cn(
                   "w-10 h-10 rounded-full flex items-center justify-center",
                   voice.status === 'listening' ? "bg-green-500/20 animate-pulse" : "bg-gray-800"
@@ -1018,6 +1018,11 @@ export default function StockerApp() {
                     <span className="text-sm text-amber-400 truncate block max-w-[200px]">"{voice.lastInput}"</span>
                   )}
                 </div>
+              </div>
+              {/* iOS Safari instruction */}
+              <div className="text-center pt-2 border-t border-gray-700">
+                <p className="text-xs text-amber-400 font-medium">👆 Tap a route card to begin</p>
+                <p className="text-xs text-gray-500 mt-1">Or say the route name</p>
               </div>
             </div>
 

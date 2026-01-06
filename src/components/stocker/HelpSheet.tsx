@@ -165,6 +165,15 @@ export function HelpSheet({ isOpen, onClose }: HelpSheetProps) {
               anytime to wake the app. Use "What's my progress?" to check your status.
             </p>
           </div>
+          <div className="text-center mt-4">
+            <a
+              href="/troubleshooting"
+              target="_blank"
+              className="text-sm text-primary hover:underline font-medium"
+            >
+              📱 Having problems? View Troubleshooting Guide →
+            </a>
+          </div>
         </div>
       </div>
     </>
