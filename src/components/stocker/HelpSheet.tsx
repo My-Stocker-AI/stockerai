@@ -1,4 +1,4 @@
-import { X, Mic, ArrowRight, CheckCircle, SkipForward, RotateCcw, Repeat, Route, HelpCircle } from "lucide-react";
+import { X, Mic, ArrowRight, CheckCircle, SkipForward, RotateCcw, Repeat, Route, HelpCircle, Package, MapPin, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface HelpSheetProps {
