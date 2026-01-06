@@ -112,7 +112,15 @@ const Home = () => {
 
           {/* Live Demo CTA - Below hero grid */}
           <div id="demo" className="mt-16 max-w-3xl mx-auto animate-fade-in-up animation-delay-300 scroll-mt-24">
-            <div className="relative bg-gradient-to-br from-slate-900 to-[#161b22] rounded-xl border border-slate-700 overflow-hidden shadow-2xl shadow-primary/10 p-8 text-center">
+            <div className="relative">
+              {/* Subtle shadow for depth */}
+              <div className="absolute inset-0 translate-x-3 translate-y-3 bg-black/30 rounded-xl blur-xl"></div>
+
+              {/* Subtle glow ring */}
+              <div className="absolute -inset-0.5 bg-gradient-to-r from-primary/40 to-cyan-400/40 rounded-xl blur-sm"></div>
+
+              {/* Main CTA box */}
+              <div className="relative bg-gradient-to-br from-slate-900 to-[#161b22] rounded-xl border border-slate-700 overflow-hidden shadow-2xl shadow-primary/10 p-8 text-center">
               <div className="w-20 h-20 rounded-full bg-emerald-500/20 flex items-center justify-center mx-auto mb-4 border-2 border-emerald-500/30">
                 <Mic className="w-10 h-10 text-emerald-400" />
               </div>
@@ -127,6 +135,7 @@ const Home = () => {
                 </Button>
               </Link>
               <p className="text-xs text-gray-500 mt-4">Works best with earbuds in a quiet space</p>
+              </div>
             </div>
           </div>
         </div>
