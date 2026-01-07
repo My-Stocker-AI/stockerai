@@ -562,10 +562,22 @@ export default function StockerApp() {
       }
 
       const saved = await sessionPersistence.load(userId);
+      console.log('[Stocker] Loaded saved session:', {
+        hasSaved: !!saved,
+        isValid: sessionPersistence.isValidSession(saved),
+        routeName: saved?.routeName,
+        routeDate: saved?.routeDate,
+        completed: saved?.completed,
+        savedAt: saved?.savedAt ? new Date(saved.savedAt).toLocaleString() : null
+      });
+
       if (sessionPersistence.isValidSession(saved) && saved?.userId === userId) {
         // Verify route still exists before showing resume dialog
         const routeExists = await verifyRouteExists(userId, saved.routeName, saved.routeDate);
+        console.log('[Stocker] Route verification:', { routeName: saved.routeName, exists: routeExists });
+
         if (routeExists) {
+          console.log('[Stocker] Showing resume dialog for:', saved.routeName);
           setSavedSession(saved);
           setShowResumeDialog(true);
         } else {
@@ -575,6 +587,7 @@ export default function StockerApp() {
           startFresh();
         }
       } else {
+        console.log('[Stocker] No valid session found, starting fresh');
         startFresh();
       }
     };
