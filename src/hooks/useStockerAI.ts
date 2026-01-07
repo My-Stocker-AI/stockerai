@@ -20,6 +20,57 @@ async function fetchWithTimeout(url: string, options: RequestInit, timeout = 300
   }
 }
 
+// PRIORITY 1.3 & 1.4: Retry with exponential backoff and rate limit detection
+async function fetchWithRetry(
+  url: string,
+  options: RequestInit,
+  maxRetries = 3,
+  timeout = 30000
+): Promise<Response> {
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await fetchWithTimeout(url, options, timeout);
+
+      // PRIORITY 1.4: Detect OpenAI rate limits (429 status)
+      if (response.status === 429) {
+        const errorText = await response.text();
+        console.error('[Fetch] Rate limit hit (429):', errorText);
+        throw new Error('Rate limit exceeded. Please wait a moment and try again.');
+      }
+
+      // Success or non-retryable error - return immediately
+      if (response.ok || response.status < 500) {
+        return response;
+      }
+
+      // 5xx error - might be transient, retry
+      console.warn(`[Fetch] Server error ${response.status} on attempt ${attempt + 1}/${maxRetries + 1}`);
+      lastError = new Error(`Server error: ${response.status} ${response.statusText}`);
+
+    } catch (e: any) {
+      console.warn(`[Fetch] Request failed on attempt ${attempt + 1}/${maxRetries + 1}:`, e.message);
+      lastError = e;
+
+      // Don't retry rate limits, timeouts beyond max retries, or user errors
+      if (e.message.includes('Rate limit') || e.message.includes('timed out') || attempt === maxRetries) {
+        throw e;
+      }
+    }
+
+    // Calculate exponential backoff: 1s, 2s, 4s
+    if (attempt < maxRetries) {
+      const backoffMs = 1000 * Math.pow(2, attempt);
+      console.log(`[Fetch] Retrying in ${backoffMs}ms...`);
+      await new Promise(resolve => setTimeout(resolve, backoffMs));
+    }
+  }
+
+  // All retries exhausted
+  throw lastError || new Error('Request failed after retries');
+}
+
 // All 8 tools from original PWA
 const TOOLS = [
   {
@@ -469,7 +520,8 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
       routeName: routeContext?.currentRouteName
     });
 
-    const response = await fetchWithTimeout(`${N8N_BASE}/openai-chat`, {
+    // PRIORITY 1.3 & 1.4: Use retry logic with rate limit detection
+    const response = await fetchWithRetry(`${N8N_BASE}/openai-chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -487,6 +539,12 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
         statusText: response.statusText,
         body: errorText
       });
+
+      // PRIORITY 1.4: Friendly rate limit message
+      if (response.status === 429) {
+        throw new Error('Rate limit exceeded. Please wait a moment and try again.');
+      }
+
       throw new Error(`AI service error (${response.status}): ${errorText}`);
     }
 
@@ -522,7 +580,8 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
       try {
         console.log(`[Tools] Calling ${name}:`, { args, endpoint: `${N8N_BASE}${path}` });
 
-        const resp = await fetchWithTimeout(`${N8N_BASE}${path}`, {
+        // PRIORITY 1.3: Use retry logic for webhook calls
+        const resp = await fetchWithRetry(`${N8N_BASE}${path}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

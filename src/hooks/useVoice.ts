@@ -72,6 +72,11 @@ export function useVoice(options: UseVoiceOptions = {}) {
   const accumulatedTranscriptRef = useRef('');  // Accumulated transcript for utterance (matches original PWA this.transcript)
   const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);  // Silence timer fallback (matches original PWA)
 
+  // PRIORITY 1.2: Deepgram reconnection tracking
+  const reconnectAttemptsRef = useRef(0);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const MAX_RECONNECT_ATTEMPTS = 5;
+
   // Echo filtering refs (from original PWA)
   const lastSpokenTextRef = useRef('');
   const lastSpeakTimeRef = useRef(0);
@@ -528,6 +533,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
       socket.onopen = () => {
         clearTimeout(timeout);
         isConnectedRef.current = true;
+        reconnectAttemptsRef.current = 0; // Reset reconnection counter on successful connect
         emitDiagnostic('deepgram-connected', true);
         startKeepAlive();
         setupMediaRecorder();
@@ -554,16 +560,44 @@ export function useVoice(options: UseVoiceOptions = {}) {
         emitDiagnostic('deepgram-disconnected', true);
         stopKeepAlive();
 
-        // Use statusRef.current to avoid stale closure (matches original PWA)
+        // PRIORITY 1.2: Enhanced reconnection logic with exponential backoff
         const currentStatus = statusRef.current;
         if (shouldReconnectRef.current && (currentStatus === 'listening' || currentStatus === 'paused' || currentStatus === 'muted')) {
-          setTimeout(async () => {
+
+          // Check if we've exceeded max attempts
+          if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
+            console.error('[Voice] Max reconnection attempts reached - giving up');
+            emitDiagnostic('error', 'Deepgram connection lost - please refresh');
+            onErrorRef.current?.('Connection lost. Please refresh the page.');
+            setStatus('error');
+            return;
+          }
+
+          // Calculate exponential backoff: 1s, 2s, 4s, 8s, 16s
+          const backoffMs = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 16000);
+          reconnectAttemptsRef.current++;
+
+          console.log(`[Voice] Deepgram disconnected - reconnecting in ${backoffMs}ms (attempt ${reconnectAttemptsRef.current}/${MAX_RECONNECT_ATTEMPTS})`);
+          emitDiagnostic('deepgram-reconnecting', { attempt: reconnectAttemptsRef.current, backoffMs });
+
+          // Clear any existing reconnect timeout
+          if (reconnectTimeoutRef.current) {
+            clearTimeout(reconnectTimeoutRef.current);
+          }
+
+          reconnectTimeoutRef.current = setTimeout(async () => {
             try {
               await connectDeepgram();
+              // Success - reset attempts counter
+              reconnectAttemptsRef.current = 0;
+              console.log('[Voice] Deepgram reconnected successfully');
+              emitDiagnostic('deepgram-reconnected', 'success');
             } catch (e) {
+              console.error('[Voice] Deepgram reconnection failed:', e);
               emitDiagnostic('error', 'Deepgram reconnection failed: ' + String(e));
+              // socket.onclose will fire again and retry with next backoff
             }
-          }, 1000);
+          }, backoffMs);
         }
       };
     });
@@ -980,6 +1014,40 @@ export function useVoice(options: UseVoiceOptions = {}) {
 
   const setThinking = useCallback(() => setStatus('thinking'), [setStatus]);
 
+  // PRIORITY 1.1: AudioContext Health Monitoring
+  // Safari/iOS auto-suspends AudioContext after 30s idle or on screen lock
+  // This detects suspension and auto-resumes to prevent silent failures
+  useEffect(() => {
+    const healthCheckInterval = setInterval(() => {
+      if (audioContextRef.current) {
+        const state = audioContextRef.current.state;
+
+        // Only check when we expect audio to work (not idle)
+        const currentStatus = statusRef.current;
+        const expectingAudio = currentStatus === 'listening' || currentStatus === 'speaking';
+
+        if (expectingAudio && state === 'suspended') {
+          console.warn('[Voice] AudioContext suspended during active session - attempting resume');
+          emitDiagnostic('audiocontext-suspended', { status: currentStatus });
+
+          // Attempt to resume (may fail without user gesture, but worth trying)
+          audioContextRef.current.resume()
+            .then(() => {
+              console.log('[Voice] AudioContext auto-resumed successfully');
+              emitDiagnostic('audiocontext-resumed', 'auto');
+            })
+            .catch((err) => {
+              console.error('[Voice] AudioContext auto-resume failed - need user gesture:', err);
+              emitDiagnostic('audiocontext-resume-failed', 'needs-gesture');
+              // Don't throw error to user unless they try to speak/listen
+            });
+        }
+      }
+    }, 10000); // Check every 10 seconds
+
+    return () => clearInterval(healthCheckInterval);
+  }, []);
+
   // CRITICAL: Stop all audio immediately when user leaves/closes page
   // This prevents the horrible UX of audio continuing after window close
   useEffect(() => {
@@ -1040,6 +1108,11 @@ export function useVoice(options: UseVoiceOptions = {}) {
       window.removeEventListener('beforeunload', handleBeforeUnload);
       window.removeEventListener('pagehide', handlePageHide);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      // Clear reconnection timeout
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
       stopEverything();
       stopListening();
     };
