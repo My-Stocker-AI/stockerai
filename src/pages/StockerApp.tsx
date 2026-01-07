@@ -139,6 +139,7 @@ export default function StockerApp() {
   const [selectedRoute, setSelectedRoute] = useState<string | null>(null);
   const [routeSelectionDate, setRouteSelectionDate] = useState<string>('');
   const [urlRouteProcessed, setUrlRouteProcessed] = useState(false); // Track if URL route was processed
+  const [showPWAWarning, setShowPWAWarning] = useState(false);
   const processingRef = useRef(false);
   const initStartedRef = useRef(false); // Prevent double initialization
   const MAX_RETRIES = 2;
@@ -147,6 +148,10 @@ export default function StockerApp() {
   // Detect iOS/Safari for tap instruction
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
   const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+
+  // Detect iOS PWA mode (standalone) - getUserMedia() is broken in iOS PWA
+  const isPWA = window.matchMedia('(display-mode: standalone)').matches ||
+                (window.navigator as any).standalone === true;
 
   const userName = userProfile?.first_name || 'there';
   const userId = user?.id || null;
@@ -440,6 +445,14 @@ export default function StockerApp() {
   useEffect(() => {
     voiceRef.current = voice;
   }, [voice]);
+
+  // Detect iOS PWA and show warning - getUserMedia is broken in iOS standalone mode
+  useEffect(() => {
+    if (isIOS && isPWA) {
+      console.log('[StockerApp] iOS PWA detected - getUserMedia() is broken in standalone mode');
+      setShowPWAWarning(true);
+    }
+  }, [isIOS, isPWA]);
 
   // CRITICAL: Clean up voice session on unmount (navigation away from this page)
   // This prevents mic from staying open when user navigates to other pages
@@ -976,6 +989,59 @@ export default function StockerApp() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#0d1117] via-[#161b22] to-[#0d1117] text-white flex flex-col">
+      {/* iOS PWA Warning Modal - getUserMedia is completely broken in standalone mode */}
+      {showPWAWarning && (
+        <div className="fixed inset-0 bg-black/90 z-[100] flex items-center justify-center p-4">
+          <div className="bg-[#161b22] rounded-xl border border-red-800 p-6 max-w-md w-full">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-red-500/20 rounded-lg">
+                <AlertTriangle className="h-8 w-8 text-red-400" />
+              </div>
+              <h2 className="text-xl font-semibold text-white">iOS App Mode Not Supported</h2>
+            </div>
+            <div className="space-y-3 mb-6 text-gray-300">
+              <p className="font-medium">Voice commands don't work in iOS App mode due to Apple's WebKit limitations.</p>
+              <p className="text-sm">Please use Safari browser instead:</p>
+              <div className="bg-gray-800/50 rounded-lg p-4 space-y-2 text-sm">
+                <div className="flex items-start gap-2">
+                  <span className="text-blue-400 font-bold mt-0.5">1.</span>
+                  <p>Delete this app from your home screen</p>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="text-blue-400 font-bold mt-0.5">2.</span>
+                  <p>Open <span className="font-mono bg-blue-500/20 px-1 rounded">stockerapp.com</span> in Safari browser</p>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="text-blue-400 font-bold mt-0.5">3.</span>
+                  <p>Use the site directly in Safari (don't install to home screen)</p>
+                </div>
+              </div>
+              <p className="text-xs text-gray-400 italic">Technical: getUserMedia() is disabled in iOS standalone PWA mode (WebKit Bug #185448)</p>
+            </div>
+            <div className="flex gap-3">
+              <Button
+                onClick={() => {
+                  // Copy URL to clipboard to make it easy to open in Safari
+                  const url = window.location.origin;
+                  navigator.clipboard.writeText(url).catch(() => {});
+                  window.open(url, '_blank');
+                }}
+                className="flex-1 bg-blue-600 hover:bg-blue-700"
+              >
+                Open in Safari
+              </Button>
+              <Button
+                onClick={() => setShowPWAWarning(false)}
+                variant="outline"
+                className="flex-1 border-gray-700 text-gray-300"
+              >
+                Dismiss
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Offline Banner (from original PWA) */}
       {isOffline && (
         <div className="bg-yellow-600 text-white text-center py-2 px-4 text-sm flex items-center justify-center gap-2">
