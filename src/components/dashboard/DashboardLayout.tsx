@@ -98,11 +98,11 @@ const DashboardLayout = ({ children, title, breadcrumbs }: DashboardLayoutProps)
   const Sidebar = () => (
     <div className="flex flex-col h-full w-64 bg-dashboard-bg border-r border-dashboard-border">
       {/* Logo */}
-      <div className="p-4 border-b border-dashboard-border">
-        <Link to="/" className="flex items-center gap-3">
-          <img src="/stocker-ai-logo.jpg" alt="Stocker AI" className="h-32 w-32 object-contain" />
-          <span className="text-2xl font-bold text-dashboard-text">Stocker AI</span>
-        </Link>
+      <div className="p-6 border-b border-dashboard-border">
+        <div className="flex flex-col items-center gap-3">
+          <img src="/stocker-ai-logo-square.jpg" alt="Stocker AI" className="h-48 w-48 object-contain" />
+          <span className="text-xl font-bold text-dashboard-text text-center">Stocker AI</span>
+        </div>
       </div>
 
       {/* Navigation */}
@@ -175,8 +175,8 @@ const DashboardLayout = ({ children, title, breadcrumbs }: DashboardLayoutProps)
     <div className="min-h-screen bg-dashboard-bg-alt">
       {/* Mobile Header - Simple, no hamburger */}
       <header className="lg:hidden flex items-center justify-center p-4 bg-dashboard-bg border-b border-dashboard-border">
-        <Link to="/dashboard" className="flex items-center gap-2">
-          <img src="/stocker-ai-logo.jpg" alt="Stocker AI" className="h-12 w-12 object-contain" />
+        <Link to="/dashboard" className="flex items-center gap-3">
+          <img src="/stocker-ai-logo-square.jpg" alt="Stocker AI" className="h-16 w-16 object-contain" />
           <span className="text-lg font-bold text-dashboard-text">Stocker AI</span>
         </Link>
       </header>
