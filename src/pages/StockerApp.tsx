@@ -136,6 +136,7 @@ export default function StockerApp() {
   const [audioUnlocked, setAudioUnlocked] = useState(false);
   const [showRouteSelection, setShowRouteSelection] = useState(false);
   const [availableRoutes, setAvailableRoutes] = useState<RouteOption[]>([]);
+  const [routeKeywords, setRouteKeywords] = useState<string[]>([]);
   const [selectedRoute, setSelectedRoute] = useState<string | null>(null);
   const [routeSelectionDate, setRouteSelectionDate] = useState<string>('');
   const [urlRouteProcessed, setUrlRouteProcessed] = useState(false); // Track if URL route was processed
@@ -438,7 +439,8 @@ export default function StockerApp() {
     onTranscript: handleTranscript,
     onError: handleVoiceError,
     onWakePhrase: handleWakePhrase,
-    continuous: true
+    continuous: true,
+    keywords: routeKeywords  // Dynamic route names for improved recognition
   });
 
   // Store voice in ref for callbacks
@@ -453,6 +455,15 @@ export default function StockerApp() {
       setShowPWAWarning(true);
     }
   }, [isIOS, isPWA]);
+
+  // Extract route names as keywords for improved voice recognition
+  useEffect(() => {
+    if (availableRoutes.length > 0) {
+      const routeNames = availableRoutes.map(route => route.route_name.toLowerCase());
+      setRouteKeywords(routeNames);
+      console.log('[StockerApp] Updated voice recognition keywords:', routeNames);
+    }
+  }, [availableRoutes]);
 
   // CRITICAL: Clean up voice session on unmount (navigation away from this page)
   // This prevents mic from staying open when user navigates to other pages

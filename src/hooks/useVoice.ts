@@ -32,20 +32,23 @@ interface UseVoiceOptions {
   onError?: (error: string) => void;
   onWakePhrase?: (command: string | null) => void;
   continuous?: boolean;
+  keywords?: string[];  // Dynamic keywords for improved recognition (route names, commands)
 }
 
 export function useVoice(options: UseVoiceOptions = {}) {
-  const { onTranscript, onError, onWakePhrase } = options;
+  const { onTranscript, onError, onWakePhrase, keywords } = options;
 
   // Store callbacks in refs to avoid stale closures in WebSocket handlers
   const onTranscriptRef = useRef(onTranscript);
   const onErrorRef = useRef(onError);
   const onWakePhraseRef = useRef(onWakePhrase);
+  const keywordsRef = useRef<string[]>(keywords || []);
 
   // Keep refs updated when callbacks change
   onTranscriptRef.current = onTranscript;
   onErrorRef.current = onError;
   onWakePhraseRef.current = onWakePhrase;
+  keywordsRef.current = keywords || [];
 
   const [status, setStatusState] = useState<VoiceStatus>('idle');
   const [lastInput, setLastInput] = useState('');
@@ -66,6 +69,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
   const keepAliveRef = useRef<NodeJS.Timeout | null>(null);
   const tokenRef = useRef<string | null>(null);
   const tokenExpiryRef = useRef<number>(0);
+  const encodingRef = useRef<string>('opus');  // Default to opus, updated by setupMediaRecorder
   const shouldReconnectRef = useRef(true);
   const isConnectedRef = useRef(false);
   const stoppedRef = useRef(false); // Flag to prevent new audio after stopAudio()
@@ -463,11 +467,22 @@ export function useVoice(options: UseVoiceOptions = {}) {
 
     const mimeType = getSupportedMimeType();
 
+    // Determine encoding for Deepgram based on MIME type
+    if (mimeType.includes('opus')) {
+      encodingRef.current = 'opus';
+    } else if (mimeType.includes('mp4') || mimeType.includes('aac')) {
+      encodingRef.current = 'aac';
+    } else if (mimeType.includes('wav')) {
+      encodingRef.current = 'linear16';
+    } else {
+      encodingRef.current = 'opus';  // Default fallback
+    }
+
     try {
       const options: MediaRecorderOptions = mimeType ? { mimeType } : {};
       const recorder = new MediaRecorder(audioStreamRef.current, options);
 
-      console.log('[Voice] MediaRecorder created with options:', options);
+      console.log('[Voice] MediaRecorder created with options:', options, 'encoding:', encodingRef.current);
 
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0 && socketRef.current?.readyState === WebSocket.OPEN) {
@@ -512,13 +527,32 @@ export function useVoice(options: UseVoiceOptions = {}) {
     const token = await ensureToken();
     if (!token) throw new Error('No token available');
 
+    // Build keywords list: common commands + dynamic route names
+    const baseKeywords = [
+      // Directions and positions
+      'south', 'north', 'east', 'west', 'top', 'bottom', 'beginning', 'end',
+      // Commands
+      'next', 'done', 'skip', 'yes', 'no', 'start', 'stop', 'continue',
+      'undo', 'back', 'go back', 'switch', 'route', 'machine', 'progress',
+      // Common responses
+      'got it', 'okay', 'yep', 'perfect', 'good', 'alright'
+    ];
+
+    // Combine base keywords with dynamic route names
+    const allKeywords = [...baseKeywords, ...keywordsRef.current];
+    const keywordsParam = allKeywords.length > 0
+      ? `&keywords=${encodeURIComponent(allKeywords.join(','))}`
+      : '';
+
     const wsUrl = 'wss://api.deepgram.com/v1/listen?' +
-      'model=nova-2&' +
+      'model=nova-2-meeting&' +  // Optimized for conversational speech
       'language=en-US&' +
+      `encoding=${encodingRef.current}&` +  // Tell Deepgram our audio format
       'smart_format=true&' +
       'interim_results=true&' +
       'vad_events=true&' +
-      'endpointing=200';
+      'endpointing=200' +
+      keywordsParam;
 
     return new Promise<void>((resolve, reject) => {
       const socket = new WebSocket(wsUrl, ['token', token]);
@@ -629,7 +663,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
         echoCancellation: true,
         noiseSuppression: true,
         autoGainControl: true,
-        sampleRate: 16000
+        sampleRate: 48000  // HD audio quality for better word recognition
       }
     });
     audioStreamRef.current = stream;
