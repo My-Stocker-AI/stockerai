@@ -3,6 +3,7 @@ import { Activity, Wifi, Mic, Volume2, AlertCircle, CheckCircle2, XCircle } from
 
 interface DiagnosticOverlayProps {
   voiceStatus: string;
+  isDeepgramConnected: boolean;
   isVisible: boolean;
   onClose: () => void;
 }
@@ -17,16 +18,24 @@ interface DiagnosticState {
   errors: string[];
 }
 
-export function DiagnosticOverlay({ voiceStatus, isVisible, onClose }: DiagnosticOverlayProps) {
+export function DiagnosticOverlay({ voiceStatus, isDeepgramConnected, isVisible, onClose }: DiagnosticOverlayProps) {
   const [diagnostics, setDiagnostics] = useState<DiagnosticState>({
     audioContextState: 'unknown',
     micPermission: 'unknown',
-    deepgramConnected: false,
+    deepgramConnected: isDeepgramConnected,
     mediaRecorderState: 'unknown',
     lastTranscript: '',
     lastSpoken: '',
     errors: []
   });
+
+  // Update Deepgram connection state when prop changes
+  useEffect(() => {
+    setDiagnostics(prev => ({
+      ...prev,
+      deepgramConnected: isDeepgramConnected
+    }));
+  }, [isDeepgramConnected]);
 
   useEffect(() => {
     if (!isVisible) return;
@@ -35,7 +44,7 @@ export function DiagnosticOverlay({ voiceStatus, isVisible, onClose }: Diagnosti
       const newDiag: DiagnosticState = {
         audioContextState: 'unknown',
         micPermission: 'unknown',
-        deepgramConnected: false,
+        deepgramConnected: isDeepgramConnected,
         mediaRecorderState: 'unknown',
         lastTranscript: diagnostics.lastTranscript,
         lastSpoken: diagnostics.lastSpoken,

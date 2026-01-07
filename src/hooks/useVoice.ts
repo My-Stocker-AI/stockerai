@@ -50,6 +50,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
   const [status, setStatusState] = useState<VoiceStatus>('idle');
   const [lastInput, setLastInput] = useState('');
   const [isSupported] = useState(true);
+  const [isDeepgramConnected, setIsDeepgramConnected] = useState(false);
 
   // Status ref to avoid stale closures in WebSocket callbacks (matches original PWA this.state pattern)
   const statusRef = useRef<VoiceStatus>('idle');
@@ -533,6 +534,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
       socket.onopen = () => {
         clearTimeout(timeout);
         isConnectedRef.current = true;
+        setIsDeepgramConnected(true);
         reconnectAttemptsRef.current = 0; // Reset reconnection counter on successful connect
         emitDiagnostic('deepgram-connected', true);
         startKeepAlive();
@@ -556,6 +558,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
       socket.onclose = () => {
         clearTimeout(timeout);
         isConnectedRef.current = false;
+        setIsDeepgramConnected(false);
         isRecordingRef.current = false;
         emitDiagnostic('deepgram-disconnected', true);
         stopKeepAlive();
@@ -1122,6 +1125,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
     status,
     lastInput,
     isSupported,
+    isDeepgramConnected,
     startListening,
     stopListening,
     pauseListening,

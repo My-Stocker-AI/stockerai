@@ -1097,6 +1097,7 @@ export default function StockerApp() {
       {/* Diagnostic Overlay - Triple-tap to reveal */}
       <DiagnosticOverlay
         voiceStatus={voice.status}
+        isDeepgramConnected={voice.isDeepgramConnected}
         isVisible={showDiagnostics}
         onClose={() => setShowDiagnostics(false)}
       />
