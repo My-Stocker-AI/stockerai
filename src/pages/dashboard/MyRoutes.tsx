@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { format, startOfDay } from "date-fns";
-import { Route, Play, ChevronDown, ChevronUp, Loader2, Trash2 } from "lucide-react";
+import { Route, Play, ChevronDown, ChevronUp, Loader2, Trash2, FileText } from "lucide-react";
 import { Link } from "react-router-dom";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,7 @@ interface RouteData {
   delivery_date: string;
   total_machines: number | null;
   total_items: number | null;
+  pdf_url: string | null;
 }
 
 interface Session {
@@ -221,16 +222,30 @@ const MyRoutes = () => {
           {status === 'in_progress' && (
             <Progress value={progress} className="h-2 mb-3" />
           )}
-          
-          <Button
-            asChild
-            className={`w-full ${highlighted ? 'bg-primary hover:bg-primary-hover' : 'bg-dashboard-bg hover:bg-dashboard-card border border-dashboard-border text-dashboard-text'}`}
-          >
-            <Link to={`/app?route=${route.id}`}>
-              <Play className="mr-2 h-4 w-4" />
-              {status === 'in_progress' ? 'Continue Picking' : 'Start Picking'}
-            </Link>
-          </Button>
+
+          <div className="flex gap-2">
+            <Button
+              asChild
+              className={`flex-1 ${highlighted ? 'bg-primary hover:bg-primary-hover' : 'bg-dashboard-bg hover:bg-dashboard-card border border-dashboard-border text-dashboard-text'}`}
+            >
+              <Link to={`/app?route=${route.id}`}>
+                <Play className="mr-2 h-4 w-4" />
+                {status === 'in_progress' ? 'Continue Picking' : 'Start Picking'}
+              </Link>
+            </Button>
+
+            {route.pdf_url && (
+              <Button
+                asChild
+                variant="outline"
+                className="bg-dashboard-bg hover:bg-dashboard-card border-dashboard-border text-dashboard-text"
+              >
+                <a href={route.pdf_url} target="_blank" rel="noopener noreferrer">
+                  <FileText className="h-4 w-4" />
+                </a>
+              </Button>
+            )}
+          </div>
         </CardContent>
       </Card>
     );
