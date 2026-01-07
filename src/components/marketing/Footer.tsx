@@ -6,7 +6,7 @@ const Footer = () => {
       <div className="section-container">
         <div className="flex flex-col md:flex-row justify-between items-center gap-8">
           {/* Logo */}
-          <Link to="/" className="flex items-center gap-2">
+          <Link to="/" className="flex items-center justify-center gap-2">
             <img src="/icon-192.png" alt="Stocker AI" className="h-12 w-12 rounded-lg" />
             <span className="text-lg font-bold">Stocker AI</span>
           </Link>

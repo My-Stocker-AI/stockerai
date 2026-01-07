@@ -16,11 +16,11 @@ const Navbar = () => {
   return (
     <header className="fixed top-0 left-0 right-0 z-50 bg-background/95 backdrop-blur-sm border-b border-border">
       <nav className="section-container">
-        <div className="flex items-center justify-between h-16 md:h-20">
+        <div className="flex items-center justify-between h-28 md:h-32">
           {/* Logo */}
-          <Link to="/" className="flex items-center gap-2">
-            <div className="h-12 w-12 md:h-14 md:w-14 overflow-hidden rounded-lg bg-white flex-shrink-0">
-              <img src="/stocker-ai-logo.jpg" alt="Stocker AI" className="w-full h-full object-cover object-center" />
+          <Link to="/" className="flex items-center gap-3">
+            <div className="h-24 w-24 md:h-28 md:w-28 overflow-hidden rounded-lg bg-white flex-shrink-0">
+              <img src="/stocker-ai-logo-square.jpg" alt="Stocker AI" className="w-full h-full object-cover object-center" />
             </div>
             <span className="text-xl font-bold text-foreground">Stocker AI</span>
           </Link>
