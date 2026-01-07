@@ -30,6 +30,8 @@ import Guide from "./pages/Guide";
 import Demo from "./pages/Demo";
 import DemoLive from "./pages/DemoLive";
 import Troubleshooting from "./pages/Troubleshooting";
+import Privacy from "./pages/Privacy";
+import Terms from "./pages/Terms";
 
 const queryClient = new QueryClient();
 
@@ -47,6 +49,8 @@ const App = () => (
             <Route path="/pricing" element={<Pricing />} />
             <Route path="/guide" element={<Guide />} />
             <Route path="/troubleshooting" element={<Troubleshooting />} />
+            <Route path="/privacy" element={<Privacy />} />
+            <Route path="/terms" element={<Terms />} />
             <Route path="/demo" element={<Demo />} />
             <Route path="/demo/live" element={<DemoLive />} />
             <Route path="/login" element={<Login />} />

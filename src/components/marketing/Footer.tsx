@@ -34,13 +34,13 @@ const Footer = () => {
           <div className="flex items-center gap-4 text-sm text-muted-foreground">
             <span>© {new Date().getFullYear()} Stocker AI</span>
             <span>|</span>
-            <a href="#" className="hover:text-primary transition-colors">
+            <Link to="/privacy" className="hover:text-primary transition-colors">
               Privacy Policy
-            </a>
+            </Link>
             <span>|</span>
-            <a href="#" className="hover:text-primary transition-colors">
+            <Link to="/terms" className="hover:text-primary transition-colors">
               Terms of Service
-            </a>
+            </Link>
           </div>
         </div>
 
