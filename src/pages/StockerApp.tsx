@@ -229,13 +229,18 @@ export default function StockerApp() {
 
     const lower = transcript.toLowerCase().trim();
 
-    // Handle voice pause/mute commands locally (from original PWA)
+    // Handle voice pause/mute/continue commands locally (from original PWA)
     if (lower === 'pause' || lower === 'stop listening') {
       v.pauseListening();
       return;
     }
     if (lower === 'mute' || lower === 'mute mic' || lower === 'mute microphone') {
       v.mute();
+      return;
+    }
+    if ((lower === 'continue' || lower === 'resume' || lower === 'start listening') && voice.status === 'idle') {
+      voice.startListening();
+      setAiResponse('Resumed. Say "OK Stocker" for commands.');
       return;
     }
 
@@ -808,8 +813,16 @@ export default function StockerApp() {
     }
   };
 
-  // Stop with confirmation dialog (from original PWA)
+  // Stop/Continue toggle with confirmation dialog (from original PWA)
   const handleStopClick = () => {
+    // If already stopped, resume immediately
+    if (voice.status === 'idle') {
+      voice.startListening();
+      setAiResponse('Resumed. Say "OK Stocker" for commands.');
+      return;
+    }
+
+    // Otherwise show confirmation
     setShowStopConfirm(true);
   };
 
@@ -818,7 +831,7 @@ export default function StockerApp() {
     voice.stopListening();
     await saveSessionState();
     setShowStopConfirm(false);
-    setAiResponse('Stopped. Progress saved.');
+    setAiResponse('Stopped. Progress saved. Tap Continue or say "OK Stocker Continue" to resume.');
   };
 
   const cancelStop = () => {
@@ -1306,7 +1319,11 @@ export default function StockerApp() {
               onClick={handleStopClick}
               className="flex-1 text-teal-400 border-teal-600 hover:bg-teal-900/30 hover:text-teal-300"
             >
-              <Square className="h-4 w-4 mr-2" /> Stop
+              {voice.status === 'idle' ? (
+                <><Play className="h-4 w-4 mr-2" /> Continue</>
+              ) : (
+                <><Square className="h-4 w-4 mr-2" /> Stop</>
+              )}
             </Button>
           </div>
 
