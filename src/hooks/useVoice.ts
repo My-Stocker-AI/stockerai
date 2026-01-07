@@ -787,8 +787,19 @@ export function useVoice(options: UseVoiceOptions = {}) {
     speakLockRef.current = false;
 
     if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.src = '';
+      try {
+        // Handle both HTMLAudioElement and Web Audio API AudioBufferSourceNode
+        if ('pause' in audioRef.current) {
+          // HTMLAudioElement
+          audioRef.current.pause();
+          audioRef.current.src = '';
+        } else if ('stop' in audioRef.current) {
+          // AudioBufferSourceNode from Web Audio API
+          audioRef.current.stop();
+        }
+      } catch (e) {
+        // Ignore errors - source might already be stopped
+      }
       audioRef.current = null;
     }
     try {
@@ -862,8 +873,17 @@ export function useVoice(options: UseVoiceOptions = {}) {
 
       // 4. Kill any existing audio and stop recognition - matches original PWA
       if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.src = '';
+        try {
+          // Handle both HTMLAudioElement and Web Audio API AudioBufferSourceNode
+          if ('pause' in audioRef.current) {
+            audioRef.current.pause();
+            audioRef.current.src = '';
+          } else if ('stop' in audioRef.current) {
+            audioRef.current.stop();
+          }
+        } catch (e) {
+          // Ignore errors - source might already be stopped
+        }
         audioRef.current = null;
       }
       pauseListening();
@@ -921,71 +941,63 @@ export function useVoice(options: UseVoiceOptions = {}) {
         }
 
         // Ensure AudioContext is running before playback (Safari requirement)
-        await getAudioContext();
+        const audioContext = await getAudioContext();
 
-        // Play audio and wait for completion with iOS-compatible setup
+        // Use Web Audio API instead of HTMLAudioElement
+        // CRITICAL: This routes audio to SPEAKERPHONE on Android/iOS instead of EARPIECE
+        // When getUserMedia() is active, HTMLAudioElement goes to earpiece (voice call mode)
         await new Promise<void>((resolve, reject) => {
-          // Final check before creating audio element
           if (stoppedRef.current) {
             resolve();
             return;
           }
 
-          const url = URL.createObjectURL(audioBlob);
-          const audio = new Audio();
-          audioRef.current = audio;
-
-          // iOS Safari audio configuration
-          audio.preload = 'auto';
-          (audio as any).playsInline = true;  // iOS requirement
-          (audio as any).webkitPlaysInline = true;  // Older iOS Safari
-
-          audio.onended = () => {
-            URL.revokeObjectURL(url);
-            audioRef.current = null;
-            resolve();
-          };
-
-          audio.onerror = (err) => {
-            console.error('[Voice] Audio playback error:', err);
-            URL.revokeObjectURL(url);
-            audioRef.current = null;
-            reject(err);
-          };
-
-          // Handle load properly before playing
-          audio.oncanplaythrough = () => {
-            // CRITICAL: play() must NOT have async work before it
-            // The user gesture token expires if we await anything
-            const playPromise = audio.play();
-            if (playPromise) {
-              playPromise.catch((err) => {
-                // Handle NotAllowedError specifically
-                if (err.name === 'NotAllowedError') {
-                  console.warn('[Voice] Audio play blocked by browser - need user gesture');
-                  // Don't reject - fall through to browser TTS
-                  URL.revokeObjectURL(url);
-                  audioRef.current = null;
-                  reject(new Error('NotAllowedError'));
-                } else if (err.name === 'AbortError') {
-                  // AbortError is normal when audio is stopped
-                  console.log('[Voice] Audio playback aborted');
-                  URL.revokeObjectURL(url);
-                  audioRef.current = null;
-                  resolve();
-                } else {
-                  console.error('[Voice] Audio play failed:', err);
-                  URL.revokeObjectURL(url);
-                  audioRef.current = null;
-                  reject(err);
-                }
-              });
+          // Decode audio blob using Web Audio API
+          audioBlob.arrayBuffer().then(arrayBuffer => {
+            if (stoppedRef.current) {
+              resolve();
+              return;
             }
-          };
 
-          // Set source AFTER setting up event handlers
-          audio.src = url;
-          audio.load();  // Explicitly load for iOS Safari
+            audioContext.decodeAudioData(arrayBuffer).then(audioBuffer => {
+              if (stoppedRef.current) {
+                resolve();
+                return;
+              }
+
+              // Create buffer source node
+              const source = audioContext.createBufferSource();
+              source.buffer = audioBuffer;
+
+              // Connect to destination (speaker output)
+              source.connect(audioContext.destination);
+
+              // Store reference for cleanup
+              audioRef.current = source as any;
+
+              // Handle playback completion
+              source.onended = () => {
+                audioRef.current = null;
+                resolve();
+              };
+
+              // Start playback immediately (no async gap to lose user gesture)
+              try {
+                source.start(0);
+                console.log('[Voice] Web Audio API playback started (routes to speakerphone)');
+              } catch (err: any) {
+                console.error('[Voice] Web Audio playback failed:', err);
+                audioRef.current = null;
+                reject(err);
+              }
+            }).catch(err => {
+              console.error('[Voice] Audio decode failed:', err);
+              reject(err);
+            });
+          }).catch(err => {
+            console.error('[Voice] Array buffer conversion failed:', err);
+            reject(err);
+          });
         });
 
       } catch (error) {
