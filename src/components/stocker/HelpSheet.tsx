@@ -176,6 +176,13 @@ export function HelpSheet({ isOpen, onClose }: HelpSheetProps) {
               anytime to wake the app. Use "What's my progress?" to check your status.
             </p>
           </div>
+          <div className="bg-purple-500/10 rounded-xl p-3 border border-purple-500/20">
+            <p className="text-xs text-muted-foreground">
+              <span className="font-semibold text-purple-400">Android Music Tip:</span> Start your music
+              or podcast FIRST, then open Stocker. Your audio will keep playing while you work!
+              (Note: This doesn't work on iPhone - iOS pauses background audio during voice sessions)
+            </p>
+          </div>
           <div className="text-center mt-4">
             <a
               href="/troubleshooting"
