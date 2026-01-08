@@ -21,6 +21,11 @@ interface RouteData {
   total_machines: number | null;
   total_items: number | null;
   pdf_url: string | null;
+  user_id: string;
+  profiles?: {
+    first_name: string;
+    last_name: string;
+  };
 }
 
 interface Session {
@@ -52,10 +57,10 @@ const MyRoutes = () => {
         // Admin or user with can_view_all_routes - fetch all routes for the user
         const { data, error } = await supabase
           .from('routes')
-          .select('*')
+          .select('*, profiles:user_id(first_name, last_name)')
           .eq('user_id', user.id)
           .order('delivery_date', { ascending: true });
-        
+
         if (error) throw error;
         return data as RouteData[];
       } else {
@@ -72,10 +77,10 @@ const MyRoutes = () => {
         const routeIds = assignments.map(a => a.route_id);
         const { data, error } = await supabase
           .from('routes')
-          .select('*')
+          .select('*, profiles:user_id(first_name, last_name)')
           .in('id', routeIds)
           .order('delivery_date', { ascending: true });
-        
+
         if (error) throw error;
         return data as RouteData[];
       }
@@ -214,6 +219,9 @@ const MyRoutes = () => {
               </div>
               <p className="text-sm text-dashboard-text-secondary">
                 {route.total_machines || 0} machines · {route.total_items || 0} items
+                {route.profiles && (
+                  <span className="ml-2">· Created by: {route.profiles.first_name} {route.profiles.last_name}</span>
+                )}
               </p>
             </div>
             {getStatusBadge(status, progress)}

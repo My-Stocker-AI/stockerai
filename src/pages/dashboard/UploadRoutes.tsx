@@ -45,6 +45,11 @@ interface Route {
   delivery_date: string;
   total_machines: number | null;
   total_items: number | null;
+  user_id: string;
+  profiles?: {
+    first_name: string;
+    last_name: string;
+  };
 }
 
 interface TeamMember {
@@ -90,10 +95,10 @@ const UploadRoutes = () => {
       if (!user) return [];
       const { data, error } = await supabase
         .from('routes')
-        .select('*')
+        .select('*, profiles:user_id(first_name, last_name)')
         .eq('user_id', user.id)
         .order('delivery_date', { ascending: false });
-      
+
       if (error) throw error;
       return data as Route[];
     },
@@ -496,6 +501,9 @@ const UploadRoutes = () => {
                             <h4 className="font-medium text-dashboard-text">{route.route_name}</h4>
                             <p className="text-sm text-dashboard-text-secondary">
                               {route.total_machines || 0} machines · {route.total_items || 0} items
+                              {route.profiles && (
+                                <span className="ml-2">· Created by: {route.profiles.first_name} {route.profiles.last_name}</span>
+                              )}
                             </p>
                           </div>
                           <div className="flex gap-1">
