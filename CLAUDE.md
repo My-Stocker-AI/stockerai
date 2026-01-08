@@ -378,3 +378,89 @@ When working on routes, driver assignment, PDF uploads, or route display:
 3. Driver assignment happens in TWO places: route.user_id AND route_assignments table
 4. Frontend files: UploadRoutes.tsx (upload), MyRoutes.tsx (display)
 5. Use n8n MCP tools to check workflow executions before adding logging
+## AUTOMATED MEMORY EXTRACTION PROTOCOL
+
+**MANDATORY EXECUTION TRIGGER:** When context remaining ≤ 10,000 tokens (5% of 200K)
+
+### Execution Sequence
+
+When trigger hits, you MUST:
+
+1. **STOP ALL OTHER WORK** - Do not continue with pending tasks
+2. **ANNOUNCE TRIGGER** - Inform user: "Memory preservation protocol triggered at X tokens remaining"
+
+3. **EXTRACT FROM CURRENT CONVERSATION:**
+   - Workflow IDs created, modified, or deleted
+   - Critical bugs discovered and their root causes
+   - Fixes applied and what they resolved
+   - Configuration changes that worked/failed
+   - "Never do this again" lessons (mistakes, inefficiencies, wrong approaches)
+   - New discoveries about the codebase/platform
+   - Repeated troubleshooting patterns
+   - Any user corrections or frustrations about wasted effort
+
+4. **DETERMINE TARGET DOCUMENT:**
+   - If working in a git repository with CLAUDE.md → update that file
+   - If in subdirectory without CLAUDE.md → update nearest parent CLAUDE.md
+   - If changes span multiple systems → update all relevant CLAUDE.md files
+   - Example: n8n workflow changes → update both `/home/visionairy/n8n-workflows/CLAUDE.md` AND `/home/visionairy/stockerai-new/CLAUDE.md`
+
+5. **UPDATE DOCUMENTATION:**
+   - Add new workflow IDs and statuses
+   - Document fixes with before/after states
+   - Add to "Common Fixes" or "Troubleshooting" sections
+   - Update "NEVER SEARCH FOR THIS AGAIN" with new patterns
+   - Add timestamp to updates
+
+6. **COMMIT TO GIT:**
+   - If in git repository, commit with message format:
+     ```
+     Memory preservation: [brief summary]
+
+     Extracted from conversation at [context %]:
+     - [key learning 1]
+     - [key learning 2]
+
+     🤖 Generated with Claude Code
+     Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>
+     ```
+   - Push to remote if configured
+
+7. **REPORT TO USER:**
+   - Summary of what was preserved
+   - Which files were updated
+   - What can now be referenced instead of re-discovered
+
+### Subdirectory Management
+
+**Rule:** Update the CLAUDE.md that provides the most relevant context for the work done.
+
+**Examples:**
+- Working in `/home/visionairy/stockerai-new/src/pages/` → Update `/home/visionairy/stockerai-new/CLAUDE.md`
+- Working on n8n workflows → Update `/home/visionairy/n8n-workflows/CLAUDE.md`
+- Changes affect both frontend AND workflow → Update BOTH files
+- General Stocker AI discoveries → Update `/home/visionairy/CLAUDE.md` (main reference)
+
+**Hierarchy:**
+```
+/home/visionairy/CLAUDE.md              # Cross-platform, general Stocker AI
+├── stockerai-new/CLAUDE.md             # Frontend, database, deployment
+├── n8n-workflows/CLAUDE.md             # Workflow-specific
+├── Flon8/CLAUDE.md                     # Flon8 platform only
+└── [other-project]/CLAUDE.md           # Project-specific
+```
+
+### What NOT to Preserve
+
+- Routine operations that succeeded without issues
+- Temporary debugging output
+- User's personal information
+- Conversational pleasantries
+- Things already documented
+
+### Failure Protocol
+
+If unable to complete memory preservation:
+- Log what you attempted
+- Inform user of failure
+- Continue conversation but mark it for manual preservation
