@@ -590,6 +590,13 @@ When trigger hits, you MUST:
    - Data flow patterns and relationships
    - Integration points between systems
    - Edge cases and their handling
+   - **CRITICAL: System architecture after building/modifying features**
+     * Configuration details (API endpoints, models, parameters)
+     * Latency breakdowns and performance characteristics
+     * Component interactions and data flow
+     * Known issues and their monitoring
+     * Optimization opportunities
+     * DO NOT force re-reading code files in future sessions
 
    **Meta-Learning:**
    - What questions led to breakthroughs
@@ -805,3 +812,117 @@ If unable to complete memory preservation:
    - User said "add to todo list" when I violated XF
    - Only THEN did I start actually following the protocol
    - Protocol violation = STOP, acknowledge, then apply protocol
+
+6. **NEVER re-read system architecture files when info should be in memory**
+   - 2026-01-08: Wasted ~15K tokens re-reading useVoice.ts and useStockerAI.ts
+   - User: "THIS is the kind of shit you should have in memory"
+   - Architecture details should be documented in CLAUDE.md, not rediscovered
+   - When building/modifying a system, document its architecture IMMEDIATELY
+
+---
+
+## SYSTEM ARCHITECTURE (Must Know Without Looking Up)
+
+### Voice Platform Stack (StockerApp)
+
+**Complete Latency Breakdown (4-7 seconds total observed)**
+
+| Component | Time | File/Line | Notes |
+|-----------|------|-----------|-------|
+| 1. Deepgram STT | 200-400ms | useVoice.ts:547 | WebSocket streaming, ~300ms avg |
+| 2. OpenAI API | 1-2s | useStockerAI.ts:524 | gpt-4o-mini, can optimize |
+| 3. n8n Workflow | 1-2s | useStockerAI.ts:584 | Tool execution (get_next_item, etc) |
+| 4. TTS Generation | 1-2s | useVoice.ts:952 | Cloudflare Worker → ElevenLabs |
+| 5. Audio Playback | 1-3s | useVoice.ts:983 | Web Audio API, depends on length |
+
+**Deepgram Configuration (useVoice.ts:547-555)**
+- Model: `nova-2-meeting` (optimized for conversational speech)
+- Language: `en-US`
+- Encoding: `opus` (Chrome), `aac` (Safari), `linear16` (fallback)
+- Sample rate: 48000 Hz (HD audio quality)
+- Endpointing: 200ms (silence detection for utterance boundaries)
+- VAD events: Enabled (voice activity detection)
+- Keywords: Dynamic - route names + base commands
+- Smart format: Enabled (auto-capitalization, punctuation)
+
+**Keyword Training (CONFIRMED WORKING)**
+- Base keywords (useVoice.ts:531-539): next, done, skip, yes, no, start, stop, continue, undo, back, switch, route, machine, progress, directions, etc.
+- Dynamic keywords (StockerApp.tsx:460-466): Route names extracted from available routes
+- Passed to Deepgram via `keywords` parameter in WebSocket URL
+- Improves recognition accuracy but does NOT reduce latency
+
+**Alternative Deepgram Models (Speed vs Accuracy Tradeoff)**
+- `nova-2-meeting` (current): Best accuracy, ~300ms
+- `nova-2-general`: Faster, slightly less accurate, ~250ms ✅ Test candidate
+- `nova-2-phonecall`: Phone-optimized, ~250ms
+- `base`: Fastest, worst accuracy, ~200ms (not recommended)
+
+**OpenAI Chat Configuration (useStockerAI.ts:524-532)**
+- Model: `gpt-4o-mini` (good balance of speed/cost/quality)
+- Endpoint: `https://visionairy.app.n8n.cloud/webhook/openai-chat` (n8n wrapper)
+- Timeout: 30 seconds with retry (fetchWithRetry)
+- System prompt: ~500 lines (could trim 20% for latency gains)
+- Tool choice: `auto` (AI decides when to call tools)
+- Tools: 9 n8n webhook tools (get_next_item, set_route_sequence, etc.)
+
+**Fast Path Optimization (StockerApp.tsx:313-320)**
+- When n8n workflow returns `spoken` field, frontend uses it directly
+- Skips second OpenAI API call (saves ~2 seconds)
+- **CRITICAL**: All n8n workflows MUST return `spoken` field for optimal latency
+
+**TTS Configuration (useVoice.ts:6, 952-956)**
+- Provider: Cloudflare Worker → ElevenLabs (via `solitary-base-799c.russ-731.workers.dev`)
+- Voice: `nova`
+- Pronunciation replacements (useVoice.ts:926-947): Kinder Bueno, Takis, Jarritos, etc.
+- Playback: Web Audio API (routes to speakerphone, not earpiece)
+
+**Known Issues & Monitoring**
+1. **Deepgram reconnection** (useVoice.ts:600-638): Exponential backoff (1s, 2s, 4s, 8s, 16s max)
+   - User reported: "recognition waned at last 2 machines" (likely reconnection lag)
+2. **AudioContext suspension** (useVoice.ts:1069-1098): Safari auto-suspends after idle
+3. **Long session degradation**: Network quality degrades over time
+
+### Optimization Opportunities (Prioritized by Impact)
+
+**HIGH IMPACT (Save 1-2 seconds)**
+1. **Ensure n8n workflows return `spoken` field** ✅ Check all workflows
+2. **Parallel TTS fetching**: Start TTS while tool executes (speculative)
+3. **Trim OpenAI system prompt**: 500 lines → 400 lines (20% reduction)
+
+**MEDIUM IMPACT (Save 200-500ms)**
+4. **Test nova-2-general model**: Might fix recognition degradation
+5. **Downgrade to gpt-3.5-turbo for simple commands**: "next" doesn't need gpt-4o-mini
+6. **Reduce conversation history**: Currently 30 messages max, could trim to 20
+
+**LOW IMPACT (Save 50-100ms)**
+7. **Adjust Deepgram endpointing**: 200ms → 150ms (riskier, might cut off words)
+8. **Optimize n8n workflow execution**: Database query optimization
+
+**DIAGNOSTICS NEEDED**
+- Add connection health metrics to diagnose "recognition waned" issue
+- Log Deepgram reconnection events with timing
+- Monitor AudioContext suspension on long sessions
+
+### n8n Workflow Architecture (useStockerAI.ts:213-223)
+
+**9 Tools Mapped to n8n Webhooks**
+1. `get_routes_for_date` → `/get-routes` (list available routes)
+2. `set_route_sequence` → `/set-sequence` (start a route)
+3. `get_next_item` → `/next-item` (confirm current, get next)
+4. `get_current_status` → `/status` (progress query)
+5. `update_session_state` → `/update-state` (state management)
+6. `start_machine` → `/start-machine` (begin/end direction)
+7. `skip_current_machine` → `/skip-machine` (save place, move on)
+8. `go_back_to_skipped` → `/back-to-skipped` (return to skipped)
+9. `switch_route` → `/switch-route` (change routes)
+
+**All workflows MUST return:**
+```json
+{
+  "spoken": "The exact text to speak to the user",
+  "next_item": { ... },
+  "status": "success"
+}
+```
+
+If `spoken` field is missing, frontend makes a second OpenAI call (+2 seconds latency)
