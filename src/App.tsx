@@ -10,6 +10,7 @@ import Home from "./pages/Home";
 import Pricing from "./pages/Pricing";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
+import SetPassword from "./pages/SetPassword";
 import Dashboard from "./pages/Dashboard";
 import UploadRoutes from "./pages/dashboard/UploadRoutes";
 import MyRoutes from "./pages/dashboard/MyRoutes";
@@ -55,6 +56,7 @@ const App = () => (
             <Route path="/demo/live" element={<DemoLive />} />
             <Route path="/login" element={<Login />} />
             <Route path="/signup" element={<Signup />} />
+            <Route path="/set-password" element={<SetPassword />} />
             <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
             <Route path="/dashboard/upload-routes" element={<ProtectedRoute adminOnly><UploadRoutes /></ProtectedRoute>} />
             <Route path="/dashboard/my-routes" element={<ProtectedRoute><MyRoutes /></ProtectedRoute>} />
