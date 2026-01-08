@@ -527,7 +527,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
     const token = await ensureToken();
     if (!token) throw new Error('No token available');
 
-    // Build keywords list: common commands + dynamic route names
+    // Build keywords list: common commands + dynamic route names + products
     const baseKeywords = [
       // Directions and positions
       'south', 'north', 'east', 'west', 'top', 'bottom', 'beginning', 'end',
@@ -535,7 +535,14 @@ export function useVoice(options: UseVoiceOptions = {}) {
       'next', 'done', 'skip', 'yes', 'no', 'start', 'stop', 'continue',
       'undo', 'back', 'go back', 'switch', 'route', 'machine', 'progress',
       // Common responses
-      'got it', 'okay', 'yep', 'perfect', 'good', 'alright'
+      'got it', 'okay', 'yep', 'perfect', 'good', 'alright',
+      // Common vending machine products (improve recognition)
+      'Doritos', 'Cheetos', 'Lays', 'Fritos', 'Pringles', 'Ruffles',
+      'Snickers', 'Twix', 'KitKat', 'Reeses', 'Milky Way', 'Skittles', 'M&Ms',
+      'Coke', 'Pepsi', 'Sprite', 'Fanta', 'Mountain Dew', 'Dr Pepper',
+      'Gatorade', 'Powerade', 'water', 'Red Bull', 'Monster',
+      'Takis', 'Tostitos', 'Sunchips', 'Popcorn', 'pretzels',
+      'Snack', 'candy', 'chips', 'soda', 'drink', 'beverage'
     ];
 
     // Combine base keywords with dynamic route names
@@ -543,6 +550,11 @@ export function useVoice(options: UseVoiceOptions = {}) {
     const keywordsParam = allKeywords.length > 0
       ? `&keywords=${encodeURIComponent(allKeywords.join(','))}`
       : '';
+
+    // Add keywords boost parameter for 1.5x priority on these words
+    const boostParam = allKeywords.length > 0 ? '&keywords_boost=1.5' : '';
+
+    console.log('[Voice] Deepgram keywords:', { count: allKeywords.length, boost: 1.5 });
 
     const wsUrl = 'wss://api.deepgram.com/v1/listen?' +
       'model=nova-2-meeting&' +  // Optimized for conversational speech
@@ -552,7 +564,8 @@ export function useVoice(options: UseVoiceOptions = {}) {
       'interim_results=true&' +
       'vad_events=true&' +
       'endpointing=200' +
-      keywordsParam;
+      keywordsParam +
+      boostParam;
 
     return new Promise<void>((resolve, reject) => {
       const socket = new WebSocket(wsUrl, ['token', token]);
@@ -589,12 +602,29 @@ export function useVoice(options: UseVoiceOptions = {}) {
         onErrorRef.current?.('WebSocket error');
       };
 
-      socket.onclose = () => {
+      socket.onclose = (event) => {
         clearTimeout(timeout);
         isConnectedRef.current = false;
         setIsDeepgramConnected(false);
         isRecordingRef.current = false;
-        emitDiagnostic('deepgram-disconnected', true);
+
+        // Enhanced logging for diagnostics
+        const timestamp = new Date().toISOString();
+        console.warn('[Voice] Deepgram WebSocket closed:', {
+          timestamp,
+          code: event.code,
+          reason: event.reason || 'No reason provided',
+          wasClean: event.wasClean,
+          reconnectAttempt: reconnectAttemptsRef.current,
+          currentStatus: statusRef.current
+        });
+
+        emitDiagnostic('deepgram-disconnected', {
+          timestamp,
+          code: event.code,
+          reason: event.reason,
+          reconnectAttempt: reconnectAttemptsRef.current
+        });
         stopKeepAlive();
 
         // PRIORITY 1.2: Enhanced reconnection logic with exponential backoff
@@ -603,7 +633,11 @@ export function useVoice(options: UseVoiceOptions = {}) {
 
           // Check if we've exceeded max attempts
           if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
-            console.error('[Voice] Max reconnection attempts reached - giving up');
+            console.error('[Voice] Max reconnection attempts reached - giving up', {
+              timestamp,
+              totalAttempts: reconnectAttemptsRef.current,
+              maxAttempts: MAX_RECONNECT_ATTEMPTS
+            });
             emitDiagnostic('error', 'Deepgram connection lost - please refresh');
             onErrorRef.current?.('Connection lost. Please refresh the page.');
             setStatus('error');
@@ -614,8 +648,14 @@ export function useVoice(options: UseVoiceOptions = {}) {
           const backoffMs = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 16000);
           reconnectAttemptsRef.current++;
 
-          console.log(`[Voice] Deepgram disconnected - reconnecting in ${backoffMs}ms (attempt ${reconnectAttemptsRef.current}/${MAX_RECONNECT_ATTEMPTS})`);
-          emitDiagnostic('deepgram-reconnecting', { attempt: reconnectAttemptsRef.current, backoffMs });
+          console.log(`[Voice] Deepgram disconnected - reconnecting in ${backoffMs}ms (attempt ${reconnectAttemptsRef.current}/${MAX_RECONNECT_ATTEMPTS})`, {
+            timestamp,
+            backoffMs,
+            attempt: reconnectAttemptsRef.current,
+            maxAttempts: MAX_RECONNECT_ATTEMPTS,
+            nextRetryAt: new Date(Date.now() + backoffMs).toISOString()
+          });
+          emitDiagnostic('deepgram-reconnecting', { attempt: reconnectAttemptsRef.current, backoffMs, timestamp });
 
           // Clear any existing reconnect timeout
           if (reconnectTimeoutRef.current) {
