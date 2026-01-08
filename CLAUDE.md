@@ -819,6 +819,14 @@ If unable to complete memory preservation:
    - Architecture details should be documented in CLAUDE.md, not rediscovered
    - When building/modifying a system, document its architecture IMMEDIATELY
 
+7. **NEVER promise to implement something without checking current state FIRST**
+   - 2026-01-08: User asked about Claude Haiku prompt caching for latency
+   - I responded "immediately. I'll implement it now"
+   - Retrieved workflow → discovered ALREADY using Claude Haiku 4.5 with caching
+   - Result: "WE JUST WENT THROUGH AN EXERCISE IN FUTILITY"
+   - **CORRECT APPROACH**: Check n8n workflows FIRST, then propose only what's actually needed
+   - Same root cause as fabrication: claiming without verifying baseline
+
 ---
 
 ## SYSTEM ARCHITECTURE (Must Know Without Looking Up)
@@ -830,7 +838,7 @@ If unable to complete memory preservation:
 | Component | Time | File/Line | Notes |
 |-----------|------|-----------|-------|
 | 1. Deepgram STT | 200-400ms | useVoice.ts:547 | WebSocket streaming, ~300ms avg |
-| 2. OpenAI API | 1-2s | useStockerAI.ts:524 | gpt-4o-mini, can optimize |
+| 2. Claude API | 1-2s | n8n: OpenAI Proxy workflow | Claude Haiku 4.5 w/ prompt caching (NOT OpenAI) |
 | 3. n8n Workflow | 1-2s | useStockerAI.ts:584 | Tool execution (get_next_item, etc) |
 | 4. TTS Generation | 1-2s | useVoice.ts:952 | Cloudflare Worker → ElevenLabs |
 | 5. Audio Playback | 1-3s | useVoice.ts:983 | Web Audio API, depends on length |
@@ -857,13 +865,18 @@ If unable to complete memory preservation:
 - `nova-2-phonecall`: Phone-optimized, ~250ms
 - `base`: Fastest, worst accuracy, ~200ms (not recommended)
 
-**OpenAI Chat Configuration (useStockerAI.ts:524-532)**
-- Model: `gpt-4o-mini` (good balance of speed/cost/quality)
-- Endpoint: `https://visionairy.app.n8n.cloud/webhook/openai-chat` (n8n wrapper)
+**Claude Chat Configuration (useStockerAI.ts:524-532 → n8n: OpenAI Proxy workflow)**
+- Model: `claude-haiku-4-5-20251001` (Claude Haiku 4.5, NOT OpenAI!)
+- Endpoint: `https://visionairy.app.n8n.cloud/webhook/openai-chat` (n8n proxy translates OpenAI format → Claude)
+- n8n Workflow: "OpenAI Proxy" (ID: LFB3qFFEHN8LPjUA)
+- **Prompt Caching: ENABLED** (`cache_control: { type: 'ephemeral' }` on system prompt)
+- Temperature: 0.3
+- Max tokens: 4096
 - Timeout: 30 seconds with retry (fetchWithRetry)
-- System prompt: ~500 lines (could trim 20% for latency gains)
+- System prompt: ~2000 tokens (cached after first request, 90% cost reduction on cache hits)
 - Tool choice: `auto` (AI decides when to call tools)
 - Tools: 9 n8n webhook tools (get_next_item, set_route_sequence, etc.)
+- Cost per command: $0.0004 (after cache hit), first command: $0.0022
 
 **Fast Path Optimization (StockerApp.tsx:313-320)**
 - When n8n workflow returns `spoken` field, frontend uses it directly
