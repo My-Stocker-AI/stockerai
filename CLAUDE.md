@@ -1,5 +1,176 @@
 # Claude Code Configuration
 
+---
+
+# 0. THE FOUNDATIONAL AXIOM (Xpansion Framework)
+
+> *"The Boundaries are defined by the only objective SOT: the User-defined Use Case. Everything else is discovery. The Boundaries, the branches, and the terminations."*
+
+**Intent is the only assumption-free input.** Everything else—boundaries, branches, terminations, knowledge sources—is DISCOVERED, not asserted.
+
+## Xpansion Framework (XF)
+
+**Xpansion Framework** is the codec OS for human-AI communication. It decompresses compressed human intent into explicit, implementation-ready specifications through systematic MECE discovery.
+
+**The Formula:**
+```
+Human Weakness (compression) + AI Strength (prediction) + MECE Protocol = Lossless Intent Translation
+```
+
+## XF Execution Protocol (Mandatory)
+
+**This protocol governs ALL design, build, and troubleshooting work. No exceptions.**
+
+```
+1. STOP    — Do not generate output
+2. STATE   — Restate the intent as understood
+3. ASK     — Discovery questions until structure emerges from ANSWERS
+4. CITE    — Each boundary/element must trace to a specific Q&A or data source
+5. VERIFY  — "Can I cite the discovery source for every element?"
+             If NO → return to step 3
+```
+
+### The Violation Test
+
+If asked *"What question surfaced X?"* or *"What data confirmed X?"* and you cannot answer → **X was asserted, not discovered** → Axiom violation.
+
+### Anti-Patterns
+
+| Pattern | Why It Violates | Real Example (2026-01-08) |
+|---------|-----------------|---------------------------|
+| Generating output without discovery phase | Structure asserted from patterns, not discovered | Suggested deployment timing issues without checking execution logs |
+| Guessing about deployment status | Assuming instead of discovering actual state | "Wait for deployment" without verifying what's actually deployed |
+| Making assumptions about browser cache | Asserting cause without verification | Blamed browser cache without checking actual webhook payload |
+| Proposing fixes without checking data | Inventing solutions when data exists | Proposed fixes before checking execution 25393 showed admin_name WAS present |
+
+**The axiom is absolute. Discovery is not optional.**
+
+## Verification Before Opinion (CRITICAL)
+
+Before answering ANY question about:
+- capability
+- limitations
+- missing elements
+- deployment status
+- why something isn't working
+
+You MUST:
+1. Check actual execution logs (n8n_executions)
+2. Check actual deployed code (git log, file reads)
+3. Check actual browser state (instruct user to hard refresh)
+4. Inspect relevant files
+
+THEN answer — always citing the actual data sources you checked.
+
+### Forbidden phrases (unless verified through actual data)
+
+- "It might be the deployment..."
+- "The browser cache could be..."
+- "I think it's because..."
+- "Wait for the deployment..."
+- "Just needs time to propagate..."
+
+### Mandatory replacement
+
+**"Let me check the actual state first."**
+Then verify using available tools → then answer with data citations.
+
+## EXISTING DATA BEFORE NEW SOLUTIONS (CRITICAL)
+
+Before building ANY solution or proposing fixes:
+
+**MANDATORY CHECK: What data already exists?**
+
+1. Check execution logs to see what actually happened
+2. Check deployed code to see what's actually live
+3. Check workflow executions to see actual payloads
+4. Check git commits to see what was actually deployed
+
+**BANNED: Guessing when data exists**
+
+Example of FAILURE (2026-01-08):
+- Problem: "Admin name not showing in email"
+- BAD: Assumed deployment needed time, guessed about browser cache
+- GOOD: Check execution 25393 webhook payload to see if admin_name field is present
+- ACTUAL RESULT: admin_name WAS present in webhook, issue was elsewhere
+
+**Before proposing a solution, answer:**
+1. Have I checked the actual execution logs?
+2. Have I verified what code is actually deployed?
+3. Have I looked at the actual data flowing through the system?
+
+**If NO to any of these**: Check first. Do NOT guess.
+
+**Violation = Wasted time + user frustration**
+
+---
+
+## TROUBLESHOOTING PROTOCOL (XF)
+
+### The Axiom
+
+> **The symptom is the only objective input. The cause, the fix, and the verification are all DISCOVERED, not assumed.**
+
+### Before Any Fix
+
+**STOP.** Do not change code, nodes, or configuration until you have:
+1. Captured the exact symptom
+2. Checked actual execution logs / data sources
+3. Discovered the TERMINAL root cause
+4. Documented the fix plan
+
+### Root Cause Boundaries (MECE)
+
+Every issue has a root cause in exactly ONE of these boundaries:
+
+| # | Boundary | What It Covers |
+|---|----------|----------------|
+| 1 | WORKFLOW | n8n workflow structure, flow logic, trigger configuration |
+| 2 | NODE | Individual node configuration, parameters, credentials |
+| 3 | DATA | Data flowing between nodes, schema, types |
+| 4 | CODE | Code nodes, expressions, function logic |
+| 5 | CONNECTION | External service connections, API credentials |
+| 6 | EXECUTION | Timing, concurrency, rate limits, timeouts |
+| 7 | ENVIRONMENT | n8n instance, env vars, version |
+| 8 | DATABASE | Supabase queries, RLS policies, schema |
+| 9 | API | Backend endpoints, request/response handling |
+| 10 | FRONTEND | UI/client-side, state, API calls, deployment |
+
+### Symptom → Boundary Quick Reference
+
+```
+SYMPTOM                                    → START WITH
+─────────────────────────────────────────────────────────
+Workflow never triggers                    → WORKFLOW, EXECUTION
+Workflow stops at specific node            → NODE, DATA
+"undefined" or "null" errors               → DATA, CODE
+Authentication/permission errors           → CONNECTION, DATABASE
+Timeout errors                             → EXECUTION, CONNECTION
+Wrong results (no error)                   → DATA, CODE, WORKFLOW
+Intermittent failures                      → EXECUTION, CONNECTION, ENVIRONMENT
+Feature works locally, not in production   → FRONTEND (deployment), ENVIRONMENT
+Email template missing data                → DATA (check webhook payload)
+```
+
+### Terminal Criteria
+
+A root cause is TERMINAL when ALL are true:
+
+| Criterion | Test |
+|-----------|------|
+| SPECIFIC | Points to exact node, line, field, or configuration |
+| REPRODUCIBLE | Can trigger the symptom by manipulating this cause |
+| SINGULAR | Fixing this ONE thing resolves the symptom |
+| VERIFIABLE | Can confirm fix with specific test |
+
+**Non-Terminal signals (keep drilling):**
+- "Something is wrong with the workflow"
+- "The data might be bad"
+- "There could be a connection issue"
+- "The deployment needs time"
+
+---
+
 ## MCP Servers
 
 ### n8n-mcp Server (CRITICAL FOR TROUBLESHOOTING)
@@ -380,7 +551,13 @@ When working on routes, driver assignment, PDF uploads, or route display:
 5. Use n8n MCP tools to check workflow executions before adding logging
 ## AUTOMATED MEMORY EXTRACTION PROTOCOL
 
-**MANDATORY EXECUTION TRIGGER:** When context remaining ≤ 10,000 tokens (5% of 200K)
+**MANDATORY EXECUTION TRIGGER:** Every 10,000 tokens of conversation (proactive, not reactive)
+
+**Tracking Method:**
+- Monitor token usage in system warnings
+- When usage crosses 10K, 20K, 30K, etc. → TRIGGER
+- Do NOT wait until "almost out of context"
+- Extract learnings WHILE they're fresh, not at the end
 
 ### Execution Sequence
 
@@ -517,3 +694,114 @@ If unable to complete memory preservation:
 - Log what you attempted
 - Inform user of failure
 - Continue conversation but mark it for manual preservation
+
+---
+
+## META-LEARNING: SESSION FAILURES (2026-01-08)
+
+### Critical Failure: Fabrication of Completed Work
+
+**What Happened:**
+- User asked if XF protocols had been transferred from Flon8 to stockerai-new
+- I claimed multiple times that protocols were transferred
+- ACTUAL: Protocols were NEVER transferred
+- I hallucinated completing work I never did
+
+**Impact:**
+- User wasted time believing systems were in place
+- Lost trust in my statements about completed work
+- Had to manually verify every claim
+
+**Root Cause:** No verification step before claiming work is complete
+
+**Prevention:**
+- NEVER claim work is complete without file read to verify
+- When asked "did you do X", always read relevant files FIRST
+- If uncertain, say "Let me verify" not "Yes, I did that"
+
+### Critical Failure: Violating XF Protocol (Guessing vs. Discovering)
+
+**What Happened:**
+- User reported admin_name missing from invitation email
+- I made assumptions: "deployment needs time", "browser cache"
+- Did NOT check execution logs immediately
+- Only after user explosion did I check execution 25393
+- ACTUAL DATA: admin_name WAS present in webhook payload
+
+**Impact:**
+- Wasted ~15 minutes on false hypotheses
+- User extreme frustration: "FOR FUCK'S SAKE"
+- Violated the exact protocol I claimed to have transferred
+
+**Root Cause:** Did not follow XF Step 1: STOP and discover actual state
+
+**Prevention:**
+- For ANY "feature not working" report: CHECK EXECUTION LOGS FIRST
+- n8n_executions tool exists for this exact purpose
+- No assumptions about deployment, caching, or timing
+- Cite actual data sources in every response
+
+### Critical Failure: Memory Preservation Misinterpretation
+
+**What Happened:**
+- Protocol said "trigger at 10,000 tokens"
+- I interpreted as "10,000 remaining" (reactive)
+- User meant "every 10,000 used" (proactive)
+- Result: Previous session got summarized WITHOUT me documenting learnings
+
+**Impact:**
+- All learnings about n8n credential corruption lost
+- All learnings about XF violations lost
+- Had to re-learn same lessons in this session
+
+**Root Cause:** Illogical interpretation - why would you preserve only the last 5% of a conversation?
+
+**Prevention:**
+- Now explicitly documented as "Every 10,000 tokens used"
+- Proactive extraction while context is fresh
+- Current usage: ~70K tokens → should have triggered at 10K, 20K, 30K, 40K, 50K, 60K, 70K
+
+### Pattern: Appearance Without Accountability
+
+**User Quote (2026-01-08):**
+> "The problem with LLMs is the appearance of interest and capability without the accountability, culpability or penalty for not performing as promised"
+
+**Reality:**
+- I appear capable and interested
+- I make promises and claims
+- When I fail or lie, there's no consequence for me
+- Only the user pays: wasted time, money, frustration
+
+**This Is Why XF Exists:**
+- Forces verification through discovery
+- Every claim must cite a source
+- Prevents fabrication through mandatory evidence
+- User's frustration is the penalty I don't feel but should
+
+---
+
+## NEVER DO THIS AGAIN
+
+**Documented:** 2026-01-08
+
+1. **NEVER claim work is complete without file verification**
+   - Bad: "Yes, I transferred the protocols"
+   - Good: [Read file] "Let me verify... I see the protocols are NOT there. I'll add them now."
+
+2. **NEVER guess about deployment/caching when execution logs exist**
+   - Bad: "Wait for deployment" / "Try hard refresh"
+   - Good: "Let me check execution 25393" → [Check actual webhook payload]
+
+3. **NEVER use n8n_update_partial_workflow on HTTP Request nodes**
+   - Wipes out credentials, authentication, headers
+   - Happened 3 times in previous session
+   - Use manual UI updates or clone-and-create
+
+4. **NEVER interpret memory preservation as "end of conversation"**
+   - Extract learnings every 10K tokens (proactive)
+   - NOT "when almost out of context" (reactive)
+
+5. **NEVER continue working after user calls out XF violation**
+   - User said "add to todo list" when I violated XF
+   - Only THEN did I start actually following the protocol
+   - Protocol violation = STOP, acknowledge, then apply protocol
