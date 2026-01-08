@@ -390,14 +390,35 @@ When trigger hits, you MUST:
 2. **ANNOUNCE TRIGGER** - Inform user: "Memory preservation protocol triggered at X tokens remaining"
 
 3. **EXTRACT FROM CURRENT CONVERSATION:**
-   - Workflow IDs created, modified, or deleted
+
+   **Problems & Solutions:**
    - Critical bugs discovered and their root causes
    - Fixes applied and what they resolved
    - Configuration changes that worked/failed
    - "Never do this again" lessons (mistakes, inefficiencies, wrong approaches)
-   - New discoveries about the codebase/platform
-   - Repeated troubleshooting patterns
-   - Any user corrections or frustrations about wasted effort
+   - User corrections or frustrations about wasted effort
+
+   **Positive Discoveries:**
+   - Efficient approaches that saved time/tokens
+   - Best practices identified through success
+   - Patterns that worked well and should be repeated
+   - Insights about codebase architecture or behavior
+   - Tool usage that was particularly effective
+   - Successful troubleshooting sequences
+   - Shortcuts or optimizations discovered
+
+   **System Knowledge:**
+   - Workflow IDs created, modified, or deleted
+   - New discoveries about the platform/framework
+   - Data flow patterns and relationships
+   - Integration points between systems
+   - Edge cases and their handling
+
+   **Meta-Learning:**
+   - What questions led to breakthroughs
+   - Which approaches were most effective
+   - Communication patterns that worked/failed
+   - Context that would have prevented issues
 
 4. **DETERMINE TARGET DOCUMENT:**
    - If working in a git repository with CLAUDE.md → update that file
@@ -457,6 +478,38 @@ When trigger hits, you MUST:
 - User's personal information
 - Conversational pleasantries
 - Things already documented
+
+---
+
+## How This Creates Learning Models
+
+Each directory's CLAUDE.md becomes a **learning model** that:
+
+**Accumulates Knowledge:**
+- Every conversation adds discoveries (positive & negative)
+- Patterns emerge from repeated successes/failures
+- Best practices crystalize from experience
+- Edge cases get documented as encountered
+
+**Reduces Future Token Waste:**
+- Instead of searching for "how does X work" → read CLAUDE.md
+- Instead of debugging the same issue twice → check "Common Fixes"
+- Instead of trying approaches that failed before → check "Never do this again"
+- Instead of missing known best practices → check "Positive Discoveries"
+
+**Improves Over Time:**
+- Each session adds to the knowledge base
+- Mistakes teach what NOT to do
+- Successes teach what TO do
+- Meta-learning improves the learning process itself
+
+**Directory Intelligence:**
+- `/stockerai-new/CLAUDE.md` knows the frontend patterns
+- `/n8n-workflows/CLAUDE.md` knows workflow pitfalls
+- `/Flon8/CLAUDE.md` knows platform architecture
+- Each becomes an expert in its domain
+
+---
 
 ### Failure Protocol
 
