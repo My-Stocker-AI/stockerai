@@ -49,7 +49,7 @@ interface TeamMember {
 }
 
 const Team = () => {
-  const { user, userRole, loading } = useAuth();
+  const { user, userRole, userProfile, loading } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -113,6 +113,10 @@ const Team = () => {
           account_id: userRole?.account_id,
           role: inviteRole,
           can_view_all_routes: inviteCanViewAll,
+          admin_name: userProfile?.first_name && userProfile?.last_name
+            ? `${userProfile.first_name} ${userProfile.last_name}`
+            : 'Your Team Admin',
+          admin_email: userProfile?.email || user?.email || '',
         }),
       });
 
