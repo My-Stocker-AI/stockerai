@@ -596,8 +596,52 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
           throw new Error(`Workflow error (${resp.status}): ${errorText}`);
         }
 
-        const result = await resp.json();
+        let result = await resp.json();
         console.log(`[Tools] ${name} succeeded:`, result);
+
+        // FEATURE: 2-Pick Mode - Call get_next_item twice when enabled
+        if (name === 'get_next_item') {
+          const callTwoItems = localStorage.getItem('stocker-call-two-items') === 'true';
+
+          if (callTwoItems && result.action === 'next_item' && result.spoken) {
+            console.log('[Tools] 2-Pick Mode enabled - fetching second item');
+
+            try {
+              // Call get_next_item again for the second item
+              const resp2 = await fetchWithRetry(`${N8N_BASE}${path}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  session_id: sessionIdRef.current,
+                  user_id: userIdRef.current,
+                  ...args
+                })
+              });
+
+              if (resp2.ok) {
+                const result2 = await resp2.json();
+                console.log('[Tools] Second item fetched:', result2);
+
+                // Combine the two spoken responses if second item exists
+                if (result2.action === 'next_item' && result2.spoken) {
+                  result = {
+                    ...result,
+                    spoken: `${result.spoken}, ${result2.spoken}`,
+                    second_item: result2 // Keep second item data for reference
+                  };
+                  console.log('[Tools] Combined 2-pick response:', result.spoken);
+                } else if (result2.action === 'next_machine') {
+                  // If second call returns next_machine, keep original result
+                  // (means we're at the end of current machine)
+                  console.log('[Tools] Second call hit machine boundary - using single item');
+                }
+              }
+            } catch (e: any) {
+              // If second item fails, just use the first one
+              console.warn('[Tools] Second item fetch failed, using single item:', e);
+            }
+          }
+        }
 
         onResult?.(name, result);
         results.push({ tool_call_id: tc.id, result });
