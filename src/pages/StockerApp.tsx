@@ -596,14 +596,47 @@ export default function StockerApp() {
       });
 
       if (sessionPersistence.isValidSession(saved) && saved?.userId === userId) {
-        // Verify route still exists before showing resume dialog
+        // Verify route still exists before resuming
         const routeExists = await verifyRouteExists(userId, saved.routeName, saved.routeDate);
         console.log('[Stocker] Route verification:', { routeName: saved.routeName, exists: routeExists });
 
         if (routeExists) {
-          console.log('[Stocker] Showing resume dialog for:', saved.routeName);
-          setSavedSession(saved);
-          setShowResumeDialog(true);
+          // Detect if this is a page refresh vs new navigation
+          const isRefresh = performance.getEntriesByType &&
+                            performance.getEntriesByType('navigation').length > 0 &&
+                            (performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming).type === 'reload';
+
+          console.log('[Stocker] Navigation type:', isRefresh ? 'refresh' : 'new');
+
+          if (isRefresh) {
+            // AUTO-RESUME on page refresh (e.g., pull-to-refresh)
+            // Don't interrupt user with dialog - seamlessly continue where they left off
+            console.log('[Stocker] Auto-resuming session after page refresh');
+            setSavedSession(saved);
+
+            // Restore session state immediately
+            setRouteState({
+              routeId: saved.routeId || null,
+              routeName: saved.routeName,
+              routeDate: saved.routeDate,
+              totalMachines: saved.totalMachines,
+              currentMachineIndex: saved.currentMachineIndex,
+              currentMachineName: saved.currentMachineName,
+              currentMachineId: saved.currentMachineId || null,
+              totalItems: saved.totalItems,
+              completedItems: saved.completedItems,
+              machines: saved.machines || []
+            });
+
+            setInitialized(true);
+            setShowResumeDialog(false);
+          } else {
+            // SHOW DIALOG for new navigation (app reopened, different tab, etc)
+            // User might want fresh start in this case
+            console.log('[Stocker] Showing resume dialog for new navigation');
+            setSavedSession(saved);
+            setShowResumeDialog(true);
+          }
         } else {
           // Route was deleted - clear stale session silently
           console.log('[Stocker] Route no longer exists, clearing stale session');
