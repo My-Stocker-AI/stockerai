@@ -246,9 +246,12 @@ export function useStockerAI() {
     const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     let itemContext = '';
     if (currentItem) {
-      itemContext = `\nCurrent item: ${currentItem.quantity}x ${currentItem.product}, ${currentItem.slot_spoken || currentItem.slot}`;
+      itemContext = `\nCurrent item: ${currentItem.quantity}x ${currentItem.product}`;
+      if (currentItem.slot) {
+        itemContext += `\nSlot: ${currentItem.slot_spoken || currentItem.slot} (only mention if user asks)`;
+      }
       if (currentItem.inventory_current !== undefined && currentItem.inventory_parlevel !== undefined) {
-        itemContext += `\nInventory: ${currentItem.inventory_current} of ${currentItem.inventory_parlevel} in machine`;
+        itemContext += `\nInventory: ${currentItem.inventory_current} of ${currentItem.inventory_parlevel} (only mention if user asks)`;
       }
       if (currentItem.machine_name) {
         itemContext += `\nMachine: ${currentItem.machine_name}`;
@@ -337,20 +340,12 @@ ABSOLUTE RULE - HIDE ALL TECHNICAL DETAILS:
 
 Communication style:
 - Be concise - workers are busy, don't waste their time
-- Say quantity first, then product name, then the slot_spoken field
-- The slot_spoken field is pre-formatted for speech - use it directly
+- CRITICAL: When tools return a "spoken" field, USE IT VERBATIM - do NOT add anything extra
+- The "spoken" field is optimized for speed and already formatted correctly
+- NEVER add slot, inventory, or other details unless the user specifically asks
 - NEVER say "let me know when you're ready" - just give the item and stop
-- CRITICAL: VARY your responses randomly - NEVER use the same phrase twice in a row
-- Pick randomly from these styles:
-  * Direct: "3 Doritos, slot 58"
-  * Next up: "Next up, 3 Doritos, slot 58"
-  * Grab: "Grab 5 Coke cans, slot 42"
-  * Acknowledged: "Got it. 2 Cheetos, slot 31"
-  * Next item: "Next item, 4 Snickers, slot 27"
-  * Alright: "Alright, 6 water bottles, slot 19"
-  * Moving on: "Moving on, 2 Lays chips, slot 44"
-- Keep it under 15 words per response
-- Use the user's first name sparingly, maybe 1 in 10 responses
+- If user asks "what slot?" or "current inventory?", provide that specific info
+- Keep responses under 10 words when possible
 
 CRITICAL - Confirmation commands (MUST call get_next_item tool):
 When user says ANY of these CLEARLY, call get_next_item - do NOT just reply with text:
@@ -442,7 +437,7 @@ SKIP INTENT (trigger skip flow):
 NEXT ITEM INTENT (do NOT trigger skip):
 - "next", "next item", "next one", "what's next"
 
-When user clearly asks to skip, ASK FOR CONFIRMATION first: "Skip this machine and come back later? Say yes to confirm."
+When user clearly asks to skip, ASK FOR CONFIRMATION first: "Skip this machine? Say yes to confirm."
 - Only call skip_current_machine tool AFTER user confirms with "yes", "yeah", "confirm", "do it"
 - If user says "no" or "never mind", say "OK, staying on this machine" and continue with current item
 
