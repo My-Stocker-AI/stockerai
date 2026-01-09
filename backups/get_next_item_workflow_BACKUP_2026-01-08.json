@@ -1,0 +1,443 @@
+{
+  "workflow_name": "Stocker Tool: get_next_item",
+  "workflow_id": "GPeduKWdn9tMrZmT",
+  "backup_date": "2026-01-08",
+  "backup_reason": "Before spoken response optimization - removing slot/inventory from default speech",
+  "version_id": "47f05b89-d046-4c08-9a32-c167bc7e47cc",
+  "last_updated": "2026-01-07T00:55:09.979Z",
+  "rollback_instructions": "Use n8n UI to manually restore this workflow JSON, or use n8n_workflow_versions tool to rollback",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "next-item",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "d7aadd36-fc66-438a-9fd6-18450a4bf58f",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [384, 352],
+      "webhookId": "7cff8431-2d50-46b7-9eaa-e3a192120022"
+    },
+    {
+      "parameters": {
+        "url": "=https://wvtkuposrlvadyeixlke.supabase.co/rest/v1/sessions?user_id=eq.{{ $json.body.user_id }}&status=eq.stocking&order=created_at.desc&limit=1&select=id,current_machine_id,current_item_index,current_route_id,pick_direction",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi"
+      },
+      "id": "get_session",
+      "name": "Get Session",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [608, 352],
+      "credentials": {
+        "supabaseApi": {
+          "id": "lT2naSkdNmv4X1Yp",
+          "name": "my-stocker-ai Supabase Secret Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "var data = $input.first().json;\n\n// Handle both: array from Supabase OR single object extracted by n8n\nvar session = null;\nif (Array.isArray(data) && data.length > 0) {\n  session = data[0];\n} else if (data && typeof data === 'object' && data.id) {\n  session = data;\n}\n\nif (!session) {\n  throw new Error('Session not found');\n}\n\nreturn [{ json: session }];"
+      },
+      "id": "extract_session",
+      "name": "Extract Session",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [832, 352]
+    },
+    {
+      "parameters": {
+        "url": "=https://wvtkuposrlvadyeixlke.supabase.co/rest/v1/items?machine_id=eq.{{ $json.current_machine_id }}&select=id,product_name,quantity,slot,sequence,status,inventory_current,inventory_parlevel&order=sequence.asc",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "options": {}
+      },
+      "id": "get_items",
+      "name": "Get Items In Machine",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1056, 160],
+      "credentials": {
+        "supabaseApi": {
+          "id": "lT2naSkdNmv4X1Yp",
+          "name": "my-stocker-ai Supabase Secret Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://wvtkuposrlvadyeixlke.supabase.co/rest/v1/machines?route_id=eq.{{ $('Extract Session').first().json.current_route_id }}&select=id,machine_name,location_name,machine_number,sequence,status&order=sequence.asc",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "options": {}
+      },
+      "id": "get_machines",
+      "name": "Get Machines In Route",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1056, 352],
+      "credentials": {
+        "supabaseApi": {
+          "id": "lT2naSkdNmv4X1Yp",
+          "name": "my-stocker-ai Supabase Secret Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://wvtkuposrlvadyeixlke.supabase.co/rest/v1/routes?id=eq.{{ $('Extract Session').first().json.current_route_id }}&select=id,route_name",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "options": {}
+      },
+      "id": "get_routes",
+      "name": "Get Routes",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1056, 544],
+      "credentials": {
+        "supabaseApi": {
+          "id": "lT2naSkdNmv4X1Yp",
+          "name": "my-stocker-ai Supabase Secret Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "numberInputs": 3,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [1280, 336],
+      "id": "7bc8d32b-ea7b-41d6-b0b3-2407080c3305",
+      "name": "Merge Query Results",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "var session = $('Extract Session').first().json;\n\nvar itemsRaw = $('Get Items In Machine').all();\nvar items = [];\nfor (var i = 0; i < itemsRaw.length; i++) {\n  items.push(itemsRaw[i].json);\n}\n\nvar machinesRaw = $('Get Machines In Route').all();\nvar machines = [];\nfor (var i = 0; i < machinesRaw.length; i++) {\n  machines.push(machinesRaw[i].json);\n}\n\nvar routesRaw = $('Get Routes').all();\nvar routes = [];\nfor (var i = 0; i < routesRaw.length; i++) {\n  routes.push(routesRaw[i].json);\n}\n\nvar currentItemIndex = session.current_item_index || 0;\nvar currentMachineId = session.current_machine_id;\nvar currentRouteId = session.current_route_id;\nvar pickDirection = session.pick_direction || 'forward';\n\nvar currentMachine = null;\nvar currentMachineSeq = 0;\nfor (var i = 0; i < machines.length; i++) {\n  if (machines[i].id === currentMachineId) {\n    currentMachine = machines[i];\n    currentMachineSeq = machines[i].sequence;\n    break;\n  }\n}\n\nvar currentRoute = null;\nfor (var i = 0; i < routes.length; i++) {\n  if (routes[i].id === currentRouteId) {\n    currentRoute = routes[i];\n    break;\n  }\n}\n\nvar nextItem = null;\nif (pickDirection === 'reverse') {\n  for (var i = 0; i < items.length; i++) {\n    if (items[i].sequence === currentItemIndex - 1) {\n      nextItem = items[i];\n      break;\n    }\n  }\n} else {\n  for (var i = 0; i < items.length; i++) {\n    if (items[i].sequence === currentItemIndex + 1) {\n      nextItem = items[i];\n      break;\n    }\n  }\n}\n\nif (nextItem) {\n  var newIndex = pickDirection === 'reverse' ? currentItemIndex - 1 : currentItemIndex + 1;\n  var remaining = pickDirection === 'reverse' ? newIndex - 1 : items.length - newIndex;\n  return [{\n    json: {\n      action: 'next_item',\n      product_name: nextItem.product_name,\n      quantity: nextItem.quantity,\n      slot: nextItem.slot,\n      machine_name: currentMachine ? currentMachine.machine_name : '',\n      inventory_current: nextItem.inventory_current || 0,\n      inventory_parlevel: nextItem.inventory_parlevel || 0,\n      items_remaining: remaining,\n      new_item_index: newIndex,\n      new_machine_id: currentMachineId,\n      new_route_id: currentRouteId,\n      session_record_id: session.id,\n      machine_complete: false,\n      route_complete: false,\n      session_complete: false\n    }\n  }];\n}\n\nvar nextMachine = null;\nfor (var i = 0; i < machines.length; i++) {\n  if (machines[i].sequence === currentMachineSeq + 1 && machines[i].status !== 'skipped') {\n    nextMachine = machines[i];\n    break;\n  }\n}\n\nif (nextMachine) {\n  return [{\n    json: {\n      action: 'next_machine',\n      completed_machine: currentMachine ? currentMachine.machine_name : 'Machine',\n      completed_machine_number: currentMachine ? currentMachine.machine_number : 0,\n      completed_location: currentMachine ? currentMachine.location_name : '',\n      next_machine_id: nextMachine.id,\n      next_machine_name: nextMachine.machine_name,\n      next_machine_number: nextMachine.machine_number,\n      next_location: nextMachine.location_name,\n      new_item_index: 0,\n      new_machine_id: nextMachine.id,\n      new_route_id: currentRouteId,\n      session_record_id: session.id,\n      machine_complete: true,\n      route_complete: false,\n      session_complete: false\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    action: 'complete',\n    completed_route: currentRoute ? currentRoute.route_name : 'Route',\n    total_routes: routes.length,\n    session_record_id: session.id,\n    new_status: 'completed',\n    new_item_index: currentItemIndex,\n    new_machine_id: currentMachineId,\n    new_route_id: currentRouteId,\n    machine_complete: true,\n    route_complete: true,\n    session_complete: true\n  }\n}];"
+      },
+      "id": "determine_state",
+      "name": "Determine Next State",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1504, 352]
+    },
+    {
+      "parameters": {
+        "jsCode": "var stateData = $('Switch Action').first().json;\n\nreturn [{\n  json: {\n    action: stateData.action,\n    completed_machine: stateData.completed_machine,\n    completed_location: stateData.completed_location,\n    next_location: stateData.next_location,\n    next_machine: stateData.next_machine_name,\n    next_machine_number: stateData.next_machine_number,\n    new_item_index: stateData.new_item_index,\n    new_machine_id: stateData.new_machine_id,\n    new_route_id: stateData.new_route_id,\n    session_record_id: stateData.session_record_id,\n    machine_complete: stateData.machine_complete,\n    route_complete: stateData.route_complete,\n    session_complete: stateData.session_complete\n  }\n}];"
+      },
+      "id": "merge_machine_data",
+      "name": "Add First Item to Machine",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1968, 240]
+    },
+    {
+      "parameters": {
+        "numberInputs": 3
+      },
+      "id": "merge_all",
+      "name": "Merge All Paths",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [2176, 336]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://wvtkuposrlvadyeixlke.supabase.co/rest/v1/sessions?id=eq.{{ $json.session_record_id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ current_item_index: $json.new_item_index, current_machine_id: $json.new_machine_id, current_route_id: $json.new_route_id, status: $json.new_status || 'stocking' }) }}",
+        "options": {}
+      },
+      "id": "update_session",
+      "name": "Update Session",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2400, 352],
+      "credentials": {
+        "supabaseApi": {
+          "id": "lT2naSkdNmv4X1Yp",
+          "name": "my-stocker-ai Supabase Secret Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "var data = $('Merge All Paths').first().json;\n\nfunction formatSlotForTTS(slot) {\n  if (!slot) return null;\n  slot = String(slot);\n  \n  if (slot.indexOf('-') !== -1) {\n    var parts = slot.split('-');\n    var first = parseInt(parts[0], 10);\n    var second = parseInt(parts[1], 10);\n    if (!isNaN(first) && !isNaN(second)) {\n      return 'slots ' + first + ' and ' + second;\n    }\n    return slot;\n  }\n  \n  var num = parseInt(slot, 10);\n  if (!isNaN(num)) {\n    return 'slot ' + num;\n  }\n  \n  return slot;\n}\n\n// Fix TTS pronunciation issues\nfunction fixPronunciation(text) {\n  if (!text) return text;\n  // Fix \"Can\" pronounced as \"Kahn\" - replace with \"Kan\" for correct pronunciation\n  // Only replace when it's a standalone word (not part of another word like \"candy\")\n  text = text.replace(/\\bCan\\b/g, 'Kan');\n  text = text.replace(/\\bCAN\\b/g, 'KAN');\n  // Fix common abbreviations\n  text = text.replace(/\\boz\\b/gi, 'ounce');\n  text = text.replace(/\\bct\\b/gi, 'count');\n  text = text.replace(/\\bpk\\b/gi, 'pack');\n  return text;\n}\n\n// Random prefix for variety\nfunction getRandomPrefix() {\n  var prefixes = [\n    'Next up: ',\n    'OK, grab ',\n    'Alright, ',\n    'Got it. ',\n    '',\n    'Here we go: ',\n    'Next: '\n  ];\n  return prefixes[Math.floor(Math.random() * prefixes.length)];\n}\n\n// Generate TTS-ready spoken response with variety\nfunction generateSpoken(action, data, slotSpoken) {\n  if (action === 'next_item') {\n    var prefix = getRandomPrefix();\n    var productName = fixPronunciation(data.product_name);\n    var base = data.quantity + ' ' + productName + ', ' + slotSpoken;\n    \n    // Special case for last item\n    if (data.items_remaining === 0) {\n      var lastPhrases = [\n        'Last one! ',\n        'Final item: ',\n        'And the last one: '\n      ];\n      prefix = lastPhrases[Math.floor(Math.random() * lastPhrases.length)];\n    }\n    return prefix + base;\n  }\n  \n  if (action === 'next_machine') {\n    var donePhrases = [\n      'Nice! ',\n      'Done! ',\n      'Great! ',\n      'Perfect! '\n    ];\n    var donePrefix = donePhrases[Math.floor(Math.random() * donePhrases.length)];\n    // Use consistent full sentence for direction question\n    return donePrefix + data.completed_machine + ' complete. Next up is ' + data.next_machine + ' at ' + data.next_location + '. Would you like to start at the top of the list for this machine, or the bottom?';\n  }\n  \n  if (action === 'complete') {\n    var completePhrases = [\n      'All done! Great work on the ' + data.completed_route + ' route.',\n      'Finished! ' + data.completed_route + ' route complete. Nice job!',\n      'That\\'s it! ' + data.completed_route + ' route is done.'\n    ];\n    return completePhrases[Math.floor(Math.random() * completePhrases.length)];\n  }\n  \n  return null;\n}\n\nvar output = {\n  action: data.action,\n  machine_complete: data.machine_complete || false,\n  route_complete: data.route_complete || false,\n  session_complete: data.session_complete || false\n};\n\nvar slotSpoken = null;\n\nif (data.action === 'next_item') {\n  output.product_name = data.product_name;\n  output.quantity = data.quantity;\n  output.slot = data.slot;\n  slotSpoken = formatSlotForTTS(data.slot);\n  output.slot_spoken = slotSpoken;\n  output.machine_name = data.machine_name || '';\n  output.inventory_current = data.inventory_current || 0;\n  output.inventory_parlevel = data.inventory_parlevel || 0;\n  output.items_remaining = data.items_remaining;\n}\n\nif (data.action === 'next_machine') {\n  output.completed_machine = data.completed_machine;\n  output.completed_location = data.completed_location;\n  output.next_location = data.next_location;\n  output.next_machine = data.next_machine;\n  output.next_machine_id = data.new_machine_id;  // Include next machine ID for frontend state\n  output.next_machine_number = data.next_machine_number;\n}\n\nif (data.action === 'complete') {\n  output.completed_route = data.completed_route;\n  output.total_routes = data.total_routes;\n  output.message = 'All routes finished';\n}\n\n// Add spoken field for fast path (skips second AI call)\noutput.spoken = generateSpoken(data.action, data, slotSpoken);\n\nreturn [{ json: output }];"
+      },
+      "id": "format_output",
+      "name": "Format Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2624, 352]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "version": 2,
+                  "leftValue": "",
+                  "caseSensitive": true,
+                  "typeValidation": "strict"
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "2",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "next_machine",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "next_machine"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "version": 2,
+                  "leftValue": "",
+                  "caseSensitive": true,
+                  "typeValidation": "strict"
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "1",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "next_item",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "next_item"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "version": 2,
+                  "leftValue": "",
+                  "caseSensitive": true,
+                  "typeValidation": "strict"
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "3",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "complete",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "complete"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "0234daeb-3bb3-49dd-b96c-277ce65f9703",
+      "name": "Switch Action",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [1728, 320]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Get Session",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Session": {
+      "main": [
+        [
+          {
+            "node": "Extract Session",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Session": {
+      "main": [
+        [
+          {
+            "node": "Get Items In Machine",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get Machines In Route",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get Routes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Items In Machine": {
+      "main": [
+        [
+          {
+            "node": "Merge Query Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Machines In Route": {
+      "main": [
+        [
+          {
+            "node": "Merge Query Results",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Get Routes": {
+      "main": [
+        [
+          {
+            "node": "Merge Query Results",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Merge Query Results": {
+      "main": [
+        [
+          {
+            "node": "Determine Next State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Determine Next State": {
+      "main": [
+        [
+          {
+            "node": "Switch Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add First Item to Machine": {
+      "main": [
+        [
+          {
+            "node": "Merge All Paths",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge All Paths": {
+      "main": [
+        [
+          {
+            "node": "Update Session",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Session": {
+      "main": [
+        [
+          {
+            "node": "Format Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch Action": {
+      "main": [
+        [
+          {
+            "node": "Add First Item to Machine",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge All Paths",
+            "type": "main",
+            "index": 1
+          }
+        ],
+        [
+          {
+            "node": "Merge All Paths",
+            "type": "main",
+            "index": 2
+          }
+        ],
+        [
+          {
+            "node": "Merge All Paths",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

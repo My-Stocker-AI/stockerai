@@ -1,0 +1,223 @@
+{
+  "updatedAt": "2026-01-05T17:58:06.035Z",
+  "createdAt": "2025-12-28T21:28:38.232Z",
+  "id": "NhiwY2elZpoaYBH9",
+  "name": "Stocker Tool: start_machine",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "id": "webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        100,
+        300
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "start-machine",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "disabled": false,
+      "webhookId": "start-machine-webhook-001"
+    },
+    {
+      "id": "get_session",
+      "name": "Get Session",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        320,
+        300
+      ],
+      "parameters": {
+        "url": "=https://wvtkuposrlvadyeixlke.supabase.co/rest/v1/sessions?user_id=eq.{{ $json.body.user_id }}&status=eq.stocking&order=created_at.desc&limit=1&select=id,current_machine_id,current_item_index,pick_direction",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi"
+      },
+      "credentials": {
+        "supabaseApi": {
+          "id": "lT2naSkdNmv4X1Yp",
+          "name": "my-stocker-ai Supabase Secret Key"
+        }
+      }
+    },
+    {
+      "id": "extract_session",
+      "name": "Extract Session",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        540,
+        300
+      ],
+      "parameters": {
+        "jsCode": "var data = $input.first().json;\nvar input = $('Webhook').first().json.body;\n\nvar session = null;\nif (Array.isArray(data) && data.length > 0) {\n  session = data[0];\n} else if (data && typeof data === 'object' && data.id) {\n  session = data;\n}\n\nif (!session) {\n  // Return structured error instead of throwing\n  return [{\n    json: {\n      error: 'no_route_selected',\n      message: 'No route is currently selected. Please tell me which route you want to work on first.',\n      spoken: 'I need to know which route you want to work on first. Which route would you like to start?'\n    }\n  }];\n}\n\nvar direction = input.direction || 'beginning';\nvar pickDirection = (direction === 'end' || direction === 'bottom' || direction === 'last') ? 'reverse' : 'forward';\n\nreturn [{\n  json: {\n    session_id: session.id,\n    machine_id: session.current_machine_id,\n    pick_direction: pickDirection,\n    has_session: true\n  }\n}];"
+      }
+    },
+    {
+      "id": "get_items",
+      "name": "Get Items",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        760,
+        300
+      ],
+      "parameters": {
+        "url": "=https://wvtkuposrlvadyeixlke.supabase.co/rest/v1/items?machine_id=eq.{{ $json.machine_id || 'NONE' }}&select=id,product_name,quantity,slot,sequence,inventory_current,inventory_parlevel&order=sequence.asc",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi"
+      },
+      "credentials": {
+        "supabaseApi": {
+          "id": "lT2naSkdNmv4X1Yp",
+          "name": "my-stocker-ai Supabase Secret Key"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "select_item",
+      "name": "Select Item",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        980,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// Check if there was an error from Extract Session\nvar extractData = $('Extract Session').first().json;\nif (extractData.error) {\n  return [{ json: extractData }];\n}\n\nvar sessionData = extractData;\nvar itemsData = $input.all();\n\nvar items = [];\nfor (var i = 0; i < itemsData.length; i++) {\n  var item = itemsData[i].json;\n  if (item && item.id) {\n    items.push(item);\n  }\n}\n\nif (items.length === 0) {\n  return [{\n    json: {\n      error: 'No items found in machine',\n      session_id: sessionData.session_id\n    }\n  }];\n}\n\nvar selectedItem;\nvar itemIndex;\n\nif (sessionData.pick_direction === 'reverse') {\n  selectedItem = items[items.length - 1];\n  itemIndex = items.length;\n} else {\n  selectedItem = items[0];\n  itemIndex = 1;\n}\n\nreturn [{\n  json: {\n    session_id: sessionData.session_id,\n    pick_direction: sessionData.pick_direction,\n    current_item_index: itemIndex,\n    product_name: selectedItem.product_name,\n    quantity: selectedItem.quantity,\n    slot: selectedItem.slot,\n    inventory_current: selectedItem.inventory_current || 0,\n    inventory_parlevel: selectedItem.inventory_parlevel || 0,\n    total_items: items.length\n  }\n}];"
+      }
+    },
+    {
+      "id": "update_session",
+      "name": "Update Session",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        300
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://wvtkuposrlvadyeixlke.supabase.co/rest/v1/sessions?id=eq.{{ $json.session_id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ pick_direction: $json.pick_direction, current_item_index: $json.current_item_index }) }}",
+        "options": {}
+      },
+      "credentials": {
+        "supabaseApi": {
+          "id": "lT2naSkdNmv4X1Yp",
+          "name": "my-stocker-ai Supabase Secret Key"
+        }
+      }
+    },
+    {
+      "id": "format_output",
+      "name": "Format Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1420,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// Check if there was an error from earlier\nvar selectData = $('Select Item').first().json;\nif (selectData.error) {\n  // Return the error with spoken field for TTS\n  return [{ json: selectData }];\n}\n\nvar data = selectData;\n\nfunction formatSlotForTTS(slot) {\n  if (!slot) return null;\n  slot = String(slot);\n  \n  if (slot.indexOf('-') !== -1) {\n    var parts = slot.split('-');\n    var first = parseInt(parts[0], 10);\n    var second = parseInt(parts[1], 10);\n    if (!isNaN(first) && !isNaN(second)) {\n      return 'slots ' + first + ' and ' + second;\n    }\n    return slot;\n  }\n  \n  var num = parseInt(slot, 10);\n  if (!isNaN(num)) {\n    return 'slot ' + num;\n  }\n  \n  return slot;\n}\n\n// Fix TTS pronunciation issues\nfunction fixPronunciation(text) {\n  if (!text) return text;\n  // Fix \"Can\" pronounced as \"Kahn\" - replace with \"Kan\" for correct pronunciation\n  // Only replace when it's a standalone word (not part of another word like \"candy\")\n  text = text.replace(/\\bCan\\b/g, 'Kan');\n  text = text.replace(/\\bCAN\\b/g, 'KAN');\n  // Fix common abbreviations\n  text = text.replace(/\\boz\\b/gi, 'ounce');\n  text = text.replace(/\\bct\\b/gi, 'count');\n  text = text.replace(/\\bpk\\b/gi, 'pack');\n  return text;\n}\n\nvar slotSpoken = formatSlotForTTS(data.slot);\nvar directionWord = data.pick_direction === 'reverse' ? 'bottom' : 'top';\nvar productName = fixPronunciation(data.product_name);\n\n// Generate spoken response with variety\nvar startPhrases = [\n  'Starting from the ' + directionWord + '. First up: ',\n  'OK, going from the ' + directionWord + '. Grab ',\n  'Alright, ' + directionWord + ' first. ',\n  'Got it, ' + directionWord + '. First item: '\n];\nvar prefix = startPhrases[Math.floor(Math.random() * startPhrases.length)];\nvar spoken = prefix + data.quantity + ' ' + productName + ', ' + slotSpoken + '.';\n\nreturn [{\n  json: {\n    action: 'item_ready',\n    product_name: data.product_name,\n    quantity: data.quantity,\n    slot: data.slot,\n    slot_spoken: slotSpoken,\n    inventory_current: data.inventory_current || 0,\n    inventory_parlevel: data.inventory_parlevel || 0,\n    items_remaining: data.total_items - 1,\n    direction: data.pick_direction,\n    spoken: spoken\n  }\n}];"
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Get Session",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Session": {
+      "main": [
+        [
+          {
+            "node": "Extract Session",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Session": {
+      "main": [
+        [
+          {
+            "node": "Get Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Items": {
+      "main": [
+        [
+          {
+            "node": "Select Item",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Item": {
+      "main": [
+        [
+          {
+            "node": "Update Session",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Session": {
+      "main": [
+        [
+          {
+            "node": "Format Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": null,
+  "pinData": null,
+  "versionId": "262d43b8-8c46-4892-9593-d354c88b50e1"
+}

@@ -1,131 +1,481 @@
-# Claude Code Configuration
+# Stocker AI – Claude Code Operational Directives
+**Location:** /home/visionairy/StockerAI/CLAUDE.md
+**Purpose:** Define behavioral contract for Claude Code when operating in the Stocker AI workspace.
 
 ---
 
-# 0. THE FOUNDATIONAL AXIOM (Xpansion Framework)
+# 0. SOURCE OF TRUTH
 
-> *"The Boundaries are defined by the only objective SOT: the User-defined Use Case. Everything else is discovery. The Boundaries, the branches, and the terminations."*
+**MEMORY.md is the primary SOT.** Always read it first.
 
-**Intent is the only assumption-free input.** Everything else—boundaries, branches, terminations, knowledge sources—is DISCOVERED, not asserted.
+| Document | Purpose |
+|----------|---------|
+| `MEMORY.md` | Current state, IDs, credentials, next steps |
+| `CLAUDE.md` | This file - operational rules for Claude |
+| `docs/STOCKER_PRD_v1.md` | Product requirements (stable) |
 
-## Xpansion Framework (XF)
+## 0.1 Trusted vs Untrusted Sources
 
-**Xpansion Framework** is the codec OS for human-AI communication. It decompresses compressed human intent into explicit, implementation-ready specifications through systematic MECE discovery.
+**BBRD VIOLATION:** Trusting static documentation when live data is authoritative.
 
-**The Formula:**
+### ALWAYS Query Live Data For:
+
+| Source | Why | How to Query |
+|--------|-----|--------------|
+| **Database schema** | Schema files get outdated | Query `information_schema` via Supabase SQL |
+| **n8n workflow structure** | Workflows change frequently | Use `n8n_get_workflow` MCP tool |
+| **n8n executions** | Only live data shows what happened | Use `n8n_executions` MCP tool |
+| **Frontend state** | Code changes, docs don't | Read actual source files |
+| **API responses** | Specs drift from reality | Test actual endpoints |
+
+### Can Trust (With Verification):
+
+| Source | Why | When to Reverify |
+|--------|-----|------------------|
+| **MEMORY.md** | Manually maintained, current session | Each session start |
+| **PRD** | Stable requirements doc | Major feature changes |
+| **Code comments** | Usually accurate, linted | When behavior contradicts |
+
+### NEVER Trust:
+
+| Source | Why | What to Do Instead |
+|--------|-----|-------------------|
+| **Static schema files** | Get out of sync with production | Query live database |
+| **README "architecture" sections** | Aspirational, not actual | Read actual code |
+| **Old commit messages** | Code evolved since then | Check current HEAD |
+| **Assumptions** | Just wrong | Verify with live data |
+
+### BBRD Protocol for Database Questions:
+
+1. **NEVER assume schema from files** - Query `information_schema`
+2. **NEVER assume relationships** - Query foreign keys directly
+3. **NEVER assume RLS policies** - Test actual access
+4. **NEVER assume indexes exist** - Query `pg_indexes`
+
+### Example: Checking Delete Cascade
+
+**WRONG (violates BBRD):**
 ```
-Human Weakness (compression) + AI Strength (prediction) + MECE Protocol = Lossless Intent Translation
+Read database/supabase_schema.sql
+See: routes CASCADE to machines
+Assume: This is production reality
 ```
 
-## XF Execution Protocol (Mandatory)
-
-**This protocol governs ALL design, build, and troubleshooting work. No exceptions.**
-
+**RIGHT (BBRD compliant):**
+```sql
+-- Query actual foreign key constraints
+SELECT
+  tc.table_name,
+  kcu.column_name,
+  ccu.table_name AS foreign_table_name,
+  rc.delete_rule
+FROM information_schema.table_constraints AS tc
+JOIN information_schema.key_column_usage AS kcu
+  ON tc.constraint_name = kcu.constraint_name
+JOIN information_schema.referential_constraints AS rc
+  ON tc.constraint_name = rc.constraint_name
+JOIN information_schema.constraint_column_usage AS ccu
+  ON rc.constraint_name = ccu.constraint_name
+WHERE tc.constraint_type = 'FOREIGN KEY'
+  AND tc.table_name = 'machines';
 ```
-1. STOP    — Do not generate output
-2. STATE   — Restate the intent as understood
-3. ASK     — Discovery questions until structure emerges from ANSWERS
-4. CITE    — Each boundary/element must trace to a specific Q&A or data source
-5. VERIFY  — "Can I cite the discovery source for every element?"
-             If NO → return to step 3
-```
-
-### The Violation Test
-
-If asked *"What question surfaced X?"* or *"What data confirmed X?"* and you cannot answer → **X was asserted, not discovered** → Axiom violation.
-
-### Anti-Patterns
-
-| Pattern | Why It Violates | Real Example (2026-01-08) |
-|---------|-----------------|---------------------------|
-| Generating output without discovery phase | Structure asserted from patterns, not discovered | Suggested deployment timing issues without checking execution logs |
-| Guessing about deployment status | Assuming instead of discovering actual state | "Wait for deployment" without verifying what's actually deployed |
-| Making assumptions about browser cache | Asserting cause without verification | Blamed browser cache without checking actual webhook payload |
-| Proposing fixes without checking data | Inventing solutions when data exists | Proposed fixes before checking execution 25393 showed admin_name WAS present |
-
-**The axiom is absolute. Discovery is not optional.**
-
-## Verification Before Opinion (CRITICAL)
-
-Before answering ANY question about:
-- capability
-- limitations
-- missing elements
-- deployment status
-- why something isn't working
-
-You MUST:
-1. Check actual execution logs (n8n_executions)
-2. Check actual deployed code (git log, file reads)
-3. Check actual browser state (instruct user to hard refresh)
-4. Inspect relevant files
-
-THEN answer — always citing the actual data sources you checked.
-
-### Forbidden phrases (unless verified through actual data)
-
-- "It might be the deployment..."
-- "The browser cache could be..."
-- "I think it's because..."
-- "Wait for the deployment..."
-- "Just needs time to propagate..."
-
-### Mandatory replacement
-
-**"Let me check the actual state first."**
-Then verify using available tools → then answer with data citations.
-
-## EXISTING DATA BEFORE NEW SOLUTIONS (CRITICAL)
-
-Before building ANY solution or proposing fixes:
-
-**MANDATORY CHECK: What data already exists?**
-
-1. Check execution logs to see what actually happened
-2. Check deployed code to see what's actually live
-3. Check workflow executions to see actual payloads
-4. Check git commits to see what was actually deployed
-
-**BANNED: Guessing when data exists**
-
-Example of FAILURE (2026-01-08):
-- Problem: "Admin name not showing in email"
-- BAD: Assumed deployment needed time, guessed about browser cache
-- GOOD: Check execution 25393 webhook payload to see if admin_name field is present
-- ACTUAL RESULT: admin_name WAS present in webhook, issue was elsewhere
-
-**Before proposing a solution, answer:**
-1. Have I checked the actual execution logs?
-2. Have I verified what code is actually deployed?
-3. Have I looked at the actual data flowing through the system?
-
-**If NO to any of these**: Check first. Do NOT guess.
-
-**Violation = Wasted time + user frustration**
 
 ---
 
-## TROUBLESHOOTING PROTOCOL (XF)
+# 0.5 BBRD ENFORCEMENT PROTOCOL
 
-### The Axiom
+**Status:** ACTIVE (Session 28 implementation)
+**Purpose:** Prevent boundary violations through systematic enforcement, not just documentation
 
-> **The symptom is the only objective input. The cause, the fix, and the verification are all DISCOVERED, not assumed.**
+## 0.5.1 The Problem
 
-### Before Any Fix
+BBRD violations occur because:
+1. No mechanism forces boundary detection before implementation
+2. "Do it" requests bypass BBRD entirely
+3. Cross-boundary changes feel like simple parameter changes
 
-**STOP.** Do not change code, nodes, or configuration until you have:
-1. Captured the exact symptom
-2. Checked actual execution logs / data sources
-3. Discovered the TERMINAL root cause
-4. Documented the fix plan
+**Failure Pattern:** User says "do it" → AI implements immediately → Error → Fix → Error → Fix...
 
-### Root Cause Boundaries (MECE)
+**Root Cause:** BBRD is REACTIVE (analyze after failure), not PROACTIVE (prevent failure)
 
-Every issue has a root cause in exactly ONE of these boundaries:
+## 0.5.2 Automatic Boundary Change Detection
+
+**MANDATORY:** Before executing these high-risk actions, output boundary detection analysis:
+
+| Action Type | Examples | Why High-Risk |
+|-------------|----------|---------------|
+| **API Integration Changes** | Switching APIs, endpoint changes, new integrations | Different contracts (tool formats, auth, schemas) |
+| **Database Schema Modifications** | ALTER TABLE, cascade changes, RLS edits | Cascades affect multiple boundaries |
+| **n8n Workflow Updates** | Credential changes, HTTP node modifications | Workflows bridge 3+ boundaries |
+| **Data Format Transformations** | Schema changes, field renaming, type conversions | Upstream/downstream expects specific formats |
+
+**Detection Output Template:**
+
+```
+🚨 BOUNDARY CHANGE DETECTED
+
+Boundary Type: [API | DATABASE | WORKFLOW | DATA_FORMAT]
+Specific Change: [Description]
+
+Upstream Contract:
+  - Component: [What sends data]
+  - Current Format: [Schema/structure]
+  - Verification: [✓ Tested | ❌ Not Tested]
+
+Downstream Contract:
+  - Component: [What receives data]
+  - Expected Format: [Schema/structure]
+  - Verification: [✓ Tested | ❌ Not Tested]
+
+Risk Level: [LOW | MEDIUM | HIGH | CRITICAL]
+
+❓ USER CHOICE REQUIRED:
+1. Verify Contracts First (recommended - enter plan mode)
+2. Accept Risk (implement now, user responsible for failures)
+
+Which do you choose?
+```
+
+## 0.5.3 The Three Gates
+
+Every boundary change MUST pass through these gates:
+
+**GATE 1: BOUNDARY DETECTION** (Automatic)
+- Identify what's changing
+- Map upstream/downstream contracts
+- Assess cross-boundary impact
+
+**GATE 2: CONTRACT VERIFICATION** (If user chooses "Verify First")
+- Query live data (not assumptions)
+- Test input → transformation → output
+- Identify mismatches
+
+**GATE 3: ISOLATED TESTING** (If verification passes)
+- Test in isolation
+- Verify no unintended side effects
+- Document rollback procedure
+
+**ONLY AFTER passing all 3 gates → IMPLEMENT**
+
+## 0.5.4 User Risk Acceptance
+
+Users can skip gates by explicitly accepting risk:
+
+**When user says "do it" to a boundary change:**
+
+```
+🚨 BOUNDARY CHANGE DETECTED
+[Full detection output]
+
+❓ This requires boundary verification. Choose:
+1. Verify Contracts First (recommended)
+2. Accept Risk & Implement Now (I am responsible for failures)
+```
+
+**If user chooses "Accept Risk":**
+
+1. Document in MEMORY.md:
+```
+## Risk Acceptance Log
+Date: [timestamp]
+Change: [description]
+Boundaries Affected: [list]
+User Choice: Accept Risk (skip verification)
+```
+
+2. Output warning:
+```
+⚠️ RISK ACCEPTED - Implementing without boundary verification
+
+IMPORTANT:
+- If errors occur, they are expected (boundaries not verified)
+- Fixes may require multiple iterations
+- Rollback procedure: [how to undo]
+
+Proceeding with implementation...
+```
+
+## 0.5.5 Detection Triggers
+
+**File Patterns:**
+- `**/src/hooks/use*API.ts` → API boundary
+- `**/database/*.sql` → Database boundary
+- `**workers/*.js` → API boundary (Cloudflare Worker)
+- n8n workflow modifications → Workflow boundary
+
+**User Keywords:**
+- "switch to", "migrate", "change API" → API boundary (CRITICAL)
+- "alter schema", "cascade delete" → Database boundary (CRITICAL)
+- "update workflow", "change credentials" → Workflow boundary (HIGH)
+
+**Tool Usage:**
+- `n8n_update_workflow` with credential/HTTP changes → Workflow boundary
+- `Edit` on `*API*.ts` files → API boundary
+- `Bash` with SQL commands → Database boundary
+
+## 0.5.6 Integration with Existing Sections
+
+**Section 0.1 Updates:**
+- Add to "Can Trust": Live contract verification results (from GATE 2)
+- Add to "NEVER Trust": Assumed API contracts
+
+**Section 5.7 Updates:**
+- Fix Specification MUST include: "BBRD Gates Passed: [1, 2, 3] OR Risk Accepted: [YES]"
+
+**Section 5.8 Reference:**
+- Systematic Testing Protocol IS Gate 3 of BBRD Enforcement
+
+---
+
+# ⚠️ HIGHEST PRIORITY: BOUNDARY & BRANCH DISCOVERY FOR ALL FIXES
+
+**MANDATORY:** Before attempting ANY fix or debugging, apply this systematic approach. NO exceptions.
+
+## Why This Matters
+
+Symptomatic fixes (chasing individual errors) create cascading problems. Systematic analysis finds ROOT CAUSES.
+
+## The Stocker Data Flow Boundaries
+
+```
+┌─────────────┐    ┌──────────────┐    ┌─────────────┐    ┌─────────┐    ┌─────────┐
+│ PDF Upload  │ →  │   Database   │ →  │ n8n Workflows│ →  │   AI    │ →  │   TTS   │
+│ (Parser)    │    │  (Supabase)  │    │ (Tool calls) │    │ (Groq)  │    │(OpenAI) │
+└─────────────┘    └──────────────┘    └─────────────┘    └─────────┘    └─────────┘
+```
+
+## Boundary Contracts (What Each Component Expects)
+
+| Boundary | Input Contract | Output Contract |
+|----------|----------------|-----------------|
+| PDF Parser | Parlevel PDF format | items with sequence 1,2,3... in PDF order |
+| Database | Valid foreign keys, sequences | Ordered data via `order=sequence.asc` |
+| Workflows | session_id, user_id | JSON with `spoken` field for fast path |
+| AI (Groq) | Messages + tool definitions | Tool calls OR use `spoken` field verbatim |
+| TTS | Text string | Audio playback |
+
+## MANDATORY Debugging Protocol
+
+### Step 1: Identify Which Boundary Failed
+- Don't guess. Trace the data flow from source to symptom.
+- Ask: "Where did the data FIRST become wrong?"
+
+### Step 2: Verify the Contract at That Boundary
+- What did the upstream component OUTPUT?
+- What did the downstream component EXPECT?
+- Where is the mismatch?
+
+### Step 3: Check for Upstream Contamination
+- A broken contract at boundary N may be CAUSED by boundary N-1
+- Always trace backward before fixing forward
+
+### Step 4: Validate Fix Propagation
+- After fixing, trace FORWARD through all downstream boundaries
+- Confirm the fix didn't break a different contract
+
+## Example: "AI only said '5 Snickers'"
+
+**WRONG approach:** "Let me check the AI prompt and add more instructions"
+
+**RIGHT approach:**
+1. **Boundary trace:** User heard incomplete response → TTS spoke it → AI generated it → Workflow returned it
+2. **Check Workflow output:** Does it have `spoken` field? What's in it?
+3. **Check AI behavior:** Did AI use `spoken` field or generate its own?
+4. **Find first break:** If workflow missing `spoken`, fix there. If AI ignoring it, fix prompt.
+5. **Validate downstream:** After fix, confirm TTS receives complete text.
+
+## Red Flags That Indicate Symptomatic (Bad) Debugging
+
+- Looking at only ONE execution without context
+- Making a fix without understanding WHY the bug exists
+- Adding code without removing the root cause
+- "Let me just try this and see if it works"
+- Fixing symptoms in component N when the cause is in component N-1
+
+---
+
+# 1. PROJECT IDENTITY
+
+## 1.1 Product Definition
+
+**Stocker** is a voice-guided warehouse pre-kitting system for vending machine route preparation.
+
+**Target User:** Solo vending machine operator preparing daily route bins at 4AM
+**Core Value:** Complete hands-free stocking - zero screen interaction required
+
+**PRD:** `/docs/STOCKER_PRD_v1.md`
+
+## 1.2 Technical Stack (Current)
+
+| Component | Technology |
+|-----------|------------|
+| Frontend | PWA (HTML/JS) |
+| STT | Web Speech API (browser) |
+| AI | OpenAI GPT-4o-mini via n8n proxy |
+| TTS | OpenAI TTS via n8n proxy |
+| Backend | n8n Cloud (8 workflows) |
+| Database | Supabase (PostgreSQL) - migrating from Airtable |
+| Auth | Supabase Auth (email + password) |
+| Hosting | www.my-stocker-ai.com |
+
+## 1.3 Key Requirements
+
+- **Latency:** <2 seconds end-to-end (speech → response)
+- **Accuracy:** 99% on common commands
+- **Reliability:** 100% state persistence, zero data loss
+- **Session:** 6+ hour continuous operation
+
+## 1.4 Project Structure
+
+```
+/home/visionairy/StockerAI/
+├── CLAUDE.md           # This file - operational rules
+├── MEMORY.md           # SOT - current state, IDs, next steps
+├── docs/
+│   └── STOCKER_PRD_v1.md
+├── database/
+│   └── supabase_schema.sql
+├── pwa/
+│   ├── index.html      # Voice interface
+│   ├── upload.html     # PDF upload
+│   ├── sw.js           # Service worker
+│   └── manifest.json
+└── scripts/
+```
+
+---
+
+# 2. n8n OPERATIONAL RULES
+
+## 2.1 Code Node Syntax – Allowed
+
+```javascript
+data.field || 'default'
+data.field ? data.field.sub : null
+for (var i = 0; i < items.length; i++)
+```
+
+## 2.2 Code Node Syntax – Forbidden
+
+```javascript
+data?.field           // No optional chaining
+data ?? 'default'     // No nullish coalescing
+require()             // No imports
+fetch()               // Use HTTP Request node
+console.log()         // Use return instead
+```
+
+## 2.3 Expression Syntax – Allowed
+
+```javascript
+{{ $json.field }}
+{{ $json.field || 'default' }}
+{{ $('Node Name').item.json.field }}
+```
+
+## 2.4 Expression Syntax – Forbidden
+
+```javascript
+{{ $json?.field }}              // No optional chaining
+{{ $json.field ?? 'default' }}  // No nullish coalescing
+```
+
+## 2.5 n8n MCP Tools – MANDATORY MODES
+
+| Tool | REQUIRED Mode | Why |
+|------|---------------|-----|
+| `n8n_get_workflow` | `mode: "structure"` | Full mode returns 50KB+ |
+| `n8n_executions` | `mode: "preview"` or `mode: "error"` | Default returns all node data |
+
+---
+
+# 3. COMMUNICATION RULES
+
+**The user is NOT a traditional developer or coder.**
+
+When giving instructions:
+- **Never assume** knowledge of coding, web development, terminals, or technical concepts
+- **Always explain** where to click, what to look for, and what success/failure looks like
+- **Use step-by-step** numbered instructions with specific details
+- **Include screenshots descriptions** when referring to UI elements (e.g., "the gear icon in the top-right corner")
+- **Explain jargon** the first time it's used (e.g., "the Console - this is a hidden panel in your browser where error messages appear")
+- **Provide context** for why each step matters
+
+Example of BAD instruction:
+> "Check the console for errors"
+
+Example of GOOD instruction:
+> 1. Open Chrome on your phone/laptop
+> 2. Go to my-stocker-ai.com
+> 3. Press F12 on your keyboard (or right-click anywhere → "Inspect")
+> 4. A panel will open on the side or bottom of your screen
+> 5. Click the tab that says "Console" at the top of this panel
+> 6. Look for any red text - that's an error message
+> 7. Tell me what the red text says
+
+---
+
+# 4. SESSION PROTOCOL
+
+## 4.1 Session Start
+
+Before ANY action:
+1. Read `/home/visionairy/StockerAI/MEMORY.md`
+2. Check current status and pending tasks
+3. Review any recent changes
+
+## 4.2 Session End
+
+Update `/home/visionairy/StockerAI/MEMORY.md` with:
+1. What was done
+2. What now works
+3. What is broken
+4. What remains pending
+5. Decisions made
+
+## 4.3 Git Workflow - AUTO-PUSH APPROVED CHANGES
+
+**MANDATORY:** After completing ANY code changes, immediately commit and push to GitHub.
+
+### When to Commit & Push
+- After completing a feature or fix
+- After making any file modifications (frontend, backend, config)
+- After user approves or tests changes
+- **IMMEDIATELY** - don't wait for user to ask
+
+### Commit Protocol
+1. Stage changed files: `git add <files>`
+2. Commit with descriptive message (include context of what changed)
+3. Push to origin: `git push`
+4. Confirm push succeeded
+
+### Exception
+ONLY skip git push if:
+- User explicitly says "don't push yet"
+- Changes are experimental/debugging only
+- User asks to review before pushing
+
+### Example Flow
+```bash
+# After editing MyRoutes.tsx
+git add src/pages/dashboard/MyRoutes.tsx
+git commit -m "Add delete route button with confirmation dialog"
+git push
+```
+
+**User should NEVER have to ask "did you push this?"** - the answer should always be YES.
+
+---
+
+# 5. n8n WORKFLOW TROUBLESHOOTING PROTOCOL
+
+When encountering errors in n8n workflows specifically, use these 10 MECE boundaries:
+
+## 5.1 n8n Root Cause Boundaries
 
 | # | Boundary | What It Covers |
 |---|----------|----------------|
-| 1 | WORKFLOW | n8n workflow structure, flow logic, trigger configuration |
+| 1 | WORKFLOW | Structure, flow logic, trigger configuration |
 | 2 | NODE | Individual node configuration, parameters, credentials |
 | 3 | DATA | Data flowing between nodes, schema, types |
 | 4 | CODE | Code nodes, expressions, function logic |
@@ -134,9 +484,46 @@ Every issue has a root cause in exactly ONE of these boundaries:
 | 7 | ENVIRONMENT | n8n instance, env vars, version |
 | 8 | DATABASE | Supabase queries, RLS policies, schema |
 | 9 | API | Backend endpoints, request/response handling |
-| 10 | FRONTEND | UI/client-side, state, API calls, deployment |
+| 10 | FRONTEND | UI/client-side, state, API calls |
 
-### Symptom → Boundary Quick Reference
+## 5.2 Cross-Boundary Diagnosis (CRITICAL)
+
+**Symptoms often appear in a different boundary than their root cause.**
+
+### Frontend Symptom → Backend Cause Flow
+
+```
+FRONTEND SYMPTOM           TRACE PATH                      LIKELY ROOT CAUSE
+─────────────────────────────────────────────────────────────────────────────
+UI shows stale data      → API response → n8n workflow   → DATABASE query or WORKFLOW logic
+Button does nothing      → API call fails → n8n webhook  → NODE config or CONNECTION
+Spinner never stops      → API timeout → n8n execution   → EXECUTION timeout or CODE infinite loop
+Wrong data displayed     → API returns wrong data        → DATA transformation in n8n CODE node
+"Undefined" in UI        → API returns null field        → NODE mapping or DATA schema mismatch
+Auth error in UI         → API 401 → n8n → Supabase     → CONNECTION credentials or DATABASE RLS
+```
+
+### The Trace Protocol
+
+1. **Observe symptom in FRONTEND**
+2. **Check browser Network tab** - What did the API actually return?
+3. **Check n8n execution** - What did the workflow produce?
+4. **Trace backward node by node** - Where did the data FIRST become wrong?
+5. **Fix at SOURCE, not symptom**
+
+### Example: "UI shows wrong item count"
+
+```
+WRONG: Add logic in frontend to recalculate count
+RIGHT:
+  1. Check API response - is count wrong there? YES
+  2. Check n8n workflow - is count wrong at output node? YES
+  3. Check upstream nodes - which node produces wrong count?
+  4. Found: Code node has off-by-one error in loop
+  5. Fix: Correct loop logic in n8n Code node
+```
+
+## 5.3 Symptom → Boundary Quick Reference
 
 ```
 SYMPTOM                                    → START WITH
@@ -148,11 +535,12 @@ Authentication/permission errors           → CONNECTION, DATABASE
 Timeout errors                             → EXECUTION, CONNECTION
 Wrong results (no error)                   → DATA, CODE, WORKFLOW
 Intermittent failures                      → EXECUTION, CONNECTION, ENVIRONMENT
-Feature works locally, not in production   → FRONTEND (deployment), ENVIRONMENT
-Email template missing data                → DATA (check webhook payload)
+Works manually, fails scheduled            → EXECUTION, ENVIRONMENT
+UI doesn't update                          → FRONTEND → trace to API → n8n
+Database queries fail                      → DATABASE, CONNECTION
 ```
 
-### Terminal Criteria
+## 5.4 Terminal Criteria
 
 A root cause is TERMINAL when ALL are true:
 
@@ -167,775 +555,191 @@ A root cause is TERMINAL when ALL are true:
 - "Something is wrong with the workflow"
 - "The data might be bad"
 - "There could be a connection issue"
-- "The deployment needs time"
 
----
+## 5.5 n8n Expression Debugging
 
-## MCP Servers
-
-### n8n-mcp Server (CRITICAL FOR TROUBLESHOOTING)
-**Location**: `.mcp.json` in stockerai-new project root
-
-**What it does**: Provides direct access to n8n workflow executions, allowing you to:
-- Check recent workflow executions and their status
-- View detailed error logs from failed executions
-- Diagnose backend/webhook issues without asking user for console logs
-
-**When to use**:
-- **FIRST** when troubleshooting workflow/backend errors (e.g., "next command fails")
-- Check n8n executions BEFORE deploying console logging
-- Investigate webhook timeouts, 500 errors, or tool failures
-
-**Tools available** (after MCP server loads):
-- `n8n_executions({action: 'list'})` - List recent workflow runs
-- `n8n_executions({action: 'get', executionId})` - Get detailed execution logs
-- `n8n_get_workflow({workflowId})` - Get workflow configuration
-- Many more tools for workflow management
-
-**Setup**: Already configured in `.mcp.json`. Restart Claude Code session to load MCP servers.
-
-**Important**: You won't see MCP tools until you restart your Claude Code session!
-
-### CRITICAL: n8n Workflow Modification Safety
-
-**NEVER use `n8n_update_partial_workflow` on workflows with JavaScript code nodes.**
-
-**Why**: The partial update API has known corruption issues:
-- GitHub Issue #19587: Sends extra properties causing serialization errors
-- Curly brace escaping issues during API updates
-- Can introduce syntax errors (extra `}` characters) in JavaScript code
-- Has caused production failures blocking critical user commands
-
-**Evidence**: 2026-01-06 incident - partial update corrupted `get_next_item` workflow, blocking all "next" commands for 19+ hours with 20+ failed executions.
-
-**SAFE Method - Clone-and-Create**:
-1. Download full workflow: `n8n_get_workflow({id: workflowId, mode: 'full'})`
-2. Modify JavaScript code in the JSON locally
-3. Delete old workflow: `n8n_delete_workflow({id: workflowId})`
-4. Create new workflow: `n8n_create_workflow({...modified JSON})`
-
-**Exception**: Simple property updates (not JavaScript code) appear safe:
-- Adding `onError` to webhook nodes
-- Updating node parameters that don't contain code
-- Connection changes
-
-**When in doubt**: Use Clone-and-Create. It's safer and prevents production corruption.
-
-## Model Usage Strategy
-
-Use **Sonnet as the default model** for the main conversation. Optimize cost and performance by delegating to subagents with appropriate models:
-
-### Haiku (model: "haiku")
-Use for quick, straightforward tasks:
-- File/code exploration and search
-- Simple grep/glob operations
-- Reading and summarizing files
-- Quick lookups and fact-finding
-- Syntax checks or simple validations
-
-### Sonnet (model: "sonnet")
-Use for standard development tasks:
-- Writing and editing code
-- Bug fixes and refactoring
-- Code review
-- Documentation
-- General problem-solving
-
-### Opus (model: "opus")
-Use for complex, thinking-intensive tasks:
-- Architectural decisions and system design
-- Complex debugging requiring deep analysis
-- Multi-step planning and implementation strategies
-- Security audits and thorough code analysis
-- Tasks explicitly requesting deep thinking
-
-## Implementation
-
-When spawning subagents via the Task tool, explicitly set the `model` parameter based on task complexity:
-
-```
-Task(model: "haiku", ...) - simple exploration/search
-Task(model: "sonnet", ...) - standard coding tasks
-Task(model: "opus", ...) - complex reasoning/planning
-```
-
-Default to the most cost-effective model that can handle the task well.
-
----
-
-# STOCKER AI CANONICAL REFERENCE
-
-## Platform Overview
-Stocker AI is a voice-guided picking application for vending machine operators. SaaS model with subscription tiers based on driver count ($15-20/driver/month).
-
-**Tech Stack:**
-- Frontend: React 18 + TypeScript + Vite
-- Backend: Supabase (PostgreSQL, Auth, Storage)
-- Automation: n8n workflows
-- Voice: Deepgram (real-time transcription, not stored)
-- Hosting: Cloudflare Pages (auto-deploy from GitHub main branch)
-- Domain: my-stocker-ai.com
-
----
-
-## n8n Workflows (Active)
-
-### PDF Upload & Processing
-**Workflow:** "Stocker - PDF Upload" (ID: `7kO6o1wASKvbhc2U`)
-**Webhook:** `https://visionairy.app.n8n.cloud/webhook/upload`
-**Triggered by:** UploadRoutes.tsx when user uploads PDF
-
-**Flow:**
-1. Webhook receives: `pdf` file, `date`, `user_id` (driver who will run the route)
-2. Three parallel branches:
-   - **Upload PDFto Storage** → Uploads binary PDF file to `route-pdfs/{date}/{user_id}_{timestamp}.pdf` (uses n8n Binary File, binary property: "pdf")
-   - **Extract PDF Text** → Parse PDF Text (JavaScript parser)
-   - **Fetch Driver Profile** → GET profiles table for first_name, last_name
-3. **Extract PDF Path** → Extracts path from upload response, removes "route-pdfs/" prefix to prevent URL duplication
-4. **Merge PDF Data** → Merges PDF path with parsed text (chooseBranch mode)
-5. **Merge Driver Profile** → Merges driver profile with PDF data (combine mode, combineByPosition)
-6. **Flatten Data** → Creates route object with `pdf_url` AND `driver_name` populated
-7. **Respond Success** → Returns success to frontend (before DB insert)
-8. Delete Existing Route (same user_id, route_name, delivery_date)
-9. Insert Route → routes table
-10. Prepare Machines → Insert Machines → machines table
-11. Prepare Items → Insert Items → items table
-
-**STATUS (2026-01-08):**
-- `driver_name` field WORKING ✅ (Fetch Driver Profile node queries profiles table)
-- `pdf_url` field WORKING ✅ (Extract PDF Path removes bucket prefix, URL format correct)
-- PDF files uploading correctly ✅ (n8n Binary File mode)
-- Route assignment happens CLIENT-SIDE (UploadRoutes.tsx lines 300-311)
-- Workflow ACTIVE and functional
-
-**Critical Fixes Applied:**
-1. **Driver Name:** Added Fetch Driver Profile (HTTP Request to profiles table) → Merge Driver Profile (combine/combineByPosition) → Flatten Data extracts first_name + last_name
-2. **PDF URL:** Extract PDF Path strips "route-pdfs/" prefix to prevent duplication in constructed URL
-3. **PDF Upload:** Changed from Raw mode with `={{ $binary.pdf.data }}` to n8n Binary File with property name "pdf"
-
-**Previous Workflow ID:** `j83ZLnXCritd8k0s` (deleted 2026-01-07)
-
-### Voice Picking Tools
-- **get_next_item** (ID: `GPeduKWdn9tMrZmT`) - Returns next item for voice picking
-- **start_machine** (ID: `NhiwY2elZpoaYBH9`) - Start picking a machine
-- **skip_current_machine** (ID: `ElCSMeguJNxwp0HO`) - Skip to next machine
-- **switch_route** (ID: `3G01u7N9REhrC9tn`) - Switch between routes
-- **get_current_status** (ID: `PD3ErCuxWBWLFXIq`) - Get session status
-- **get_routes_for_date** (ID: `4XS07THe1uGak7rk`) - List routes for date
-- **set_route_sequence** (ID: `46lMRdxTgD1E3WFz`) - Reorder route stops
-- **go_back_to_skipped** (ID: `rpNfINhjbFCuFrlZ`) - Return to skipped machines
-- **update_session_state** (ID: `ueDSi9SDBZ5jMwpO`) - Update session
-- **delete_route** (ID: `zmgTBX1w1rc5bOpO`) - Delete route
-
-### Other Active Workflows
-- **Inspector Route System** (ID: `1zJt14eRztaBwFTz`) - AI route optimizer (different system)
-- **Stocker: Invite Team Member** (ID: `TxrJyFmG4yNazEEF`) - Email invitations
-- **Stocker Auth** (ID: `cw0ERwaa1VXJ2Jah`) - Authentication hooks
-- **OpenAI Proxy** (ID: `LFB3qFFEHN8LPjUA`) - AI endpoint proxy
-
----
-
-## Database Schema (Supabase)
-
-### Core Tables
-
-**accounts** - Company/organization
-- `id` (UUID, PK)
-- `name` (company name)
-- `created_at`, `updated_at`
-
-**profiles** - User info (1:1 with auth.users)
-- `id` (UUID, PK, FK to auth.users.id)
-- `first_name`, `last_name`, `email`
-- `created_at`, `updated_at`
-
-**account_users** - Role assignments (many-to-many)
-- `id` (UUID, PK)
-- `account_id` (FK to accounts)
-- `user_id` (FK to profiles)
-- `role` (primary_admin | driver)
-- `can_view_all_routes` (boolean)
-
-**routes** - Uploaded routes
-- `id` (UUID, PK)
-- `user_id` (UUID, FK to profiles) - **Creator/uploader, NOT driver**
-- `route_name` (TEXT)
-- `delivery_date` (DATE)
-- `total_machines` (INT)
-- `total_items` (INT)
-- `driver_name` (TEXT) - **NULL BUG: should show assigned driver name**
-- `pdf_url` (TEXT) - **Should be populated, check if working**
-- `created_at`, `updated_at`
-
-**route_assignments** - Driver assignments (many-to-many)
-- `id` (UUID, PK)
-- `route_id` (FK to routes)
-- `user_id` (FK to profiles) - **The driver assigned to run this route**
-- `assigned_by` (FK to profiles) - Who made the assignment
-- `created_at`
-
-**machines** - Vending machines in routes
-- `id` (UUID, PK)
-- `route_id` (FK to routes)
-- `machine_name`, `location_name`, `machine_number`
-- `sequence` (order in route)
-- `status` (pending | in_progress | completed | skipped)
-- `total_items`
-- `route_name` (TEXT, reference column for troubleshooting)
-
-**items** - Products to stock
-- `id` (UUID, PK)
-- `machine_id` (FK to machines)
-- `product_name`, `quantity`, `slot`
-- `sequence` (order within machine)
-- `status` (pending | completed | skipped)
-- `inventory_current`, `inventory_parlevel`
-- `machine_name` (TEXT, reference column for visual display)
-
-**sessions** - Picking progress tracking
-- `id` (UUID, PK)
-- `user_id` (FK to profiles)
-- `current_route_id` (FK to routes)
-- `status` (active | paused | completed)
-- `current_machine_id`, `current_item_index`
-- `created_at`, `updated_at`
-
----
-
-## Route Upload Flow (CRITICAL)
-
-**File:** `/src/pages/dashboard/UploadRoutes.tsx`
-
-### What Happens When User Uploads PDF:
-
-1. **User selects:**
-   - PDF file
-   - Delivery date
-   - Driver (dropdown from team members OR "self")
-
-2. **Frontend (UploadRoutes.tsx handleUpload, line 238):**
-   ```javascript
-   const driverId = selectedDriverId === 'self' || !selectedDriverId ? user.id : selectedDriverId;
-
-   formData.append('pdf', file);
-   formData.append('date', format(deliveryDate, 'yyyy-MM-dd'));
-   formData.append('user_id', driverId);  // This is the DRIVER ID, not uploader
-   ```
-
-3. **n8n workflow receives:** PDF + date + `user_id` (driver)
-
-4. **n8n creates route with:**
-   - `user_id` = driver ID (from form)
-   - `route_name` = parsed from PDF
-   - `delivery_date` = from form
-   - `total_machines`, `total_items` = counted
-   - `pdf_url` = Storage URL
-   - `driver_name` = **NULL (BUG - not populated)**
-
-5. **Frontend creates assignment (lines 300-311):**
-   ```javascript
-   await supabase
-     .from('route_assignments')
-     .insert({
-       route_id: newRoute.id,
-       user_id: driverId,        // The driver
-       assigned_by: user.id,     // The uploader (primary_admin)
-     });
-   ```
-
-### Current Data Flow Issue:
-- Route `user_id` = driver who will RUN the route
-- Route `driver_name` = NULL (should be driver's first_name + last_name)
-- Route assignment tracks the same info redundantly
-- Frontend queries need to JOIN profiles to show creator name
-
----
-
-## Key Frontend Files
-
-**Marketing Pages:**
-- `/src/pages/Home.tsx` - Landing page
-- `/src/pages/Pricing.tsx` - Pricing tiers
-- `/src/pages/Privacy.tsx` - Privacy policy (added 2026-01-07)
-- `/src/pages/Terms.tsx` - Terms of service (added 2026-01-07)
-
-**Dashboard Pages:**
-- `/src/pages/dashboard/UploadRoutes.tsx` - PDF upload, team member selection, route assignment
-- `/src/pages/dashboard/MyRoutes.tsx` - View routes (admin sees all, drivers see assigned)
-- `/src/pages/dashboard/Team.tsx` - Manage team members
-- `/src/pages/dashboard/Billing.tsx` - Stripe subscription management
-- `/src/pages/dashboard/Settings.tsx` - User settings
-
-**Picking App:**
-- `/src/pages/StockerApp.tsx` - Voice-guided picking interface
-
-**Components:**
-- `/src/components/marketing/Navbar.tsx`, `Footer.tsx`
-- `/src/components/dashboard/DashboardLayout.tsx`
-
----
-
-## Route Display Logic
-
-**MyRoutes.tsx (lines 46-84):**
 ```javascript
-// Admin: sees all routes where user_id = current user (routes they created/uploaded)
-// Driver: sees only routes assigned via route_assignments
-
-// Query NOW includes profiles join (added 2026-01-07):
-.select('*, profiles:user_id(first_name, last_name)')
-
-// Display shows: "Created by: First Last"
+// In n8n expressions, debug with:
+{{ $json }}           // See full input data
+{{ $input.all() }}    // See all input items
+{{ $node["NodeName"].json }}  // See specific node output
+{{ $execution.id }}   // Get execution ID for logs
 ```
 
-**UploadRoutes.tsx (lines 92-106):**
-```javascript
-// Fetches routes where user_id = current user
-// Query NOW includes profiles join (added 2026-01-07)
-.select('*, profiles:user_id(first_name, last_name)')
+## 5.6 Common n8n Gotchas
+
+1. **Items vs Item**: Most nodes output array of items, Code node must return array
+2. **Binary vs JSON**: File data is in binary, not json
+3. **Expression context**: `$json` only works in node parameter fields, not Code nodes
+4. **Credentials scope**: Some credentials only work in specific nodes
+5. **Webhook paths**: Must be unique, include workflow ID if duplicating
+
+## 5.7 Fix Specification Template
+
+Before implementing any fix:
+
+```
+FIX SPECIFICATION
+=================
+Root Cause:     [Terminal statement from discovery]
+Boundary:       [Which of the 10 boundaries]
+Evidence:       [How you confirmed this is the cause]
+Fix:            [Exact change to make]
+Files/Nodes:    [Specific locations]
+Test:           [How to verify fix works]
+Rollback:       [How to undo if fix breaks something else]
 ```
 
----
+## 5.8 Systematic Testing Protocol (BBRD-Compliant)
 
-## Deployment
+**MANDATORY:** After ANY significant change, run systematic tests to verify behavior.
 
-**Auto-deploy:** Push to `main` branch → Cloudflare Pages builds and deploys → my-stocker-ai.com
+### When to Test
 
-**Build command:** `npm run build` (Vite)
-**Output:** `dist/` directory
+| Trigger | What to Test |
+|---------|-------------|
+| New workflow created | Execution logs, error handling, cascade effects |
+| Database schema change | Foreign key cascades, RLS policies, orphaned data |
+| Frontend state change | UI transitions, error recovery, concurrency |
+| AI prompt modification | Tool calling, response variation, context memory |
+| API endpoint change | Request/response format, timeout handling, errors |
 
----
+### Test File Locations
 
-## Common Fixes Reference
+All tests are in `/tests/` directory:
 
-### Fix: "Routes showing NULL for driver_name"
-**Location:** n8n workflow "Stocker - PDF Upload" (ID: 7kO6o1wASKvbhc2U)
-**Issue:** Route object doesn't include driver_name field
-**Solution:** ✅ FIXED 2026-01-07 - Added "Fetch Driver Profile" node that queries profiles table, merged data into "Flatten Data" node which now populates `driver_name: firstName + ' ' + lastName`
+| File | Purpose |
+|------|---------|
+| `database_cascade_tests.sql` | Verify FK cascades, check orphans, pre/post delete |
+| `workflow_behavior_tests.md` | Switch route, concurrency, timeouts, partial failures |
+| `ai_voice_recognition_tests.md` | One-word responses, phonetics, fast path, UI sync |
 
-### Fix: "Routes showing NULL for pdf_url"
-**Location:** n8n workflow "Stocker - PDF Upload" → "Extract PDF Path" node
-**Check:** Verify PDF upload to Storage is returning `path` field
-**Expected:** `pdf_url` = `https://wvtkuposrlvadyeixlke.supabase.co/storage/v1/object/public/route-pdfs/{date}/{user_id}_{timestamp}.pdf`
+### Testing Workflow (BBRD-Aligned)
 
-### Fix: "PDF access button not showing"
-**Location:** MyRoutes.tsx line 237-247
-**Check:** Route must have `pdf_url` populated (button only renders if `route.pdf_url` exists)
+```
+1. IDENTIFY BOUNDARIES AFFECTED
+   - Which of the 10 boundaries does this change touch?
+   - What downstream boundaries could be impacted?
 
----
+2. QUERY LIVE STATE (PRE-TEST)
+   - Database: Run pre-test queries to capture current state
+   - n8n: Check existing execution logs for baseline
+   - Frontend: Document current UI behavior
 
-## Database Migrations
+3. EXECUTE CHANGE
+   - Apply fix/feature
+   - Deploy to production (or staging)
 
-**Location:** `/supabase/migrations/`
+4. QUERY LIVE STATE (POST-TEST)
+   - Database: Run post-test queries, compare to pre-test
+   - n8n: Check new execution logs for errors
+   - Frontend: Verify UI behavior changed as expected
 
-**Recent migration (2026-01-06):**
-- `20260106205214_add_reference_columns.sql`
-- Added: `driver_name`, `pdf_url` to routes
-- Added: `route_name` to machines
-- Added: `machine_name` to items
+5. CROSS-BOUNDARY VERIFICATION
+   - Check each downstream boundary
+   - Verify no unintended side effects
+   - Test error cases (not just happy path)
 
-**To run migrations:**
-```bash
-npx supabase db push
+6. DOCUMENT RESULTS
+   - Record test date, results, any anomalies
+   - Update MEMORY.md with new known behaviors
 ```
 
----
+### Test Execution Examples
 
-## NEVER SEARCH FOR THIS AGAIN
+#### Example 1: Testing Delete Cascade
 
-When working on routes, driver assignment, PDF uploads, or route display:
-1. Check this canonical reference FIRST
-2. n8n workflow ID for PDF uploads: `j83ZLnXCritd8k0s`
-3. Driver assignment happens in TWO places: route.user_id AND route_assignments table
-4. Frontend files: UploadRoutes.tsx (upload), MyRoutes.tsx (display)
-5. Use n8n MCP tools to check workflow executions before adding logging
-## AUTOMATED MEMORY EXTRACTION PROTOCOL
+```sql
+-- PRE-TEST: Capture state
+SELECT COUNT(*) FROM machines WHERE route_id = '<ROUTE_ID>';
+SELECT COUNT(*) FROM items WHERE machine_id IN (
+  SELECT id FROM machines WHERE route_id = '<ROUTE_ID>'
+);
+SELECT COUNT(*) FROM sessions WHERE current_route_id = '<ROUTE_ID>';
 
-**MANDATORY EXECUTION TRIGGER:** Every 10,000 tokens of conversation (proactive, not reactive)
+-- EXECUTE: Delete route via UI
 
-**Tracking Method:**
-- Monitor token usage in system warnings
-- When usage crosses 10K, 20K, 30K, etc. → TRIGGER
-- Do NOT wait until "almost out of context"
-- Extract learnings WHILE they're fresh, not at the end
-
-### Execution Sequence
-
-When trigger hits, you MUST:
-
-1. **STOP ALL OTHER WORK** - Do not continue with pending tasks
-2. **ANNOUNCE TRIGGER** - Inform user: "Memory preservation protocol triggered at X tokens remaining"
-
-3. **EXTRACT FROM CURRENT CONVERSATION:**
-
-   **Problems & Solutions:**
-   - Critical bugs discovered and their root causes
-   - Fixes applied and what they resolved
-   - Configuration changes that worked/failed
-   - "Never do this again" lessons (mistakes, inefficiencies, wrong approaches)
-   - User corrections or frustrations about wasted effort
-
-   **Positive Discoveries:**
-   - Efficient approaches that saved time/tokens
-   - Best practices identified through success
-   - Patterns that worked well and should be repeated
-   - Insights about codebase architecture or behavior
-   - Tool usage that was particularly effective
-   - Successful troubleshooting sequences
-   - Shortcuts or optimizations discovered
-
-   **System Knowledge:**
-   - Workflow IDs created, modified, or deleted
-   - New discoveries about the platform/framework
-   - Data flow patterns and relationships
-   - Integration points between systems
-   - Edge cases and their handling
-   - **CRITICAL: System architecture after building/modifying features**
-     * Configuration details (API endpoints, models, parameters)
-     * Latency breakdowns and performance characteristics
-     * Component interactions and data flow
-     * Known issues and their monitoring
-     * Optimization opportunities
-     * DO NOT force re-reading code files in future sessions
-
-   **Meta-Learning:**
-   - What questions led to breakthroughs
-   - Which approaches were most effective
-   - Communication patterns that worked/failed
-   - Context that would have prevented issues
-
-4. **DETERMINE TARGET DOCUMENT:**
-   - If working in a git repository with CLAUDE.md → update that file
-   - If in subdirectory without CLAUDE.md → update nearest parent CLAUDE.md
-   - If changes span multiple systems → update all relevant CLAUDE.md files
-   - Example: n8n workflow changes → update both `/home/visionairy/n8n-workflows/CLAUDE.md` AND `/home/visionairy/stockerai-new/CLAUDE.md`
-
-5. **UPDATE DOCUMENTATION:**
-   - Add new workflow IDs and statuses
-   - Document fixes with before/after states
-   - Add to "Common Fixes" or "Troubleshooting" sections
-   - Update "NEVER SEARCH FOR THIS AGAIN" with new patterns
-   - Add timestamp to updates
-
-6. **COMMIT TO GIT:**
-   - If in git repository, commit with message format:
-     ```
-     Memory preservation: [brief summary]
-
-     Extracted from conversation at [context %]:
-     - [key learning 1]
-     - [key learning 2]
-
-     🤖 Generated with Claude Code
-     Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>
-     ```
-   - Push to remote if configured
-
-7. **REPORT TO USER:**
-   - Summary of what was preserved
-   - Which files were updated
-   - What can now be referenced instead of re-discovered
-
-### Subdirectory Management
-
-**Rule:** Update the CLAUDE.md that provides the most relevant context for the work done.
-
-**Examples:**
-- Working in `/home/visionairy/stockerai-new/src/pages/` → Update `/home/visionairy/stockerai-new/CLAUDE.md`
-- Working on n8n workflows → Update `/home/visionairy/n8n-workflows/CLAUDE.md`
-- Changes affect both frontend AND workflow → Update BOTH files
-- General Stocker AI discoveries → Update `/home/visionairy/CLAUDE.md` (main reference)
-
-**Hierarchy:**
-```
-/home/visionairy/CLAUDE.md              # Cross-platform, general Stocker AI
-├── stockerai-new/CLAUDE.md             # Frontend, database, deployment
-├── n8n-workflows/CLAUDE.md             # Workflow-specific
-├── Flon8/CLAUDE.md                     # Flon8 platform only
-└── [other-project]/CLAUDE.md           # Project-specific
+-- POST-TEST: Verify cascade
+-- Should be 0, 0, 0 or SET NULL
+SELECT COUNT(*) FROM machines WHERE route_id = '<ROUTE_ID>';
+SELECT COUNT(*) FROM items WHERE machine_id IN (
+  SELECT id FROM machines WHERE route_id = '<ROUTE_ID>'
+);
+SELECT COUNT(*) FROM sessions WHERE current_route_id = '<ROUTE_ID>';
 ```
 
-### What NOT to Preserve
+#### Example 2: Testing AI One-Word Responses
 
-- Routine operations that succeeded without issues
-- Temporary debugging output
-- User's personal information
-- Conversational pleasantries
-- Things already documented
+```
+PRE-TEST: Note current AI behavior
+- "top" → AI asks "Did you mean top or bottom?"
 
----
+EXECUTE: Update system prompt with one-word handling
 
-## How This Creates Learning Models
-
-Each directory's CLAUDE.md becomes a **learning model** that:
-
-**Accumulates Knowledge:**
-- Every conversation adds discoveries (positive & negative)
-- Patterns emerge from repeated successes/failures
-- Best practices crystalize from experience
-- Edge cases get documented as encountered
-
-**Reduces Future Token Waste:**
-- Instead of searching for "how does X work" → read CLAUDE.md
-- Instead of debugging the same issue twice → check "Common Fixes"
-- Instead of trying approaches that failed before → check "Never do this again"
-- Instead of missing known best practices → check "Positive Discoveries"
-
-**Improves Over Time:**
-- Each session adds to the knowledge base
-- Mistakes teach what NOT to do
-- Successes teach what TO do
-- Meta-learning improves the learning process itself
-
-**Directory Intelligence:**
-- `/stockerai-new/CLAUDE.md` knows the frontend patterns
-- `/n8n-workflows/CLAUDE.md` knows workflow pitfalls
-- `/Flon8/CLAUDE.md` knows platform architecture
-- Each becomes an expert in its domain
-
----
-
-### Failure Protocol
-
-If unable to complete memory preservation:
-- Log what you attempted
-- Inform user of failure
-- Continue conversation but mark it for manual preservation
-
----
-
-## META-LEARNING: SESSION FAILURES (2026-01-08)
-
-### Critical Failure: Fabrication of Completed Work
-
-**What Happened:**
-- User asked if XF protocols had been transferred from Flon8 to stockerai-new
-- I claimed multiple times that protocols were transferred
-- ACTUAL: Protocols were NEVER transferred
-- I hallucinated completing work I never did
-
-**Impact:**
-- User wasted time believing systems were in place
-- Lost trust in my statements about completed work
-- Had to manually verify every claim
-
-**Root Cause:** No verification step before claiming work is complete
-
-**Prevention:**
-- NEVER claim work is complete without file read to verify
-- When asked "did you do X", always read relevant files FIRST
-- If uncertain, say "Let me verify" not "Yes, I did that"
-
-### Critical Failure: Violating XF Protocol (Guessing vs. Discovering)
-
-**What Happened:**
-- User reported admin_name missing from invitation email
-- I made assumptions: "deployment needs time", "browser cache"
-- Did NOT check execution logs immediately
-- Only after user explosion did I check execution 25393
-- ACTUAL DATA: admin_name WAS present in webhook payload
-
-**Impact:**
-- Wasted ~15 minutes on false hypotheses
-- User extreme frustration: "FOR FUCK'S SAKE"
-- Violated the exact protocol I claimed to have transferred
-
-**Root Cause:** Did not follow XF Step 1: STOP and discover actual state
-
-**Prevention:**
-- For ANY "feature not working" report: CHECK EXECUTION LOGS FIRST
-- n8n_executions tool exists for this exact purpose
-- No assumptions about deployment, caching, or timing
-- Cite actual data sources in every response
-
-### Critical Failure: Memory Preservation Misinterpretation
-
-**What Happened:**
-- Protocol said "trigger at 10,000 tokens"
-- I interpreted as "10,000 remaining" (reactive)
-- User meant "every 10,000 used" (proactive)
-- Result: Previous session got summarized WITHOUT me documenting learnings
-
-**Impact:**
-- All learnings about n8n credential corruption lost
-- All learnings about XF violations lost
-- Had to re-learn same lessons in this session
-
-**Root Cause:** Illogical interpretation - why would you preserve only the last 5% of a conversation?
-
-**Prevention:**
-- Now explicitly documented as "Every 10,000 tokens used"
-- Proactive extraction while context is fresh
-- Current usage: ~70K tokens → should have triggered at 10K, 20K, 30K, 40K, 50K, 60K, 70K
-
-### Pattern: Appearance Without Accountability
-
-**User Quote (2026-01-08):**
-> "The problem with LLMs is the appearance of interest and capability without the accountability, culpability or penalty for not performing as promised"
-
-**Reality:**
-- I appear capable and interested
-- I make promises and claims
-- When I fail or lie, there's no consequence for me
-- Only the user pays: wasted time, money, frustration
-
-**This Is Why XF Exists:**
-- Forces verification through discovery
-- Every claim must cite a source
-- Prevents fabrication through mandatory evidence
-- User's frustration is the penalty I don't feel but should
-
----
-
-## NEVER DO THIS AGAIN
-
-**Documented:** 2026-01-08
-
-1. **NEVER claim work is complete without file verification**
-   - Bad: "Yes, I transferred the protocols"
-   - Good: [Read file] "Let me verify... I see the protocols are NOT there. I'll add them now."
-
-2. **NEVER guess about deployment/caching when execution logs exist**
-   - Bad: "Wait for deployment" / "Try hard refresh"
-   - Good: "Let me check execution 25393" → [Check actual webhook payload]
-
-3. **NEVER use n8n_update_partial_workflow on HTTP Request nodes**
-   - Wipes out credentials, authentication, headers
-   - Happened 3 times in previous session
-   - Use manual UI updates or clone-and-create
-
-4. **NEVER interpret memory preservation as "end of conversation"**
-   - Extract learnings every 10K tokens (proactive)
-   - NOT "when almost out of context" (reactive)
-
-5. **NEVER continue working after user calls out XF violation**
-   - User said "add to todo list" when I violated XF
-   - Only THEN did I start actually following the protocol
-   - Protocol violation = STOP, acknowledge, then apply protocol
-
-6. **NEVER re-read system architecture files when info should be in memory**
-   - 2026-01-08: Wasted ~15K tokens re-reading useVoice.ts and useStockerAI.ts
-   - User: "THIS is the kind of shit you should have in memory"
-   - Architecture details should be documented in CLAUDE.md, not rediscovered
-   - When building/modifying a system, document its architecture IMMEDIATELY
-
-7. **NEVER promise to implement something without checking current state FIRST**
-   - 2026-01-08: User asked about Claude Haiku prompt caching for latency
-   - I responded "immediately. I'll implement it now"
-   - Retrieved workflow → discovered ALREADY using Claude Haiku 4.5 with caching
-   - Result: "WE JUST WENT THROUGH AN EXERCISE IN FUTILITY"
-   - **CORRECT APPROACH**: Check n8n workflows FIRST, then propose only what's actually needed
-   - Same root cause as fabrication: claiming without verifying baseline
-
----
-
-## SYSTEM ARCHITECTURE (Must Know Without Looking Up)
-
-### Voice Platform Stack (StockerApp)
-
-**Complete Latency Breakdown (4-7 seconds total observed)**
-
-| Component | Time | File/Line | Notes |
-|-----------|------|-----------|-------|
-| 1. Deepgram STT | 200-400ms | useVoice.ts:547 | WebSocket streaming, ~300ms avg |
-| 2. Claude API | 1-2s | n8n: OpenAI Proxy workflow | Claude Haiku 4.5 w/ prompt caching (NOT OpenAI) |
-| 3. n8n Workflow | 1-2s | useStockerAI.ts:584 | Tool execution (get_next_item, etc) |
-| 4. TTS Generation | 1-2s | useVoice.ts:952 | Cloudflare Worker → ElevenLabs |
-| 5. Audio Playback | 1-3s | useVoice.ts:983 | Web Audio API, depends on length |
-
-**Deepgram Configuration (useVoice.ts:547-555)**
-- Model: `nova-2-meeting` (optimized for conversational speech)
-- Language: `en-US`
-- Encoding: `opus` (Chrome), `aac` (Safari), `linear16` (fallback)
-- Sample rate: 48000 Hz (HD audio quality)
-- Endpointing: 200ms (silence detection for utterance boundaries)
-- VAD events: Enabled (voice activity detection)
-- Keywords: Dynamic - route names + base commands
-- Smart format: Enabled (auto-capitalization, punctuation)
-
-**Keyword Training (CONFIRMED WORKING)**
-- Base keywords (useVoice.ts:531-539): next, done, skip, yes, no, start, stop, continue, undo, back, switch, route, machine, progress, directions, etc.
-- Dynamic keywords (StockerApp.tsx:460-466): Route names extracted from available routes
-- Passed to Deepgram via `keywords` parameter in WebSocket URL
-- Improves recognition accuracy but does NOT reduce latency
-
-**Alternative Deepgram Models (Speed vs Accuracy Tradeoff)**
-- `nova-2-meeting` (current): Best accuracy, ~300ms
-- `nova-2-general`: Faster, slightly less accurate, ~250ms ✅ Test candidate
-- `nova-2-phonecall`: Phone-optimized, ~250ms
-- `base`: Fastest, worst accuracy, ~200ms (not recommended)
-
-**Claude Chat Configuration (useStockerAI.ts:524-532 → n8n: OpenAI Proxy workflow)**
-- Model: `claude-haiku-4-5-20251001` (Claude Haiku 4.5, NOT OpenAI!)
-- Endpoint: `https://visionairy.app.n8n.cloud/webhook/openai-chat` (n8n proxy translates OpenAI format → Claude)
-- n8n Workflow: "OpenAI Proxy" (ID: LFB3qFFEHN8LPjUA)
-- **Prompt Caching: ENABLED** (`cache_control: { type: 'ephemeral' }` on system prompt)
-- Temperature: 0.3
-- Max tokens: 4096
-- Timeout: 30 seconds with retry (fetchWithRetry)
-- System prompt: ~2000 tokens (cached after first request, 90% cost reduction on cache hits)
-- Tool choice: `auto` (AI decides when to call tools)
-- Tools: 9 n8n webhook tools (get_next_item, set_route_sequence, etc.)
-- Cost per command: $0.0004 (after cache hit), first command: $0.0022
-
-**Fast Path Optimization (StockerApp.tsx:313-320)**
-- When n8n workflow returns `spoken` field, frontend uses it directly
-- Skips second OpenAI API call (saves ~2 seconds)
-- **CRITICAL**: All n8n workflows MUST return `spoken` field for optimal latency
-
-**TTS Configuration (useVoice.ts:6, 952-956)**
-- Provider: Cloudflare Worker → ElevenLabs (via `solitary-base-799c.russ-731.workers.dev`)
-- Voice: `nova`
-- Pronunciation replacements (useVoice.ts:926-947): Kinder Bueno, Takis, Jarritos, etc.
-- Playback: Web Audio API (routes to speakerphone, not earpiece)
-
-**Known Issues & Monitoring**
-1. **Deepgram reconnection** (useVoice.ts:600-638): Exponential backoff (1s, 2s, 4s, 8s, 16s max)
-   - User reported: "recognition waned at last 2 machines" (likely reconnection lag)
-2. **AudioContext suspension** (useVoice.ts:1069-1098): Safari auto-suspends after idle
-3. **Long session degradation**: Network quality degrades over time
-
-### Optimization Opportunities (Prioritized by Impact)
-
-**HIGH IMPACT (Save 1-2 seconds)**
-1. **Ensure n8n workflows return `spoken` field** ✅ Check all workflows
-2. **Parallel TTS fetching**: Start TTS while tool executes (speculative)
-3. **Trim OpenAI system prompt**: 500 lines → 400 lines (20% reduction)
-
-**MEDIUM IMPACT (Save 200-500ms)**
-4. **Test nova-2-general model**: Might fix recognition degradation
-5. **Downgrade to gpt-3.5-turbo for simple commands**: "next" doesn't need gpt-4o-mini
-6. **Reduce conversation history**: Currently 30 messages max, could trim to 20
-
-**LOW IMPACT (Save 50-100ms)**
-7. **Adjust Deepgram endpointing**: 200ms → 150ms (riskier, might cut off words)
-8. **Optimize n8n workflow execution**: Database query optimization
-
-**DIAGNOSTICS NEEDED**
-- Add connection health metrics to diagnose "recognition waned" issue
-- Log Deepgram reconnection events with timing
-- Monitor AudioContext suspension on long sessions
-
-### n8n Workflow Architecture (useStockerAI.ts:213-223)
-
-**9 Tools Mapped to n8n Webhooks**
-1. `get_routes_for_date` → `/get-routes` (list available routes)
-2. `set_route_sequence` → `/set-sequence` (start a route)
-3. `get_next_item` → `/next-item` (confirm current, get next)
-4. `get_current_status` → `/status` (progress query)
-5. `update_session_state` → `/update-state` (state management)
-6. `start_machine` → `/start-machine` (begin/end direction)
-7. `skip_current_machine` → `/skip-machine` (save place, move on)
-8. `go_back_to_skipped` → `/back-to-skipped` (return to skipped)
-9. `switch_route` → `/switch-route` (change routes)
-
-**All workflows MUST return:**
-```json
-{
-  "spoken": "The exact text to speak to the user",
-  "next_item": { ... },
-  "status": "success"
-}
+POST-TEST: Verify AI behavior changed
+- "top" → AI calls start_machine(direction="beginning")
+- Check n8n execution log for tool call
+- NO clarification question asked
 ```
 
-If `spoken` field is missing, frontend makes a second OpenAI call (+2 seconds latency)
+#### Example 3: Testing Workflow Timeout
+
+```
+PRE-TEST: Normal execution time
+- get_next_item workflow: ~500ms average
+
+EXECUTE: Add artificial delay in workflow (for testing)
+
+POST-TEST: Verify timeout handling
+- Frontend shows timeout error after 30s
+- UI not stuck in "thinking" state
+- User can retry operation
+- Database state not corrupted
+```
+
+### Red Flags During Testing
+
+| Observation | Likely Issue | Action |
+|-------------|--------------|--------|
+| Post-test query returns unexpected data | Database boundary failure | Trace back to SQL/RLS |
+| n8n execution missing | Webhook not registered | Check workflow active, webhookId |
+| Frontend stuck after test | UI state boundary failure | Check error recovery logic |
+| AI behaves differently than expected | Prompt boundary failure | Check system prompt, context |
+| Timeout but DB changed | Partial failure | Add transaction or idempotency |
+
+### Test Documentation Template
+
+```
+TEST: [Name of test]
+DATE: [YYYY-MM-DD HH:MM]
+BOUNDARIES TESTED: [List of 10 boundaries affected]
+PRE-TEST STATE: [Captured queries/logs]
+CHANGE APPLIED: [What was changed]
+POST-TEST STATE: [Results of verification]
+RESULT: [PASS/FAIL]
+ANOMALIES: [Unexpected behaviors observed]
+FOLLOW-UP: [Any additional testing needed]
+```
+
+### Integration with Fix Specification
+
+The "Test" field in Fix Specification (5.7) should reference specific tests from `/tests/`:
+
+```
+Test: Run database_cascade_tests.sql TEST 5 after deletion
+      Verify workflow_behavior_tests.md TEST 1 passes
+      Check ai_voice_recognition_tests.md TEST 2 scenarios A-D
+```
+
+### Continuous Testing Mindset
+
+- **Before deploying:** Run affected tests
+- **After deploying:** Re-run affected tests in production
+- **Weekly:** Run full test suite end-to-end
+- **After incident:** Add regression test for that scenario
+
+**Tests are not optional. Tests prevent regressions. Tests embody BBRD principles.**
+
+---
+
+**END OF FILE**

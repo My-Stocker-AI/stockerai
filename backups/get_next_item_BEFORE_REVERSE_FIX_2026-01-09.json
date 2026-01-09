@@ -1,0 +1,142 @@
+{
+  "name": "Stocker Tool: get_next_item",
+  "nodes": [
+    {
+      "id": "webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [100, 300],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "next-item",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "webhookId": "next-item-webhook-001"
+    },
+    {
+      "id": "get_session",
+      "name": "Get Session",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [320, 300],
+      "parameters": {
+        "url": "=https://wvtkuposrlvadyeixlke.supabase.co/rest/v1/sessions?user_id=eq.{{ $json.body.user_id }}&status=eq.stocking&order=created_at.desc&limit=1&select=id,current_machine_id,current_item_index,pick_direction",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi"
+      },
+      "credentials": {
+        "supabaseApi": {
+          "id": "lT2naSkdNmv4X1Yp",
+          "name": "my-stocker-ai Supabase Secret Key"
+        }
+      }
+    },
+    {
+      "id": "extract_session",
+      "name": "Extract Session",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [540, 300],
+      "parameters": {
+        "jsCode": "var data = $input.first().json;\nvar session = null;\nif (Array.isArray(data) && data.length > 0) {\n  session = data[0];\n} else if (data && typeof data === 'object' && data.id) {\n  session = data;\n}\n\nif (!session) {\n  return [{\n    json: {\n      error: 'no_route_selected',\n      message: 'No route is currently selected.',\n      spoken: 'I need to know which route you want to work on first.'\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    session_id: session.id,\n    machine_id: session.current_machine_id,\n    item_index: session.current_item_index || 1,\n    pick_direction: session.pick_direction || 'forward'\n  }\n}];"
+      }
+    },
+    {
+      "id": "get_items",
+      "name": "Get Items",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [760, 300],
+      "parameters": {
+        "url": "=https://wvtkuposrlvadyeixlke.supabase.co/rest/v1/items?machine_id=eq.{{ $json.machine_id }}&select=id,product_name,quantity,slot,sequence,inventory_current,inventory_parlevel,machine_name&order=sequence.asc",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi"
+      },
+      "credentials": {
+        "supabaseApi": {
+          "id": "lT2naSkdNmv4X1Yp",
+          "name": "my-stocker-ai Supabase Secret Key"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "determine_next",
+      "name": "Determine Next State",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [980, 300],
+      "parameters": {
+        "jsCode": "var extractData = $('Extract Session').first().json;\nif (extractData.error) {\n  return [{ json: extractData }];\n}\n\nvar sessionData = extractData;\nvar itemsData = $input.all();\n\nvar items = [];\nfor (var i = 0; i < itemsData.length; i++) {\n  var item = itemsData[i].json;\n  if (item && item.id) {\n    items.push(item);\n  }\n}\n\nif (items.length === 0) {\n  return [{\n    json: {\n      error: 'No items found',\n      session_id: sessionData.session_id\n    }\n  }];\n}\n\nvar currentIndex = sessionData.item_index;\nvar nextIndex;\nvar nextItem;\n\nif (sessionData.pick_direction === 'reverse') {\n  nextIndex = currentIndex - 1;\n  if (nextIndex < 1) {\n    return [{\n      json: {\n        action: 'next_machine',\n        session_id: sessionData.session_id,\n        machine_id: sessionData.machine_id,\n        machine_name: items[0].machine_name\n      }\n    }];\n  }\n  nextItem = items[items.length - nextIndex];\n} else {\n  nextIndex = currentIndex + 1;\n  if (nextIndex > items.length) {\n    return [{\n      json: {\n        action: 'next_machine',\n        session_id: sessionData.session_id,\n        machine_id: sessionData.machine_id,\n        machine_name: items[0].machine_name\n      }\n    }];\n  }\n  nextItem = items[nextIndex - 1];\n}\n\nreturn [{\n  json: {\n    action: 'next_item',\n    session_id: sessionData.session_id,\n    next_item_index: nextIndex,\n    product_name: nextItem.product_name,\n    quantity: nextItem.quantity,\n    slot: nextItem.slot,\n    inventory_current: nextItem.inventory_current || 0,\n    inventory_parlevel: nextItem.inventory_parlevel || 0,\n    items_remaining: items.length - nextIndex,\n    machine_name: nextItem.machine_name\n  }\n}];"
+      }
+    },
+    {
+      "id": "update_session",
+      "name": "Update Session",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1200, 300],
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://wvtkuposrlvadyeixlke.supabase.co/rest/v1/sessions?id=eq.{{ $json.session_id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ current_item_index: $json.next_item_index || 1 }) }}",
+        "options": {}
+      },
+      "credentials": {
+        "supabaseApi": {
+          "id": "lT2naSkdNmv4X1Yp",
+          "name": "my-stocker-ai Supabase Secret Key"
+        }
+      }
+    },
+    {
+      "id": "format_output",
+      "name": "Format Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1420, 300],
+      "parameters": {
+        "jsCode": "var determineData = $('Determine Next State').first().json;\nif (determineData.error) {\n  return [{ json: determineData }];\n}\n\nvar data = determineData;\n\nfunction formatSlotForTTS(slot) {\n  if (!slot) return null;\n  slot = String(slot);\n  \n  if (slot.indexOf('-') !== -1) {\n    var parts = slot.split('-');\n    var first = parseInt(parts[0], 10);\n    var second = parseInt(parts[1], 10);\n    if (!isNaN(first) && !isNaN(second)) {\n      return 'slots ' + first + ' and ' + second;\n    }\n    return slot;\n  }\n  \n  var num = parseInt(slot, 10);\n  if (!isNaN(num)) {\n    return 'slot ' + num;\n  }\n  \n  return slot;\n}\n\nfunction fixPronunciation(text) {\n  if (!text) return text;\n  text = text.replace(/\\bCan\\b/g, 'Kan');\n  text = text.replace(/\\bCAN\\b/g, 'KAN');\n  text = text.replace(/\\boz\\b/gi, 'ounce');\n  text = text.replace(/\\bct\\b/gi, 'count');\n  text = text.replace(/\\bpk\\b/gi, 'pack');\n  return text;\n}\n\nfunction parseProductName(productName) {\n  if (!productName) return { baseName: '', size: '', type: '' };\n  \n  var name = productName;\n  var size = '';\n  var type = '';\n  \n  var sizePatterns = [\n    { regex: /(\\d+\\.?\\d*)\\s*(oz|ounce|ounces)/gi, unit: 'ounce' },\n    { regex: /(\\d+\\.?\\d*)\\s*(ml|milliliter|milliliters)/gi, unit: 'milliliter' },\n    { regex: /(\\d+\\.?\\d*)\\s*(l|liter|liters)/gi, unit: 'liter' },\n    { regex: /(\\d+\\.?\\d*)\\s*(g|gram|grams)/gi, unit: 'gram' }\n  ];\n  \n  for (var i = 0; i < sizePatterns.length; i++) {\n    var pattern = sizePatterns[i];\n    var match = pattern.regex.exec(name);\n    if (match) {\n      var value = match[1];\n      var unit = pattern.unit;\n      var numValue = parseFloat(value);\n      if (numValue !== 1.0) {\n        unit = unit + 's';\n      }\n      size = value + ' ' + unit;\n      name = name.replace(match[0], '').trim();\n      break;\n    }\n  }\n  \n  var typePatterns = [\n    { regex: /\\b(bar|bars)\\b/gi, normalized: 'bars' },\n    { regex: /\\b(can|cans|kan|kans)\\b/gi, normalized: 'cans' },\n    { regex: /\\b(bottle|bottles)\\b/gi, normalized: 'bottles' },\n    { regex: /\\b(bag|bags)\\b/gi, normalized: 'bags' },\n    { regex: /\\b(pack|packs)\\b/gi, normalized: 'packs' },\n    { regex: /\\b(box|boxes)\\b/gi, normalized: 'boxes' }\n  ];\n  \n  for (var j = 0; j < typePatterns.length; j++) {\n    var typePattern = typePatterns[j];\n    var typeMatch = typePattern.regex.exec(name);\n    if (typeMatch) {\n      type = typePattern.normalized;\n      name = name.replace(typeMatch[0], '').trim();\n      break;\n    }\n  }\n  \n  if (!type) {\n    var lowerName = name.toLowerCase();\n    if (lowerName.indexOf('snickers') !== -1 || lowerName.indexOf('twix') !== -1 || lowerName.indexOf('kitkat') !== -1 || lowerName.indexOf('hershey') !== -1 || lowerName.indexOf('reese') !== -1) {\n      type = 'bars';\n    }\n    if (lowerName.indexOf('coke') !== -1 || lowerName.indexOf('pepsi') !== -1 || lowerName.indexOf('sprite') !== -1 || lowerName.indexOf('dr pepper') !== -1 || lowerName.indexOf('monster') !== -1 || lowerName.indexOf('red bull') !== -1) {\n      type = 'cans';\n    }\n    if (lowerName.indexOf('water') !== -1 || lowerName.indexOf('gatorade') !== -1 || lowerName.indexOf('powerade') !== -1) {\n      type = 'bottles';\n    }\n    if (lowerName.indexOf('doritos') !== -1 || lowerName.indexOf('cheetos') !== -1 || lowerName.indexOf('lays') !== -1 || lowerName.indexOf('fritos') !== -1) {\n      type = 'bags';\n    }\n  }\n  \n  return { baseName: name, size: size, type: type };\n}\n\nvar slotSpoken = formatSlotForTTS(data.slot);\nvar spoken;\n\nif (data.action === 'next_item') {\n  var parsed = parseProductName(data.product_name);\n  var productName = fixPronunciation(parsed.baseName);\n  var parts = [data.quantity, productName];\n  if (parsed.size) parts.push(parsed.size);\n  if (parsed.type) parts.push(parsed.type);\n  spoken = parts.join(' ');\n} else if (data.action === 'next_machine') {\n  spoken = 'All items complete for this machine. Say top or bottom for the next machine, or skip machine to move on.';\n}\n\nreturn [{\n  json: {\n    action: data.action,\n    product_name: data.product_name,\n    quantity: data.quantity,\n    slot: data.slot,\n    slot_spoken: slotSpoken,\n    inventory_current: data.inventory_current || 0,\n    inventory_parlevel: data.inventory_parlevel || 0,\n    items_remaining: data.items_remaining || 0,\n    machine_name: data.machine_name,\n    next_machine_id: data.next_machine_id || null,\n    spoken: spoken\n  }\n}];"
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [[{"node": "Get Session", "type": "main", "index": 0}]]
+    },
+    "Get Session": {
+      "main": [[{"node": "Extract Session", "type": "main", "index": 0}]]
+    },
+    "Extract Session": {
+      "main": [[{"node": "Get Items", "type": "main", "index": 0}]]
+    },
+    "Get Items": {
+      "main": [[{"node": "Determine Next State", "type": "main", "index": 0}]]
+    },
+    "Determine Next State": {
+      "main": [[{"node": "Update Session", "type": "main", "index": 0}]]
+    },
+    "Update Session": {
+      "main": [[{"node": "Format Output", "type": "main", "index": 0}]]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

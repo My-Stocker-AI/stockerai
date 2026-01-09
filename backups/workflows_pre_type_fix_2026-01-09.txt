@@ -1,0 +1,10 @@
+Backup before type duplication fix - 2026-01-09
+
+Workflows to be updated:
+- get_next_item: VHcCp2CjpiUr5qMC
+- start_machine: AOCMBlbPkOAMnmlx
+
+Issue: parseProductName extracts type (cans, bottles) but doesn't remove from base name
+Result: "Coca-Cola Can" → "Coca-Cola Can cans" (duplication)
+
+Fix: Add name.replace(typeMatch[0], '').trim() after type extraction
