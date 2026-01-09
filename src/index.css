@@ -2,6 +2,14 @@
 @tailwind components;
 @tailwind utilities;
 
+/* CRITICAL: Disable pull-to-refresh on mobile
+   Pull-to-refresh resets the app and disrupts hands-free picking flow
+   This app requires internet anyway, so refresh gesture serves no purpose */
+html, body {
+  overscroll-behavior-y: contain;
+  touch-action: pan-y;
+}
+
 /* Stocker AI Design System - Marketing Light Theme */
 
 @layer base {
