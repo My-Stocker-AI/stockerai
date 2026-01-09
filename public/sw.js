@@ -1,5 +1,12 @@
 // Stocker AI Service Worker
-const CACHE_NAME = 'stocker-ai-v4-FORCE-CLEAR';
+const CACHE_NAME = 'stocker-ai-v5-NO-CACHE';
+
+// Handle skip waiting message from client
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
 
 // Files to cache for offline use
 const STATIC_ASSETS = [
