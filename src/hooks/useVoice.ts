@@ -1116,8 +1116,20 @@ export function useVoice(options: UseVoiceOptions = {}) {
               const source = audioContext.createBufferSource();
               source.buffer = audioBuffer;
 
-              // Connect to destination (speaker output)
-              source.connect(audioContext.destination);
+              // CRITICAL: Add GainNode for volume control
+              // During mic sessions, Android may use "call volume" which is often too quiet
+              // GainNode allows us to boost volume programmatically
+              const gainNode = audioContext.createGain();
+
+              // Get user's volume preference (default: 1.5 = 150% = louder than normal)
+              const volumeMultiplier = parseFloat(localStorage.getItem('stocker-tts-volume') || '1.5');
+              gainNode.gain.value = volumeMultiplier;
+
+              console.log('[Voice] TTS volume multiplier:', volumeMultiplier);
+
+              // Connect: source → gain → destination (speaker)
+              source.connect(gainNode);
+              gainNode.connect(audioContext.destination);
 
               // Store reference for cleanup
               audioRef.current = source as any;

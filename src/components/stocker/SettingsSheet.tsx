@@ -9,12 +9,18 @@ interface SettingsSheetProps {
 
 export function SettingsSheet({ isOpen, onClose }: SettingsSheetProps) {
   const [callTwoItems, setCallTwoItems] = useState(false);
+  const [ttsVolume, setTtsVolume] = useState(1.5); // Default 150%
 
-  // Load preference from localStorage on mount
+  // Load preferences from localStorage on mount
   useEffect(() => {
-    const saved = localStorage.getItem('stocker-call-two-items');
-    if (saved !== null) {
-      setCallTwoItems(saved === 'true');
+    const savedTwoItems = localStorage.getItem('stocker-call-two-items');
+    if (savedTwoItems !== null) {
+      setCallTwoItems(savedTwoItems === 'true');
+    }
+
+    const savedVolume = localStorage.getItem('stocker-tts-volume');
+    if (savedVolume !== null) {
+      setTtsVolume(parseFloat(savedVolume));
     }
   }, []);
 
@@ -23,6 +29,12 @@ export function SettingsSheet({ isOpen, onClose }: SettingsSheetProps) {
     setCallTwoItems(enabled);
     localStorage.setItem('stocker-call-two-items', enabled.toString());
     console.log('[Settings] Call two items:', enabled);
+  };
+
+  const handleVolumeChange = (value: number) => {
+    setTtsVolume(value);
+    localStorage.setItem('stocker-tts-volume', value.toString());
+    console.log('[Settings] TTS volume:', value);
   };
 
   if (!isOpen) return null;
@@ -84,7 +96,36 @@ export function SettingsSheet({ isOpen, onClose }: SettingsSheetProps) {
             </div>
           </div>
 
-          {/* More settings can be added here in the future */}
+          {/* Voice Volume Control */}
+          <div className="bg-[#0d1117] rounded-xl p-4 border border-gray-800">
+            <div className="mb-3">
+              <h3 className="text-white font-semibold mb-1">Voice Volume</h3>
+              <p className="text-sm text-gray-400">
+                Adjust how loud the AI voice speaks. Use this if speakerphone volume buttons aren't working.
+              </p>
+            </div>
+
+            {/* Volume Slider */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-gray-400">Quiet</span>
+                <span className="text-teal-400 font-semibold">{Math.round(ttsVolume * 100)}%</span>
+                <span className="text-gray-400">Loud</span>
+              </div>
+              <input
+                type="range"
+                min="0.5"
+                max="2.5"
+                step="0.1"
+                value={ttsVolume}
+                onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
+                className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-teal-500"
+              />
+              <div className="text-xs text-gray-500 text-center">
+                {ttsVolume < 1 ? 'Quieter than normal' : ttsVolume === 1 ? 'Normal volume' : 'Louder than normal'}
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Close Button */}
