@@ -1014,8 +1014,26 @@ export function useVoice(options: UseVoiceOptions = {}) {
           return;
         }
 
-        // Ensure AudioContext is running before playback (Safari requirement)
-        const audioContext = await getAudioContext();
+        // CRITICAL FIX FOR ANDROID: Create FRESH AudioContext for each TTS playback
+        // Android switches audio routing to earpiece after mic becomes active
+        // Reusing same AudioContext inherits the earpiece routing
+        // Creating fresh context forces Android to re-evaluate routing → speakerphone
+
+        // Close old context if exists
+        if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+          try {
+            await audioContextRef.current.close();
+            console.log('[Voice] Closed old AudioContext');
+          } catch (e) {
+            console.warn('[Voice] Failed to close old AudioContext:', e);
+          }
+        }
+
+        // Create FRESH AudioContext for this TTS playback
+        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+        const audioContext = new AudioContextClass({ sampleRate: 44100 });
+        audioContextRef.current = audioContext;
+        console.log('[Voice] Created FRESH AudioContext for TTS - forces speakerphone routing');
 
         // Use Web Audio API instead of HTMLAudioElement
         // CRITICAL: This routes audio to SPEAKERPHONE on Android/iOS instead of EARPIECE
