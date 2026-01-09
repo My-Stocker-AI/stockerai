@@ -90,6 +90,9 @@ export function useVoice(options: UseVoiceOptions = {}) {
   // TTS refs
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
+  // Wake Lock ref - prevents screen timeout during voice session
+  const wakeLockRef = useRef<any>(null);
+
   const KEEPALIVE_MS = 8000;
 
   // Check if input is echo of what we just said (from original PWA)
@@ -714,6 +717,25 @@ export function useVoice(options: UseVoiceOptions = {}) {
     // Reset stopped flag when starting new session
     stoppedRef.current = false;
 
+    // CRITICAL: Request wake lock to prevent screen timeout during voice session
+    // Hands-free operation requires screen to stay awake for continuous picking
+    if ('wakeLock' in navigator) {
+      try {
+        wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+        console.log('[Voice] Wake lock acquired - screen will stay awake');
+
+        // Re-acquire wake lock if screen is unlocked after being locked
+        wakeLockRef.current.addEventListener('release', () => {
+          console.log('[Voice] Wake lock released');
+        });
+      } catch (e: any) {
+        console.warn('[Voice] Wake lock failed (not critical):', e.message);
+        // Not critical - continue without wake lock
+      }
+    } else {
+      console.warn('[Voice] Wake Lock API not supported - screen may timeout');
+    }
+
     // Unlock audio for Safari (must happen on user gesture)
     await unlockAudio();
 
@@ -777,6 +799,17 @@ export function useVoice(options: UseVoiceOptions = {}) {
       audioStreamRef.current = null;
     }
 
+    // Release wake lock when stopping voice session
+    if (wakeLockRef.current) {
+      try {
+        wakeLockRef.current.release();
+        wakeLockRef.current = null;
+        console.log('[Voice] Wake lock released - screen can timeout again');
+      } catch (e) {
+        console.warn('[Voice] Failed to release wake lock:', e);
+      }
+    }
+
     isConnectedRef.current = false;
     setStatus('idle');
   }, [stopKeepAlive, setStatus]);
@@ -793,11 +826,33 @@ export function useVoice(options: UseVoiceOptions = {}) {
       mediaRecorderRef.current.pause();
       isRecordingRef.current = false;
     }
+
+    // Release wake lock when pausing (allow screen timeout during breaks)
+    if (wakeLockRef.current) {
+      try {
+        wakeLockRef.current.release();
+        wakeLockRef.current = null;
+        console.log('[Voice] Wake lock released on pause');
+      } catch (e) {
+        console.warn('[Voice] Failed to release wake lock on pause:', e);
+      }
+    }
+
     setLastInput('');
     setStatus('paused');
   }, [setStatus]);
 
   const resumeListening = useCallback(async () => {
+    // Re-acquire wake lock when resuming (keep screen awake again)
+    if ('wakeLock' in navigator && !wakeLockRef.current) {
+      try {
+        wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+        console.log('[Voice] Wake lock re-acquired on resume');
+      } catch (e: any) {
+        console.warn('[Voice] Wake lock re-acquisition failed:', e.message);
+      }
+    }
+
     // CRITICAL: Check if AudioContext is suspended (Safari auto-suspends after idle)
     // If suspended, we need a new user gesture to resume it
     if (audioContextRef.current?.state === 'suspended') {
