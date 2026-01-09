@@ -73,6 +73,7 @@ const quickCommands = [
       '"Oops, that was wrong"',
       '"That was a mistake"',
       '"Go back to the skipped machine"',
+      '(With 2-Pick: Say "go back" twice to reach the first item)',
     ]
   },
   {
@@ -181,6 +182,13 @@ export function HelpSheet({ isOpen, onClose }: HelpSheetProps) {
               <span className="font-semibold text-purple-400">Android Music Tip:</span> Start your music
               or podcast FIRST, then open Stocker. Your audio will keep playing while you work!
               (Note: This doesn't work on iPhone - iOS pauses background audio during voice sessions)
+            </p>
+          </div>
+          <div className="bg-teal-500/10 rounded-xl p-3 border border-teal-500/20">
+            <p className="text-xs text-muted-foreground">
+              <span className="font-semibold text-teal-400">2-Pick Mode:</span> Tap the Settings icon (gear) and
+              enable "Call 2 Items at Once" to hear two items per command. Perfect for experienced pickers!
+              Say "go back" twice to return to the first item.
             </p>
           </div>
           <div className="text-center mt-4">
