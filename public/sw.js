@@ -1,5 +1,5 @@
 // Stocker AI Service Worker
-const CACHE_NAME = 'stocker-ai-v1';
+const CACHE_NAME = 'stocker-ai-v4-FORCE-CLEAR';
 
 // Files to cache for offline use
 const STATIC_ASSETS = [
