@@ -1185,6 +1185,18 @@ export function useVoice(options: UseVoiceOptions = {}) {
       if (audioStreamRef.current) {
         audioStreamRef.current.getTracks().forEach(track => track.stop());
       }
+      // CRITICAL: Close AudioContext to prevent contaminated context persisting
+      // When PWA is closed/backgrounded, the AudioContext with earpiece routing stays in memory
+      // Closing it ensures fresh AudioContext on reopen → speakerphone routing restored
+      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+        try {
+          audioContextRef.current.close();
+          console.log('[Voice] AudioContext closed on cleanup');
+        } catch (e) {
+          console.warn('[Voice] Failed to close AudioContext:', e);
+        }
+        audioContextRef.current = null;
+      }
     };
 
     // Handle window/tab close
