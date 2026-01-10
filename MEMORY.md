@@ -1399,13 +1399,129 @@ Webhook → Check User Exists (query by email)
   - `/src/pages/dashboard/Team.tsx` (fix admin name fallback)
   - `/src/App.tsx` (add AuthCallback route)
 
-**Next Actions:**
-1. ✅ User deleted test data
-2. ⏳ Clarify Q3 (trial period limits)
-3. ⏳ Implement Phase 1 workflow redesign
-4. ⏳ Update email template
-5. ⏳ Create auth callback handler
-6. ⏳ Test end-to-end invite flow
+**Session Pause Point (2026-01-10 - EXACT STATE):**
+
+**What Was Completed:**
+1. ✅ Full BBRD analysis (41 pages) - `/docs/TEAM_INVITE_SYSTEM_XF_ANALYSIS.md`
+2. ✅ All 7 user decisions confirmed (including Q3: Enforce limits from Day 1)
+3. ✅ Test user deleted (Bill Murray - ID: 5f4039a8-b89b-404e-b17b-8ffdb680265d)
+4. ✅ Production workflow backed up (full JSON exported via MCP)
+5. ✅ Testing plan created - `/docs/TEAM_INVITE_TESTING_PLAN.md`
+6. ✅ MEMORY.md updated with complete implementation plan
+
+**What Was Paused:**
+- User requested STOP before touching production
+- About to create test workflow (Option A: Duplicate Workflow)
+- No code changes made yet
+- Production system completely untouched
+
+**User's Last Request:**
+> "I do not want to impact the working system that is in place now. Can we build this and test outside of the main platform?"
+
+**Response Given:**
+- Presented 3 testing options (A, B, C)
+- Recommended Option A: Duplicate Workflow (2 hours, safest)
+- Awaiting user decision on which testing approach to use
+
+**Next Actions (When Resuming):**
+1. ⏳ **USER DECIDES:** Choose testing approach (A, B, or C)
+2. ⏳ If Option A → Create test workflow in n8n
+3. ⏳ If Option A → Create test frontend page
+4. ⏳ Run 5 test scenarios
+5. ⏳ Validate results
+6. ⏳ Deploy to production after validation
+
+**Context to Restore (When User Returns):**
+
+**Current Production State:**
+- Workflow: "Stocker: Invite Team Member" (ID: TxrJyFmG4yNazEEF)
+- Status: ACTIVE, untouched, working (but buggy)
+- Known Issues: Wrong names, "()" in emails, redirects to /login
+- Users can still invite team members (with current bugs)
+
+**Testing Options Presented:**
+
+| Option | Approach | Time | Risk | Status |
+|--------|----------|------|------|--------|
+| **A (Recommended)** | Duplicate workflow + test page | 2 hours | Zero | ⏳ AWAITING DECISION |
+| B | Full staging environment | 1-2 days | Zero | ⏳ AWAITING DECISION |
+| C | Manual testing (Postman) | 1 hour | Low | ⏳ AWAITING DECISION |
+
+**Key Files Created This Session:**
+1. `/docs/TEAM_INVITE_SYSTEM_XF_ANALYSIS.md` (41 pages)
+   - 11 parts covering all BBRD boundaries
+   - Root cause analysis of execution #25775
+   - 4-phase implementation plan
+   - 7 decision questions (all answered)
+   - Testing checklist and success criteria
+
+2. `/docs/TEAM_INVITE_TESTING_PLAN.md` (detailed testing approach)
+   - Option A: Duplicate workflow (recommended)
+   - Option B: Staging environment
+   - Option C: Manual testing
+   - 5 test scenarios
+   - Cleanup procedures
+   - Rollback plan
+
+3. `MEMORY.md` lines 1279-1450 (this section)
+   - Complete implementation plan
+   - All decisions documented
+   - Phase 1 deliverables listed
+   - Testing checklist
+
+**Git Commits This Session:**
+- `9c0b417` - Add Team Invite System XF Analysis
+- `5b56e60` - Memorialize Team Invite System fix plan in MEMORY.md
+- `3cceea8` - Update Q3 decision: Enforce seat limits from Day 1
+
+**Production Workflow Backup (Available):**
+- Full JSON export retrieved via MCP
+- Workflow ID: TxrJyFmG4yNazEEF
+- Version: 981c6a2f-29ca-4798-94c0-64899c2038e2
+- Last updated: 2026-01-08T06:44:56.000Z
+- 9 nodes, 8 connections
+- Can restore from this if needed
+
+**Resume Protocol (For Next Session):**
+1. User says "Let's continue with team invite"
+2. Claude reads this MEMORY section (lines 1279-1450)
+3. Claude asks: "Which testing option do you want? (A, B, or C)"
+4. Based on answer:
+   - Option A → Create test workflow + test page
+   - Option B → Set up staging environment
+   - Option C → Create test workflow only
+5. Proceed with Phase 1 implementation
+
+**Critical Decisions Already Made (Don't Re-Ask):**
+- ✅ Q1: Admins unlimited (only drivers count against seats)
+- ✅ Q2: Confirm prorated charge before adding drivers
+- ✅ Q3: Enforce seat limits from Day 1 (no trial exceptions)
+- ✅ Q4: Auto-add seats = user setting (default enabled)
+- ✅ Q5: Show invoice preview (transparency)
+- ✅ Q6: Use Supabase email template (not custom HTML)
+- ✅ Q7: Allow re-inviting users (for role changes)
+
+**What NOT to Do When Resuming:**
+- ❌ Don't touch production workflow (TxrJyFmG4yNazEEF) until testing complete
+- ❌ Don't update email template yet (test first)
+- ❌ Don't create AuthCallback yet (test workflow first)
+- ❌ Don't modify Team.tsx production code (test page only)
+
+**Safe Implementation Path:**
+1. Test in isolation (Option A/B/C)
+2. Validate all 5 scenarios pass
+3. Get user approval
+4. THEN deploy to production
+5. Monitor for 24 hours
+6. Clean up test artifacts
+
+**Estimated Time to Complete (From Resume Point):**
+- If Option A: 2 hours (recommended)
+- If Option B: 1-2 days (overkill but safest)
+- If Option C: 1 hour (faster but less thorough)
+
+**User Availability Note:**
+User paused mid-session to preserve exact state for later continuation. This section provides complete context for seamless resumption.
 
 ---
 
