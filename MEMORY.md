@@ -1276,6 +1276,139 @@ Applied Boundary and Branch Recursive Discovery methodology to spec the feature.
 
 ---
 
+### 🔧 Team Invite System Fix (APPROVED - STARTING 2026-01-10)
+
+**Status:** Implementation starting immediately
+**Priority:** 🔴 CRITICAL - Revenue protection + broken user experience
+**SOT Document:** `/docs/TEAM_INVITE_SYSTEM_XF_ANALYSIS.md` (41 pages, 11 parts)
+
+**Critical Issues Found (2026-01-10):**
+1. ❌ Wrong name in emails (stale user_metadata "Bill Murray" instead of "David Spencer")
+2. ❌ Admin name showing "()" in email template
+3. ❌ Invite links go to /login instead of /set-password
+4. ❌ No seat limit enforcement (unlimited free users = revenue leak)
+5. ❌ No prorated billing integration
+6. ❌ Silent workflow errors (reports success despite failures)
+
+**Root Causes:**
+- Workflow doesn't check if user exists before creating → Returns stale data
+- Supabase Admin API returns existing user (doesn't update metadata)
+- Missing auth callback handler for `type=invite` redirects
+- No seat management or billing logic anywhere
+- Frontend admin name fallback broken (empty strings vs null)
+
+**Test User Cleanup:**
+- ✅ Deleted "Bill Murray" user (ID: 5f4039a8-b89b-404e-b17b-8ffdb680265d)
+- Verified clean slate for implementation
+
+**User Decisions (Confirmed 2026-01-10):**
+- ✅ Q1: Admins count against seat limit? **NO** (only drivers)
+- ✅ Q2: At driver limit? **Confirm prorated charge** before adding
+- ⏳ Q3: Trial period limits? **[PENDING CLARIFICATION]**
+- ✅ Q4: Auto-add seats? **User setting** (default auto-add)
+- ✅ Q5: Invoice preview? **YES** (transparency)
+- ✅ Q6: Email type? **Supabase template** (faster to implement)
+- ✅ Q7: Re-invite users? **YES** (useful for role changes)
+
+**Implementation Plan (4 Phases):**
+
+| Phase | Week | Priority | Changes | Status |
+|-------|------|----------|---------|--------|
+| **Phase 1: Critical Fixes** | 1 | 🔴 URGENT | Workflow redesign (existence check, metadata update), Email template fix, Auth callback handler | ⏳ STARTING |
+| **Phase 2: Seat Management** | 2 | 🔴 HIGH | Database function (`check_seat_availability`), Workflow seat check, Frontend seat counter UI | ⏳ PENDING |
+| **Phase 3: Billing Integration** | 3-4 | 🟡 MEDIUM | Stripe subscription updates, Prorated billing prompt, Auto-add seat setting | ⏳ PENDING |
+| **Phase 4: UX Polish** | 5 | 🟢 LOW | Invite context in SetPassword, Onboarding tour, Resend invite | ⏳ PENDING |
+
+**Phase 1 Deliverables (Week 1):**
+1. ✅ Data cleanup (test user deleted)
+2. ⏳ Redesigned n8n workflow:
+   - Check user existence BEFORE create
+   - Branch A: Update existing user (metadata + profile + re-invite)
+   - Branch B: Create new user (metadata + profile + invite)
+   - Proper error handling (stop on errors)
+3. ⏳ Supabase email template update:
+   - Include `{{ .admin_name }}`, `{{ .account_name }}`, `{{ .role }}`
+   - Fix redirect URL: add `type=invite` param
+4. ⏳ Frontend auth callback handler:
+   - Create `/src/pages/AuthCallback.tsx`
+   - Detect `type=invite` → redirect to `/set-password`
+   - Detect regular signup → redirect to `/dashboard`
+5. ⏳ Fix admin name fallback:
+   - Handle empty strings vs null in Team.tsx
+
+**Phase 2 Deliverables (Week 2):**
+1. ⏳ Database RPC function: `check_seat_availability(account_id)`
+   - Returns: `{ used_seats, total_seats, available_seats, can_add_driver }`
+   - Only counts drivers (admins unlimited)
+2. ⏳ Workflow seat limit check:
+   - Add "Check Seat Limit" node at workflow start
+   - If role=driver AND available_seats=0 → Return error
+3. ⏳ Frontend seat management UI:
+   - Show "X of Y driver seats used" in Team page
+   - Disable "Invite Driver" button when at limit
+   - Show "Upgrade plan" prompt when at limit
+
+**Phase 3 Deliverables (Weeks 3-4):**
+1. ⏳ Stripe webhook integration
+2. ⏳ Prorated billing calculation
+3. ⏳ Confirmation dialog: "Add seat for $X prorated?"
+4. ⏳ Auto-add seat setting (default enabled)
+
+**Critical Workflow Changes (Phase 1):**
+
+**OLD FLOW (BROKEN):**
+```
+Webhook → Create User (doesn't check existence)
+  → Returns stale data if exists
+  → Lookup Existing User (fails)
+  → Continues anyway → Reports success
+```
+
+**NEW FLOW (CORRECT):**
+```
+Webhook → Check User Exists (query by email)
+  ├─ EXISTS → Update user_metadata → Upsert profile → Re-send invite
+  └─ NEW → Create user → Insert profile → Auto-send invite
+  → Return success
+```
+
+**Testing Checklist (Phase 1):**
+- [ ] Invite NEW user → Email has correct name → Link goes to /set-password → Password set → Login works
+- [ ] Invite EXISTING user → Metadata updated → Email sent → Link works → Can change password
+- [ ] Admin name in email → Shows actual name (not "()")
+- [ ] Multiple invites to same email → Second updates first
+- [ ] Empty string admin names → Fallback to "Your Team Admin"
+
+**Success Criteria:**
+- ✅ 100% of invites have correct names in email
+- ✅ 100% of invite links go to /set-password
+- ✅ 0 "Unknown error" failures
+- ✅ Admin can invite David Spencer successfully
+- ✅ Email shows "Invited by Russ Wright" (not "()")
+
+**Rollback Plan:**
+- Phase 1: Deactivate new workflow, reactivate old (ID: TxrJyFmG4yNazEEF)
+- Backup required: Export workflow JSON before modifying
+- Git revert frontend changes if needed
+
+**Files to Modify (Phase 1):**
+- n8n: "Stocker: Invite Team Member" (ID: TxrJyFmG4yNazEEF) - Complete redesign
+- Supabase: Email template (Authentication → Email Templates → Invite)
+- Frontend:
+  - `/src/pages/AuthCallback.tsx` (NEW)
+  - `/src/pages/dashboard/Team.tsx` (fix admin name fallback)
+  - `/src/App.tsx` (add AuthCallback route)
+
+**Next Actions:**
+1. ✅ User deleted test data
+2. ⏳ Clarify Q3 (trial period limits)
+3. ⏳ Implement Phase 1 workflow redesign
+4. ⏳ Update email template
+5. ⏳ Create auth callback handler
+6. ⏳ Test end-to-end invite flow
+
+---
+
 ### Stocker AI (Product) - Session 31 Pending Tasks
 
 | Task | Priority | Status | Notes |
