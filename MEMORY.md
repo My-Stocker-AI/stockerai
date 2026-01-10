@@ -1183,6 +1183,99 @@ Applied Boundary and Branch Recursive Discovery methodology to spec the feature.
 
 ## 📅 NEXT STEPS (MECE)
 
+### Stocker AI (Product) - Future Major Features
+
+#### 🗺️ Location-Level Navigation (APPROVED - GO DECISION 2026-01-10)
+
+**Status:** Ready for phased implementation
+**Priority:** HIGH (after audio fixes complete)
+**SOT Document:** `/docs/LOCATION_NAVIGATION_XF_ANALYSIS.md` (28 pages, BBRD-compliant)
+
+**Executive Summary:**
+- **Goal:** Enable navigation hierarchy: Route → Location → Machine → Item
+- **Current State:** Location data IS captured (machines.location_name), but not used for navigation
+- **Complexity:** MEDIUM (affects 7 of 10 BBRD boundaries)
+- **Risk Level:** 🟡 MEDIUM overall, 🔴 HIGH for Phase 5 (modifying get_next_item logic)
+- **User Decision:** GO (confirmed 2026-01-10, queries not needed)
+
+**What Users Will Be Able to Do:**
+- Switch between locations: "Go to Warehouse B"
+- Skip entire locations: "Skip this location" (all machines)
+- View location hierarchy in UI (collapsible LocationListPanel)
+- Maintain progress when switching locations
+- Auto-transition between locations when current is complete
+
+**Implementation Phases (5 weeks recommended):**
+
+| Phase | Week | Changes | Risk | Rollback |
+|-------|------|---------|------|----------|
+| **Phase 1: Foundation** | 1 | Add `current_location_name` to sessions, modify `set_route_sequence` output, add LocationListPanel (display-only), update frontend state | 🟢 LOW | Hide component |
+| **Phase 2: Read-Only** | 2 | New workflow: `get_locations_for_route`, add tool definition, test "What locations do I have?" | 🟢 LOW | Deactivate workflow |
+| **Phase 3: Switching** | 3 | New workflow: `switch_location` (preserve_progress only), wire up UI tap → voice, update AI prompt | 🟡 MEDIUM | Deactivate workflow, revert frontend |
+| **Phase 4: Skip Location** | 4 | New workflow: `skip_location`, AI disambiguation (skip machine vs location), test batch updates | 🟡 MEDIUM | Deactivate workflow |
+| **Phase 5: Auto-Transitions** | 5 | ⚠️ Modify `get_next_item` "Determine Next State" for location boundaries, add location completion prompt | 🔴 HIGH | Restore backup workflow |
+
+**New Workflows Required (3):**
+1. `get_locations_for_route` - List locations with machine counts, status
+2. `switch_location` - Move to different location (preserve progress option)
+3. `skip_location` - Skip all machines in current location, move to next
+
+**Modified Workflows (2):**
+1. `get_next_item` (ID: eBv7SfWF7hsuNGpH) - Detect location boundaries ⚠️ HIGH RISK (Session 31 corruption precedent)
+2. `set_route_sequence` (ID: 46lMRdxTgD1E3WFz) - Add locations array to output
+
+**Frontend Changes (4 files):**
+1. `src/hooks/useStockerSession.ts` - Add LocationState interface, update RouteState
+2. `src/hooks/useStockerAI.ts` - Add 3 tool definitions, update system prompt for disambiguation
+3. `src/components/stocker/LocationListPanel.tsx` - NEW component (~150 lines)
+4. `src/pages/StockerApp.tsx` - Integrate LocationListPanel, wire callbacks
+
+**Database Changes:**
+- Add `current_location_name TEXT NULL` to sessions table (optional, additive)
+
+**Critical Risks & Mitigations:**
+1. **🔴 Modifying get_next_item logic** (Session 31 precedent - corrupted production for 19+ hours)
+   - Mitigation: Full backup, manual code node update ONLY, extensive testing, Phase 5 last
+2. **🔴 AI disambiguation** ("skip" could mean machine OR location)
+   - Mitigation: Explicit examples, test edge cases, fallback to clarification
+3. **🟡 Batch machine updates** (skip_location updates multiple machines)
+   - Mitigation: Transaction safety, test cascade behavior
+
+**Rollback Plan:**
+- Deactivate new workflows (instant, < 5 min downtime)
+- Restore `get_next_item` from backup (if Phase 5 fails)
+- Git revert frontend changes
+- Cleanup: `UPDATE sessions SET current_location_name = NULL;`
+
+**Backups Required Before Starting:**
+- [ ] `get_next_item` workflow → `/backups/get_next_item_pre_location_feature.json`
+- [ ] `set_route_sequence` workflow → `/backups/set_route_sequence_pre_location_feature.json`
+- [ ] Git commit hash for frontend
+
+**Testing Checklist (see analysis doc for full list):**
+- [ ] LocationListPanel displays correctly
+- [ ] Voice: "What locations do I have?" lists locations
+- [ ] Voice: "Switch to [location]" changes location, preserves progress
+- [ ] Voice: "Skip this location" marks all machines as skipped
+- [ ] Disambiguation: "Skip" alone → AI asks "Skip machine or location?"
+- [ ] Location boundary detection works in reverse picking mode
+- [ ] Routes with 1 location don't break (fallback to machine-only nav)
+- [ ] Routes with NULL location_name work (edge case)
+
+**Success Criteria:**
+- Users can navigate by location with voice commands
+- No regressions in existing machine-level navigation
+- AI correctly disambiguates "skip machine" vs "skip location"
+- Location transitions feel natural (not confusing)
+
+**Next Action When Ready to Implement:**
+1. Read full analysis: `/docs/LOCATION_NAVIGATION_XF_ANALYSIS.md`
+2. Create backups (workflows + git commit)
+3. Start Phase 1 (non-breaking foundation)
+4. Test thoroughly before proceeding to Phase 2
+
+---
+
 ### Stocker AI (Product) - Session 31 Pending Tasks
 
 | Task | Priority | Status | Notes |
