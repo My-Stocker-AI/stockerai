@@ -1304,7 +1304,7 @@ Applied Boundary and Branch Recursive Discovery methodology to spec the feature.
 **User Decisions (Confirmed 2026-01-10):**
 - ✅ Q1: Admins count against seat limit? **NO** (only drivers)
 - ✅ Q2: At driver limit? **Confirm prorated charge** before adding
-- ⏳ Q3: Trial period limits? **[PENDING CLARIFICATION]**
+- ✅ Q3: Trial period limits? **ENFORCE FROM DAY 1** (same limits during trial and after)
 - ✅ Q4: Auto-add seats? **User setting** (default auto-add)
 - ✅ Q5: Invoice preview? **YES** (transparency)
 - ✅ Q6: Email type? **Supabase template** (faster to implement)
