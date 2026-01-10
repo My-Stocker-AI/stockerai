@@ -40,7 +40,7 @@ const Home = () => {
     {
       question: "What's the trial?",
       answer:
-        "14 days free with credit card signup. Cancel anytime - no questions asked.",
+        "14 days free. Cancel anytime - no questions asked.",
     },
   ];
 

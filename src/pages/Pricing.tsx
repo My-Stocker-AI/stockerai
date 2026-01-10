@@ -186,7 +186,7 @@ const Pricing = () => {
           {/* Notes below tiers */}
           <div className="text-center mt-10 space-y-2">
             <p className="text-muted-foreground">
-              All plans include 14-day free trial &bull; No credit card required to start
+              All plans include 14-day free trial
             </p>
             <p className="text-muted-foreground">2 driver minimum*</p>
             <p className="text-sm text-muted-foreground mt-4">
