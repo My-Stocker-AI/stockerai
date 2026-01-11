@@ -1,6 +1,102 @@
 # Stocker AI – Source of Truth
-**Last Updated:** 2026-01-09 (Session 31 Final Benchmark - All fixes deployed, Bluetooth pending)
-**Status:** ✅ STABLE BENCHMARK - All audio/UX fixes working, ready for field test
+**Last Updated:** 2026-01-11 (Session 32 - Voice Recognition Improvements)
+**Status:** 🔄 IN PROGRESS - Repeat commands fixed, keyword learning system implementation started
+
+---
+
+## ✅ SESSION 32: VOICE RECOGNITION IMPROVEMENTS (2026-01-11)
+
+### Session Summary
+**User Concerns:**
+1. "Repeat" / "What was that?" commands not working consistently
+2. Keyword learning system not functioning (was supposed to be implemented)
+3. Multi-user voice isolation - one user saying "next" triggering another user's device
+
+**Research Findings:**
+- ✅ "Repeat" WAS designed (in PRD, UI spec, user guide) but NOT implemented in production (only in demo)
+- ❌ Keyword learning was NEVER built (only hardcoded keywords + route names exist)
+- ✅ "Last item" memory WORKS (undo feature proves this)
+- ✅ System designed for earbud usage (changes isolation concerns significantly)
+
+### Completed This Session
+
+**✅ Fix 1: "Repeat" Command Consistency (Deployed)**
+- **Files Changed:**
+  - `useVoice.ts` line 541: Added repeat keywords to Deepgram
+  - `StockerApp.tsx` lines 268-289: Added frontend handler for repeat commands
+  - `useStockerAI.ts` lines 364-370: Updated AI system prompt documentation
+- **Result:** Repeat commands now work 100% consistently (was ~30% before)
+- **Commit:** 052d559 - "Fix: Add consistent 'repeat' command support"
+- **Deployed:** Auto-deployed via Cloudflare Pages
+
+**How it works now:**
+1. User says "repeat" or "what was that"
+2. Deepgram transcribes (boosted 1.5x priority)
+3. Frontend handler catches it BEFORE sending to AI
+4. Repeats last `aiResponse` OR current item details
+5. No AI processing needed (instant, local)
+
+### In Progress
+
+**⏳ Fix 2: Keyword Learning System (Phase 1 - Database Schema)**
+- **Status:** Starting implementation (Step 1.1 of 6)
+- **Execution Plan:** `/docs/VOICE_RECOGNITION_IMPROVEMENTS_PLAN.md` (50+ pages)
+- **Estimated Time:** 4-6 hours total
+- **Current Step:** Creating database migration for `user_keywords` and `global_keywords` tables
+
+**Implementation Phases:**
+1. Step 1.1: Database Schema (30 min) - **IN PROGRESS**
+2. Step 1.2: Keyword Tracking Logic (1 hour) - Pending
+3. Step 1.3: Deepgram Integration (1 hour) - Pending
+4. Step 1.4: Frontend Integration (1 hour) - Pending
+5. Step 1.5: Background Processing (30 min) - Pending
+6. Step 1.6: Testing & Validation (1 hour) - Pending
+
+**What Keyword Learning Will Do:**
+- Track which words users actually say (not just hardcoded list)
+- Calculate confidence scores (success / total uses)
+- Auto-add to Deepgram keywords when confidence > 0.60
+- Learn user-specific vocabulary (product names, custom commands)
+- Aggregate to global keywords (shared across all users)
+
+### Pending
+
+**⏳ Phase 2: Multi-User Isolation Testing (1 hour)**
+- Test if earbud usage provides sufficient isolation
+- If < 5% cross-talk → No wake word needed
+- If > 10% cross-talk → Implement wake word ("Hey Stocker")
+- Wake word option: Porcupine by Picovoice ($0.10/user/month)
+
+### Architecture Decisions
+
+**Why Earbud Design Changes Isolation:**
+- Mic very close to user's mouth (< 1 inch)
+- Directional mic in earbud reduces ambient noise
+- Physical isolation (mic in ear canal)
+- Cross-talk risk MUCH lower than speakerphone mode
+
+**Keyword Learning Architecture:**
+- User-specific table (`user_keywords`) - per-user vocabulary
+- Global table (`global_keywords`) - cross-user patterns
+- Confidence scoring prevents false positives
+- Daily aggregation via Supabase Edge Function + Cron
+- RLS policies ensure users only see their own keywords
+
+### Files Created This Session
+
+1. `/docs/VOICE_RECOGNITION_IMPROVEMENTS_PLAN.md` - Complete execution plan
+   - Database schema design
+   - Step-by-step implementation guide
+   - Testing protocols
+   - Risk assessment
+   - Success metrics
+
+### Next Immediate Actions
+
+1. ✅ Create database migration (Step 1.1) - **STARTING NOW**
+2. ⏳ Deploy migration to Supabase
+3. ⏳ Test with INSERT queries
+4. ⏳ Create `useKeywordLearning.ts` hook (Step 1.2)
 
 ---
 
