@@ -98,39 +98,29 @@ const Team = () => {
   // Count admins
   const adminCount = teamMembers.filter(m => m.role === 'primary_admin').length;
 
-  // Invite member mutation - uses n8n webhook to avoid RLS issues
+  // Invite member mutation - uses Supabase Edge Function
   const inviteMemberMutation = useMutation({
     mutationFn: async () => {
-      const response = await fetch('https://visionairy.app.n8n.cloud/webhook/invite-team-member', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+      const { data, error } = await supabase.functions.invoke('invite-team-member', {
+        body: {
           email: inviteEmail,
           first_name: inviteFirstName,
           last_name: inviteLastName,
           account_id: userRole?.account_id,
           role: inviteRole,
           can_view_all_routes: inviteCanViewAll,
-          admin_name: userProfile?.first_name && userProfile?.last_name
-            ? `${userProfile.first_name} ${userProfile.last_name}`
-            : 'Your Team Admin',
-          admin_email: userProfile?.email || user?.email || '',
-        }),
+        },
       });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(errorText || 'Failed to invite team member');
+      if (error) {
+        throw new Error(error.message || 'Failed to invite team member');
       }
 
-      const result = await response.json();
-      if (!result.success) {
-        throw new Error(result.error || result.message || 'Failed to invite team member');
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to invite team member');
       }
 
-      return result;
+      return data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['team-members'] });
