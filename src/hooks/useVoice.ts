@@ -537,6 +537,8 @@ export function useVoice(options: UseVoiceOptions = {}) {
       // Commands
       'next', 'done', 'skip', 'yes', 'no', 'start', 'stop', 'continue',
       'undo', 'back', 'go back', 'switch', 'route', 'machine', 'progress',
+      // Clarification/Repeat commands
+      'repeat', 'again', 'what was that', 'say that again', 'say again',
       // Common responses
       'got it', 'okay', 'yep', 'perfect', 'good', 'alright',
       // Common vending machine products (improve recognition)

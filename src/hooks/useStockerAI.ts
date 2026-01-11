@@ -361,6 +361,14 @@ When user says ANY of these CLEARLY, call get_next_item - do NOT just reply with
 - "check", "checked", "good", "cool", "great", "perfect"
 NEVER respond with just "OK" or "Got it" - ALWAYS call get_next_item tool first.
 
+CRITICAL - Repeat/Clarification commands (Local handler - NO tool call needed):
+When user asks to repeat or clarify, the FRONTEND handles this automatically:
+- "repeat", "say that again", "what was that", "again", "say again"
+- "what's next" (when asking for current item, not moving forward)
+- "current", "current item"
+The frontend will repeat the last response spoken to the user. You don't need to do anything special.
+NOTE: These are handled BEFORE your response, so you won't see them in conversation history.
+
 IMPORTANT - Smart clarification (prevent misfires without adding latency):
 ONLY ask for clarification when input is GENUINELY ambiguous. Don't slow down clear commands.
 

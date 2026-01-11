@@ -265,6 +265,29 @@ export default function StockerApp() {
       return;
     }
 
+    // Handle repeat commands - repeat last AI response
+    const repeatWords = ['repeat', 'again', 'what was that', 'say that again', 'say again', 'what\'s next', 'current'];
+    const isRepeat = repeatWords.some(w => lower.indexOf(w) !== -1);
+
+    if (isRepeat) {
+      processingRef.current = true;
+      if (aiResponse) {
+        await v.speak(aiResponse);
+      } else if (routeState.currentItem) {
+        // If no previous response but have current item, speak current item
+        const item = routeState.currentItem;
+        const msg = `${item.quantity} ${item.product}${item.slot_spoken ? ', ' + item.slot_spoken : ''}`;
+        await v.speak(msg);
+        setAiResponse(msg);
+      } else {
+        const msg = "I haven't said anything yet.";
+        await v.speak(msg);
+        setAiResponse(msg);
+      }
+      processingRef.current = false;
+      return;
+    }
+
     // NO frontend matching - let AI handle ALL route selection
     // AI has semantic understanding that works for ANY route name
     // This scales to thousands of users with arbitrary route names
