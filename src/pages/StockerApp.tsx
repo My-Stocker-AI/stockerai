@@ -6,6 +6,7 @@ import { useVoice } from '@/hooks/useVoice';
 import { useStockerAI } from '@/hooks/useStockerAI';
 import { useStockerSession } from '@/hooks/useStockerSession';
 import { useSessionPersistence } from '@/hooks/useSessionPersistence';
+import { useKeywordLearning } from '@/hooks/useKeywordLearning';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -139,6 +140,7 @@ export default function StockerApp() {
   const [showRouteSelection, setShowRouteSelection] = useState(false);
   const [availableRoutes, setAvailableRoutes] = useState<RouteOption[]>([]);
   const [routeKeywords, setRouteKeywords] = useState<string[]>([]);
+  const [learnedKeywords, setLearnedKeywords] = useState<string[]>([]);
   const [selectedRoute, setSelectedRoute] = useState<string | null>(null);
   const [routeSelectionDate, setRouteSelectionDate] = useState<string>('');
   const [urlRouteProcessed, setUrlRouteProcessed] = useState(false); // Track if URL route was processed
@@ -162,6 +164,7 @@ export default function StockerApp() {
   const { routeState, sessionId, messages, messagesRef, updateFromTool, addMessage, reset, setRouteState, setMessages, setSessionId, generateNewSessionId } = useStockerSession(userId);
   const { setSession, sendToAI, executeToolCalls, getRoutes } = useStockerAI();
   const sessionPersistence = useSessionPersistence();
+  const keywordLearning = useKeywordLearning();
 
   // Save session state whenever route changes
   const saveSessionState = useCallback(async () => {
@@ -261,6 +264,8 @@ export default function StockerApp() {
       const result = undoLastItem();
       setAiResponse(result.message);
       await v.speak(result.message);
+      // Track undo as failure (user correcting AI)
+      await keywordLearning.trackKeywords(transcript, false);
       processingRef.current = false;
       return;
     }
@@ -284,6 +289,8 @@ export default function StockerApp() {
         await v.speak(msg);
         setAiResponse(msg);
       }
+      // Track repeat as failure (user didn't understand)
+      await keywordLearning.trackKeywords(transcript, false);
       processingRef.current = false;
       return;
     }
@@ -357,6 +364,8 @@ export default function StockerApp() {
         setAiResponse(response.content);
         addMessage({ role: 'assistant', content: response.content });
         await v.speak(response.content);
+        // Track successful AI response (user was understood)
+        await keywordLearning.trackKeywords(transcript, true);
       }
     } catch (err: any) {
       const errorMsg = err.message || 'Something went wrong';
@@ -465,7 +474,7 @@ export default function StockerApp() {
     onError: handleVoiceError,
     onWakePhrase: handleWakePhrase,
     continuous: true,
-    keywords: routeKeywords  // Dynamic route names for improved recognition
+    keywords: [...routeKeywords, ...learnedKeywords]  // Dynamic route names + learned keywords
   });
 
   // Store voice in ref for callbacks
@@ -489,6 +498,20 @@ export default function StockerApp() {
       console.log('[StockerApp] Updated voice recognition keywords:', routeNames);
     }
   }, [availableRoutes]);
+
+  // Fetch learned keywords from database for improved voice recognition
+  useEffect(() => {
+    async function fetchLearnedKeywords() {
+      if (!userId) return;
+
+      console.log('[StockerApp] Fetching learned keywords for user:', userId);
+      const keywords = await keywordLearning.getUserKeywords(0.60, 50);
+      setLearnedKeywords(keywords);
+      console.log('[StockerApp] Loaded', keywords.length, 'learned keywords with confidence > 0.60');
+    }
+
+    fetchLearnedKeywords();
+  }, [userId, keywordLearning]);
 
   // CRITICAL: Clean up voice session on unmount (navigation away from this page)
   // This prevents mic from staying open when user navigates to other pages
