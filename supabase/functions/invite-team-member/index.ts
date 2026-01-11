@@ -59,6 +59,21 @@ serve(async (req) => {
     }
     logStep("Requesting user authenticated", { userId: requestingUser.id });
 
+    // Get admin profile for email template
+    const { data: adminProfile, error: adminProfileError } = await supabaseClient
+      .from('profiles')
+      .select('first_name, last_name, email')
+      .eq('id', requestingUser.id)
+      .single();
+
+    if (adminProfileError || !adminProfile) {
+      throw new Error("Failed to fetch admin profile");
+    }
+
+    const adminName = `${adminProfile.first_name || ''} ${adminProfile.last_name || ''}`.trim() || 'Your Team Admin';
+    const adminEmail = adminProfile.email;
+    logStep("Admin profile fetched", { adminName, adminEmail });
+
     // Verify requesting user is an admin
     const { data: requestingUserRole, error: roleError } = await supabaseClient
       .from('account_users')
@@ -245,18 +260,48 @@ serve(async (req) => {
       logStep("User added to account");
     }
 
-    // Re-send invite email if existing user, or invite was already sent for new user
+    // Re-send invite email with template data
     if (!isNewUser) {
-      const { error: inviteError } = await supabaseClient.auth.admin.inviteUserByEmail(email);
+      const { error: inviteError } = await supabaseClient.auth.admin.inviteUserByEmail(email, {
+        data: {
+          admin_name: adminName,
+          admin_email: adminEmail,
+          first_name,
+          last_name,
+          role
+        },
+        redirectTo: `${Deno.env.get("SITE_URL") || "https://my-stocker-ai.com"}/auth/callback?type=invite`
+      });
 
       if (inviteError) {
         logStep("Warning: Failed to send invite email", { error: inviteError.message });
         // Don't fail the whole operation if email fails
       } else {
-        logStep("Invite email sent");
+        logStep("Invite email sent with admin info", { adminName });
       }
     } else {
-      logStep("Invite email automatically sent for new user");
+      // For new users, update the user to trigger invite with proper data
+      const { error: updateError } = await supabaseClient.auth.admin.updateUserById(userId, {
+        email_confirm: false // Ensure they need to confirm via invite
+      });
+
+      // Now send invite with template data
+      const { error: inviteError } = await supabaseClient.auth.admin.inviteUserByEmail(email, {
+        data: {
+          admin_name: adminName,
+          admin_email: adminEmail,
+          first_name,
+          last_name,
+          role
+        },
+        redirectTo: `${Deno.env.get("SITE_URL") || "https://my-stocker-ai.com"}/auth/callback?type=invite`
+      });
+
+      if (inviteError) {
+        logStep("Warning: Failed to send invite email", { error: inviteError.message });
+      } else {
+        logStep("Invite email sent for new user with admin info", { adminName });
+      }
     }
 
     // Success response
