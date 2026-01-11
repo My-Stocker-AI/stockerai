@@ -15,7 +15,6 @@ import Dashboard from "./pages/Dashboard";
 import UploadRoutes from "./pages/dashboard/UploadRoutes";
 import MyRoutes from "./pages/dashboard/MyRoutes";
 import Team from "./pages/dashboard/Team";
-import TeamInviteTest from "./pages/dashboard/TeamInviteTest";
 import Usage from "./pages/dashboard/Usage";
 import Billing from "./pages/dashboard/Billing";
 import Settings from "./pages/dashboard/Settings";
@@ -62,7 +61,6 @@ const App = () => (
             <Route path="/dashboard/upload-routes" element={<ProtectedRoute adminOnly><UploadRoutes /></ProtectedRoute>} />
             <Route path="/dashboard/my-routes" element={<ProtectedRoute><MyRoutes /></ProtectedRoute>} />
             <Route path="/dashboard/team" element={<ProtectedRoute adminOnly><Team /></ProtectedRoute>} />
-            <Route path="/test-invite" element={<ProtectedRoute adminOnly><TeamInviteTest /></ProtectedRoute>} />
             <Route path="/dashboard/usage" element={<ProtectedRoute adminOnly><Usage /></ProtectedRoute>} />
             <Route path="/dashboard/billing" element={<ProtectedRoute adminOnly><Billing /></ProtectedRoute>} />
             <Route path="/dashboard/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
