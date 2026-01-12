@@ -431,6 +431,12 @@ export default function StockerApp() {
               updateFromTool(name, result);
               v.playSuccessBeep();
 
+              // Performance Priority 5: Prefetch TTS in parallel
+              // Start TTS fetch immediately when result arrives (before speak() is called)
+              if (result.spoken) {
+                v.prefetchTTS(result.spoken);
+              }
+
               // Store last item pair for repeat functionality
               if (name === 'get_next_item' || name === 'start_machine') {
                 if (result.spoken) {
@@ -510,6 +516,12 @@ export default function StockerApp() {
         const toolResults = await executeToolCalls(response.tool_calls, (name, result) => {
           updateFromTool(name, result);
           v.playSuccessBeep(); // Use success beep for item confirmation
+
+          // Performance Priority 5: Prefetch TTS in parallel
+          // Start TTS fetch immediately when result arrives (before speak() is called)
+          if (result.spoken) {
+            v.prefetchTTS(result.spoken);
+          }
 
           // Store last item pair for repeat functionality (2-item mode support)
           if (name === 'get_next_item' || name === 'start_machine') {

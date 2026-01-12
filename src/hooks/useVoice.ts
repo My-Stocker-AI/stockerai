@@ -90,6 +90,10 @@ export function useVoice(options: UseVoiceOptions = {}) {
   // TTS refs
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
+  // TTS prefetch cache for parallel processing (Performance Priority 5)
+  // Stores { text: string, promise: Promise, timestamp: number }
+  const ttsPrefetchCacheRef = useRef<{ text: string; promise: Promise<Blob>; timestamp: number } | null>(null);
+
   // Wake Lock ref - prevents screen timeout during voice session
   const wakeLockRef = useRef<any>(null);
 
@@ -409,11 +413,11 @@ export function useVoice(options: UseVoiceOptions = {}) {
           // Accumulate transcript (matches original PWA this.transcript += final)
           accumulatedTranscriptRef.current += (accumulatedTranscriptRef.current ? ' ' : '') + transcript;
 
-          // Reset silence timer (fallback for when utterance_end doesn't fire, matches original PWA)
+          // Reset silence timer (fallback for when utterance_end doesn't fire)
           if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
           silenceTimerRef.current = setTimeout(() => {
             processAccumulatedTranscript();
-          }, 300);  // 300ms silence timer (matches original PWA)
+          }, 200);  // 200ms silence timer (reduced from 300ms for faster response - Performance Priority 2)
         }
       }
     } else if (data.type === 'UtteranceEnd') {
@@ -568,7 +572,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
       'smart_format=true&' +
       'interim_results=true&' +
       'vad_events=true&' +
-      'endpointing=200' +
+      'endpointing=100' +  // Reduced from 200ms for faster response (Performance Priority 2)
       keywordsParam +
       boostParam;
 
@@ -1043,27 +1047,49 @@ export function useVoice(options: UseVoiceOptions = {}) {
         .replace(/\bCan\b/g, 'can')
         .replace(/\b(\d+)\s*can\b/gi, '$1 cans');
 
-      // 5. Fetch and play audio
+      // 5. Fetch and play audio (with prefetch optimization - Performance Priority 5)
       try {
         emitDiagnostic('spoken', processed);
-        const response = await fetch(TTS_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: processed, voice: 'nova' })
-        });
 
-        if (!response.ok) {
-          emitDiagnostic('error', 'TTS fetch failed: ' + response.status);
-          throw new Error('TTS failed');
+        let audioBlob: Blob;
+
+        // Check if TTS was prefetched (parallel optimization)
+        if (ttsPrefetchCacheRef.current && ttsPrefetchCacheRef.current.text === processed) {
+          console.log('[Voice] 🎯 Using prefetched TTS (saved ~200-400ms)');
+          try {
+            audioBlob = await ttsPrefetchCacheRef.current.promise;
+            ttsPrefetchCacheRef.current = null; // Clear cache after use
+          } catch (err) {
+            // Prefetch failed, fall back to normal fetch
+            console.warn('[Voice] Prefetch promise rejected, falling back to normal fetch');
+            ttsPrefetchCacheRef.current = null;
+            throw err; // Will be caught by outer try-catch and retry
+          }
+        } else {
+          // No prefetch available, fetch normally
+          if (ttsPrefetchCacheRef.current) {
+            console.log('[Voice] TTS prefetch cache miss (different text or expired)');
+          }
+
+          const response = await fetch(TTS_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: processed, voice: 'nova' })
+          });
+
+          if (!response.ok) {
+            emitDiagnostic('error', 'TTS fetch failed: ' + response.status);
+            throw new Error('TTS failed');
+          }
+
+          // Check if stopped while fetching - don't play if user already exited
+          if (stoppedRef.current) {
+            console.log('[Voice] Audio stopped before playback - user exited');
+            return;
+          }
+
+          audioBlob = await response.blob();
         }
-
-        // Check if stopped while fetching - don't play if user already exited
-        if (stoppedRef.current) {
-          console.log('[Voice] Audio stopped before playback - user exited');
-          return;
-        }
-
-        const audioBlob = await response.blob();
 
         // Check again after blob conversion
         if (stoppedRef.current) {
@@ -1187,6 +1213,80 @@ export function useVoice(options: UseVoiceOptions = {}) {
       releaseSpeakLock();
     }
   }, [acquireSpeakLock, releaseSpeakLock, stopAudio, pauseListening, resumeListening, speakBrowser, playReadyBeep, setStatus]);
+
+  // Prefetch TTS audio in parallel to reduce latency (Performance Priority 5)
+  // Starts TTS fetch immediately when result is available, before speak() is called
+  const prefetchTTS = useCallback((text: string): void => {
+    if (!text || !text.trim()) return;
+
+    // Don't prefetch if audio was stopped (user closed/navigated away)
+    if (stoppedRef.current) {
+      console.log('[Voice] TTS prefetch cancelled - audio was stopped');
+      return;
+    }
+
+    // Preprocess text (same as speak function)
+    const processed = text
+      .replace(/Kinder Bueno/gi, 'Kinder Bwayno bar')
+      .replace(/\bBueno\b/gi, 'Bwayno')
+      .replace(/Takis/gi, 'Tah-keez')
+      .replace(/Jarritos/gi, 'Ha-ree-toes')
+      .replace(/Sabritas/gi, 'Sa-bree-tas')
+      .replace(/Modelo/gi, 'Mo-dello')
+      .replace(/Topo Chico/gi, 'Topo Cheeko')
+      .replace(/Gansito/gi, 'Gan-see-toe')
+      .replace(/Mazapan/gi, 'Mazza-pan')
+      .replace(/Lucas/gi, 'Loo-kus')
+      .replace(/Pulparindo/gi, 'Pull-pa-rindo')
+      .replace(/De La Rosa/gi, 'De La Rosa')
+      .replace(/Pelon Pelo Rico/gi, 'Peh-lone Pelo Reeko')
+      .replace(/(\d+)\s*oz\b/gi, '$1 ounce')
+      .replace(/\boz\b/gi, 'ounce')
+      .replace(/\bqty\b/gi, 'quantity')
+      .replace(/\bpcs\b/gi, 'pieces')
+      .replace(/\bpkg\b/gi, 'package')
+      .replace(/\bct\b/gi, 'count')
+      .replace(/\bCan\b/g, 'can')
+      .replace(/\b(\d+)\s*can\b/gi, '$1 cans');
+
+    console.log('[Voice] 🚀 Prefetching TTS for:', processed.substring(0, 50) + '...');
+
+    // Start fetch (don't await - fire and forget)
+    const fetchPromise = fetch(TTS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: processed, voice: 'nova' })
+    })
+      .then(response => {
+        if (!response.ok) throw new Error('TTS prefetch failed: ' + response.status);
+        return response.blob();
+      })
+      .then(blob => {
+        console.log('[Voice] ✅ TTS prefetch completed');
+        return blob;
+      })
+      .catch(err => {
+        console.warn('[Voice] TTS prefetch failed (will retry on speak):', err);
+        // Clear cache on error so speak() will retry
+        ttsPrefetchCacheRef.current = null;
+        throw err;
+      });
+
+    // Cache the promise
+    ttsPrefetchCacheRef.current = {
+      text: processed,
+      promise: fetchPromise,
+      timestamp: Date.now()
+    };
+
+    // Auto-invalidate cache after 5 seconds (prevent stale TTS if user delays)
+    setTimeout(() => {
+      if (ttsPrefetchCacheRef.current && ttsPrefetchCacheRef.current.text === processed) {
+        console.log('[Voice] TTS prefetch cache expired');
+        ttsPrefetchCacheRef.current = null;
+      }
+    }, 5000);
+  }, []);
 
   const setThinking = useCallback(() => setStatus('thinking'), [setStatus]);
 
@@ -1318,6 +1418,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
     mute,
     unmute,
     speak,
+    prefetchTTS,  // Performance Priority 5: Parallel TTS initiation
     stopAudio,
     setThinking,
     setStatus,
