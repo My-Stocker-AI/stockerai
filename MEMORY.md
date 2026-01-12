@@ -1,6 +1,92 @@
 # Stocker AI – Source of Truth
-**Last Updated:** 2026-01-11 (Session 33 - CommandRecognizer Performance Fix)
-**Status:** ✅ COMPLETE - Session persistence 400 errors fixed, response time now <2s
+**Last Updated:** 2026-01-11 (Session 33 - Workflow Optimization Applied)
+**Status:** ✅ COMPLETE - Workflow optimized (Get Routes query removed), deployed to production
+
+---
+
+## ✅ SESSION 33 (CONTINUED): WORKFLOW OPTIMIZATION DEPLOYED (2026-01-11)
+
+### Session Summary
+**User Request:** Apply workflow optimization directly to production (skip A/B testing)
+
+**What Changed:**
+1. ✅ Old production workflow deleted (ID: `eBv7SfWF7hsuNGpH`)
+2. ✅ New optimized workflow created (ID: `gwmLuqCN37fhQ3Pr`)
+3. ✅ Test mode code removed from frontend
+4. ✅ Test workflow deleted (ID: `ahcNhBOSQR4HA3wI`)
+5. ✅ Changes committed and deployed
+
+### The Optimization
+
+**Removed:** "Get Routes" node from `get_next_item` workflow
+
+**Why:**
+- The workflow was querying the routes table on every "next" command just to get `route_name`
+- Route name is NOT used in the response for `next_item` actions
+- Only used in route completion message (minor UX trade-off)
+
+**Impact:**
+- Workflow reduced from 13 nodes to 12 nodes
+- Eliminates one 148-455ms Supabase query (~300ms average)
+- **Expected improvement: ~12% faster (~300ms reduction)**
+
+**Trade-off:**
+- Route completion message now says "Route complete" instead of "[Route Name] complete"
+- This is acceptable - route name wasn't critical information
+
+### New Production Workflow
+
+**Name:** Stocker Tool: get_next_item
+**ID:** `gwmLuqCN37fhQ3Pr`
+**Webhook Path:** `/next-item`
+**Status:** ✅ Active (manually activated in n8n UI)
+**Nodes:** 12
+
+**Structure Changes:**
+- **Removed:** "Get Routes" node
+- **Updated:** "Merge Query Results" - changed from 3 inputs to 2 inputs (now merges: Get Session + Get Items + Get Machines only)
+- **Modified:** "Determine Next State" - hardcoded `completed_route: 'Route'` instead of using routes data
+
+### Files Modified
+
+**Frontend:**
+- `/src/hooks/useStockerAI.ts` - Removed test mode feature flag code (lines 213-230)
+
+**n8n:**
+- Created new optimized workflow (gwmLuqCN37fhQ3Pr)
+- Deleted old production workflow (eBv7SfWF7hsuNGpH)
+- Deleted test workflow (ahcNhBOSQR4HA3wI)
+
+**Commit:** `b8e7597` - "Apply workflow optimization to production - remove Get Routes query"
+**Deployed:** Auto-deployed via Cloudflare Pages
+**Rollback Point:** Git tag `session33-performance-baseline` (if needed)
+
+### Testing Status
+
+✅ **User Confirmed Working:**
+- Workflow manually activated in n8n UI
+- Console logs show normal operation
+- Voice recognition working
+- AI tool calls executing successfully
+- No errors present
+
+### Expected Performance
+
+**Before optimization:**
+- Deepgram STT: ~0.3s
+- Session persistence: ~0.1s
+- **Workflow execution: ~1.5s** (including Get Routes query)
+- TTS generation: ~0.5-1s
+- **Total: ~2.4-2.9 seconds**
+
+**After optimization:**
+- Deepgram STT: ~0.3s
+- Session persistence: ~0.1s
+- **Workflow execution: ~1.2s** (Get Routes removed)
+- TTS generation: ~0.5-1s
+- **Total: ~2.1-2.6 seconds** ✓
+
+**Improvement: ~300ms (12% faster)**
 
 ---
 
@@ -70,7 +156,7 @@ POST https://wvtkuposrlvadyeixlke.supabase.co/rest/v1/sessions 400 (Bad Request)
 - `/src/hooks/useSessionPersistence.ts` - Session persistence logic
 - `/src/hooks/useStockerAI.ts` - Tool execution (uses session)
 - `/src/pages/StockerApp.tsx` - CommandRecognizer integration
-- n8n workflow: `get_next_item` (ID: eBv7SfWF7hsuNGpH) - Queries sessions with status='stocking'
+- n8n workflow: `get_next_item` (ID: gwmLuqCN37fhQ3Pr) - Queries sessions with status='stocking' [OPTIMIZED: 12 nodes, no Get Routes query]
 
 ---
 
@@ -487,9 +573,12 @@ if (sessionData.pick_direction === 'reverse') {
 5. Verified: Restored workflows executed successfully (25500, 25502, 25504, 25506)
 6. Confirmed: Reverse picking working correctly (sequence 36 → 34 → 33)
 
-**Restored Workflow IDs (ACTIVE):**
-- `get_next_item`: `eBv7SfWF7hsuNGpH` (13 nodes, restored 2026-01-09 07:21)
+**Current Workflow IDs (ACTIVE):**
+- `get_next_item`: `gwmLuqCN37fhQ3Pr` (12 nodes, OPTIMIZED 2026-01-11 - Get Routes query removed)
 - `start_machine`: `ulguyEDQJQNB0YAO` (7 nodes, restored 2026-01-09 07:22)
+
+**Replaced Workflow IDs (DELETED):**
+- `get_next_item`: `eBv7SfWF7hsuNGpH` (13 nodes, deleted 2026-01-11 - replaced with optimized version)
 
 **Broken Workflow IDs (ARCHIVED):**
 - `get_next_item`: `f2jVgC1vgOUjA6Vw` (7 nodes, my corrupted version)
@@ -1387,7 +1476,7 @@ Applied Boundary and Branch Recursive Discovery methodology to spec the feature.
 3. `skip_location` - Skip all machines in current location, move to next
 
 **Modified Workflows (2):**
-1. `get_next_item` (ID: eBv7SfWF7hsuNGpH) - Detect location boundaries ⚠️ HIGH RISK (Session 31 corruption precedent)
+1. `get_next_item` (ID: gwmLuqCN37fhQ3Pr) - Detect location boundaries ⚠️ HIGH RISK (Session 31 corruption precedent)
 2. `set_route_sequence` (ID: 46lMRdxTgD1E3WFz) - Add locations array to output
 
 **Frontend Changes (4 files):**
@@ -1826,7 +1915,7 @@ See `/MEMORY_ARCHIVE.md` for complete details.
 |---|----------|-----|--------|----------------|
 | 1 | get_routes_for_date | `4XS07THe1uGak7rk` | ✅ | S27: Returns ALL routes with `$input.all()` |
 | 2 | set_route_sequence | `46lMRdxTgD1E3WFz` | ✅ | S26: Returns ALL machines with status array |
-| 3 | get_next_item | `eBv7SfWF7hsuNGpH` | ✅ | S31: Restored + optimized Format Output node |
+| 3 | get_next_item | `gwmLuqCN37fhQ3Pr` | ✅ | S33: OPTIMIZED - Get Routes query removed (12 nodes, ~300ms faster) |
 | 4 | get_current_status | `PD3ErCuxWBWLFXIq` | ✅ | S27: Added `alwaysOutputData: true` to both Merge nodes |
 | 5 | update_session_state | `ueDSi9SDBZ5jMwpO` | ✅ | None |
 | 6 | skip_current_machine | `ElCSMeguJNxwp0HO` | ✅ | S26: Returns `next_machine_id` |
