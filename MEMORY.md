@@ -59,7 +59,20 @@
 
 **Commit:** `b8e7597` - "Apply workflow optimization to production - remove Get Routes query"
 **Deployed:** Auto-deployed via Cloudflare Pages
-**Rollback Point:** Git tag `session33-performance-baseline` (if needed)
+
+**🔄 ROLLBACK INSTRUCTIONS (If Issues Occur):**
+```bash
+# Restore code to pre-optimization state
+git checkout session33-performance-baseline
+
+# Rebuild and redeploy (Cloudflare will auto-deploy from main)
+git push origin HEAD:main --force
+
+# Then manually reactivate old workflow in n8n UI:
+# - Workflow ID: eBv7SfWF7hsuNGpH (13 nodes)
+# - Path: /next-item
+```
+**Note:** Old workflow was deleted, would need to be recreated from backup or template
 
 ### Testing Status
 
@@ -87,6 +100,39 @@
 - **Total: ~2.1-2.6 seconds** ✓
 
 **Improvement: ~300ms (12% faster)**
+
+### Next Optimizations Available
+
+See `/docs/PERFORMANCE_OPTIMIZATION_ANALYSIS.md` for full details.
+
+**PRIORITY 2: Reduce Deepgram Endpointing (MEDIUM IMPACT, MEDIUM RISK)**
+- Change `endpointing=200` → `endpointing=100` in useVoice.ts:571
+- Expected savings: ~100ms
+- Risk: May cause premature speech cutoffs
+- Test carefully with various speech patterns
+
+**PRIORITY 3: Workflow Query Consolidation (HIGH IMPACT, MEDIUM RISK)**
+- Create Supabase Edge Function to combine 4 queries into 1
+- Expected savings: ~400-600ms
+- Risk: Requires Edge Function deployment, more complex rollback
+
+**PRIORITY 4: Client-Side Item Prefetching (MEDIUM IMPACT, LOW RISK)**
+- After receiving item N, prefetch items N+1, N+2, N+3 in background
+- Expected savings: 0ms latency (items already cached for subsequent commands)
+- Risk: LOW - Cache miss falls back to normal flow
+
+**PRIORITY 5: Parallel TTS Initiation (MEDIUM IMPACT, MEDIUM RISK)**
+- Start TTS fetch immediately when workflow returns, before other processing
+- Expected savings: ~200-400ms
+- Risk: MEDIUM - Complexity, edge cases
+
+**PRIORITY 6: TTS Audio Streaming (HIGH IMPACT, HIGH RISK)**
+- Stream audio chunks as generated instead of waiting for complete file
+- Expected savings: ~200-400ms
+- Risk: HIGH - Major architectural change
+
+**Conservative Path:** Priorities 2-4 → **2.0 seconds** total latency
+**Aggressive Path:** Priorities 2-6 → **1.0 seconds** total latency (goal achieved!)
 
 ---
 
