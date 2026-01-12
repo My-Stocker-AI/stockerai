@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 
 /**
  * Environmental Detection Hook
@@ -29,10 +29,11 @@ const DEFAULT_SETTINGS: EnvironmentSettings = {
   detectedAt: 0
 };
 
-// Environment classification thresholds (dB)
-const QUIET_THRESHOLD = 40;     // < 40dB = quiet room/garage
-const MODERATE_THRESHOLD = 65;  // 40-65dB = office, small warehouse
-// > 65dB = large warehouse, factory floor
+// Environment classification thresholds (raw dB scale)
+// Note: Audio RMS values produce negative dB (0 dB = max amplitude 1.0)
+const QUIET_THRESHOLD = -40;     // < -40dB = quiet room/garage
+const MODERATE_THRESHOLD = -20;  // -40 to -20dB = office, small warehouse
+// > -20dB = large warehouse, factory floor
 
 export function useEnvironmentDetection() {
   const [environment, setEnvironment] = useState<EnvironmentSettings>(DEFAULT_SETTINGS);
@@ -132,6 +133,12 @@ export function useEnvironmentDetection() {
       }
       const audioContext = audioContextRef.current;
 
+      // Resume AudioContext if suspended (browser security requirement)
+      if (audioContext.state === 'suspended') {
+        console.log('[EnvDetect] AudioContext suspended, resuming...');
+        await audioContext.resume();
+      }
+
       // Create media stream source
       const source = audioContext.createMediaStreamSource(stream);
 
@@ -155,6 +162,9 @@ export function useEnvironmentDetection() {
             source.disconnect();
             processor.disconnect();
 
+            // Stop media stream tracks to release microphone
+            stream.getTracks().forEach(track => track.stop());
+
             // Combine all samples into one buffer
             const totalLength = samples.reduce((sum, arr) => sum + arr.length, 0);
             const combinedSamples = new Float32Array(totalLength);
@@ -176,25 +186,19 @@ export function useEnvironmentDetection() {
             const rms = calculateRMS(audioBuffer);
             const dbLevel = rmsToDb(rms);
 
-            // Normalize dB level (convert from negative scale to positive)
-            // Typical range: -60dB (very quiet) to -20dB (very loud)
-            // Map to 0-100 scale for easier interpretation
-            const normalizedDb = Math.max(0, Math.min(100, dbLevel + 60));
-
             console.log('[EnvDetect] Raw RMS:', rms.toFixed(6));
             console.log('[EnvDetect] Raw dB:', dbLevel.toFixed(2));
-            console.log('[EnvDetect] Normalized dB:', normalizedDb.toFixed(2));
 
-            // Classify environment
-            const envType = classifyEnvironment(normalizedDb);
-            const settings = getOptimalSettings(envType, normalizedDb);
+            // Classify environment using raw dB values
+            const envType = classifyEnvironment(dbLevel);
+            const settings = getOptimalSettings(envType, dbLevel);
 
             setEnvironment(settings);
             setIsDetecting(false);
 
             console.log('[EnvDetect] ✅ Detection complete:', {
               type: envType,
-              noiseLevel: normalizedDb.toFixed(2) + ' dB',
+              noiseLevel: dbLevel.toFixed(2) + ' dB',
               vadThreshold: settings.vadThreshold,
               micGain: settings.micGain,
               endpointing: settings.endpointing
@@ -213,6 +217,8 @@ export function useEnvironmentDetection() {
           if (isDetecting) {
             source.disconnect();
             processor.disconnect();
+            // Stop media stream tracks to release microphone
+            stream.getTracks().forEach(track => track.stop());
             reject(new Error('Environment detection timeout'));
           }
         }, CAPTURE_DURATION + 1000);
@@ -222,8 +228,8 @@ export function useEnvironmentDetection() {
       console.error('[EnvDetect] ❌ Detection failed:', error);
       setIsDetecting(false);
 
-      // Return moderate defaults on error
-      const fallbackSettings = getOptimalSettings('moderate', 50);
+      // Return moderate defaults on error (using raw dB scale)
+      const fallbackSettings = getOptimalSettings('moderate', -30);
       setEnvironment(fallbackSettings);
       return fallbackSettings;
     }
@@ -234,7 +240,8 @@ export function useEnvironmentDetection() {
    */
   const setEnvironmentManual = useCallback((type: EnvironmentType) => {
     console.log('[EnvDetect] 👤 Manual override:', type);
-    const settings = getOptimalSettings(type, type === 'quiet' ? 30 : type === 'moderate' ? 50 : 70);
+    // Use representative dB values for each environment type (raw dB scale)
+    const settings = getOptimalSettings(type, type === 'quiet' ? -45 : type === 'moderate' ? -30 : -15);
     setEnvironment(settings);
   }, [getOptimalSettings]);
 
@@ -260,6 +267,18 @@ export function useEnvironmentDetection() {
       default:
         return 'Unknown (Not Detected)';
     }
+  }, []);
+
+  /**
+   * Cleanup on unmount - close AudioContext to prevent memory leaks
+   */
+  useEffect(() => {
+    return () => {
+      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+        console.log('[EnvDetect] 🧹 Cleanup: Closing AudioContext');
+        audioContextRef.current.close();
+      }
+    };
   }, []);
 
   return {
