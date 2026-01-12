@@ -124,6 +124,11 @@ export default function StockerApp() {
   const routeIdFromUrl = searchParams.get('route'); // Get route ID from URL
   const { user, userProfile, loading } = useAuth();
   const [aiResponse, setAiResponse] = useState('');
+  const [lastItemPair, setLastItemPair] = useState<{
+    spokenText: string;
+    item1?: any;
+    item2?: any;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [initialized, setInitialized] = useState(false);
   const [showResumeDialog, setShowResumeDialog] = useState(false);
@@ -276,19 +281,35 @@ export default function StockerApp() {
 
     if (isRepeat) {
       processingRef.current = true;
-      if (aiResponse) {
+
+      // Check if 2-item mode is enabled
+      const twoItemMode = localStorage.getItem('stocker-call-two-items') === 'true';
+
+      // Priority 1: Use lastItemPair if available (supports 2-item mode)
+      if (lastItemPair && lastItemPair.spokenText) {
+        await v.speak(lastItemPair.spokenText);
+        console.log('[Repeat] Using lastItemPair:', twoItemMode ? '2-item mode' : '1-item mode', lastItemPair.spokenText);
+      }
+      // Priority 2: Use last AI response
+      else if (aiResponse) {
         await v.speak(aiResponse);
-      } else if (routeState.currentItem) {
-        // If no previous response but have current item, speak current item
+        console.log('[Repeat] Using aiResponse:', aiResponse);
+      }
+      // Priority 3: Build response from current item
+      else if (routeState.currentItem) {
         const item = routeState.currentItem;
         const msg = `${item.quantity} ${item.product}${item.slot_spoken ? ', ' + item.slot_spoken : ''}`;
         await v.speak(msg);
         setAiResponse(msg);
-      } else {
+        console.log('[Repeat] Built from currentItem:', msg);
+      }
+      // Fallback: Nothing to repeat
+      else {
         const msg = "I haven't said anything yet.";
         await v.speak(msg);
         setAiResponse(msg);
       }
+
       // Track repeat as failure (user didn't understand)
       await keywordLearning.trackKeywords(transcript, false);
       processingRef.current = false;
@@ -336,6 +357,17 @@ export default function StockerApp() {
         const toolResults = await executeToolCalls(response.tool_calls, (name, result) => {
           updateFromTool(name, result);
           v.playSuccessBeep(); // Use success beep for item confirmation
+
+          // Store last item pair for repeat functionality (2-item mode support)
+          if (name === 'get_next_item' || name === 'start_machine') {
+            if (result.spoken) {
+              setLastItemPair({
+                spokenText: result.spoken,
+                item1: result.item1 || { product: result.product, quantity: result.quantity, slot: result.slot },
+                item2: result.item2 || null
+              });
+            }
+          }
         });
 
         for (const tr of toolResults) {

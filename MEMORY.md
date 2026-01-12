@@ -1736,7 +1736,7 @@ See `/MEMORY_ARCHIVE.md` for complete details.
 |-----|-------|
 | API Key | `d14e7e2368e3165a617ce553c899c420671bf53e` |
 | Worker URL | `https://stocker-deepgram-stt.russ-731.workers.dev` |
-| Model | Nova-3 (upgraded from Nova-2 in Session 21) |
+| Model | Nova-3 (upgraded 2026-01-11 - was Nova-2 previously) |
 | Sample Rate | 48kHz (upgraded from 16kHz) |
 | Keyword Boosting | next, done, got it, skip, back, undo, top, bottom, yes, no, stocker (weights: 1.5-2.5) |
 | Pricing | $0.0043/min |
