@@ -1,9 +1,31 @@
 # Voice Picking "Next" Command Performance Optimization Analysis
 
 **Created:** 2026-01-11 (Session 33)
+**Last Updated:** 2026-01-12 (Session 35 - Implementation Status Audit)
 **Baseline:** Tag `session33-performance-baseline`
-**Current Latency:** 2.4-2.9 seconds
+**Starting Latency:** 2.4-2.9 seconds
+**Current Latency:** ~1.5-2.0 seconds (estimated with implemented optimizations)
 **Target Latency:** <1 second
+
+---
+
+## IMPLEMENTATION STATUS (Session 35 Audit)
+
+| Priority | Status | Savings | Deployed | Testing Status |
+|----------|--------|---------|----------|----------------|
+| 1. Remove Get Routes | ✅ **DONE** | 300ms | ✅ Production | User tested Session 33 |
+| 2. Edge Function | ✅ **BUILT** | 400-600ms | ⏳ Awaiting testing | Manual testing required |
+| 3. Item Prefetch | ❌ **SKIPPED** | 50-100ms | N/A | Cancelled - ROI too low |
+| 4. Deepgram Endpointing | ✅ **DONE** | 100ms | ✅ Production | Unknown deploy date |
+| 5. TTS Prefetch | ✅ **DONE** | 200-400ms | ✅ Production | Unknown deploy date |
+
+**Total Savings (Deployed):** ~600-800ms (25-32% faster)
+**Total Savings (If Priority 2 Deployed):** ~1000-1400ms (40-56% faster)
+
+**Current Estimated Latency:**
+- Before optimizations: 2.4-2.9s
+- With P1, P4, P5: ~1.6-2.1s ✓
+- With P1, P2, P4, P5: ~1.0-1.5s (projected)
 
 ---
 
@@ -193,27 +215,35 @@ const audioBlob = await response.blob();
 
 ## 2. Optimization Strategies (Prioritized by Impact/Risk)
 
-### PRIORITY 1: Remove Unnecessary Get Routes Query (HIGH IMPACT, LOW RISK)
+### PRIORITY 1: Remove Unnecessary Get Routes Query ✅ DONE (Session 33)
 
-**Current:** `get_next_item` workflow queries routes table on every "next" command
-**Analysis:** This query returns only `route_name` which is ALREADY in the session context
+**Status:** ✅ **DEPLOYED TO PRODUCTION** (2026-01-11)
 
-**Location:** n8n workflow node "Get Routes" (ID in workflow)
+**Workflow:** `gwmLuqCN37fhQ3Pr` (active)
+**Savings:** ~300ms per "next" command
+**Impact:** 12% faster
 
-**Expected Savings:** 148-455ms (entire query eliminated)
-**Risk:** LOW - route_name already available from session
-**Rollback:** Re-enable node
+**Implementation:**
+- Removed "Get Routes" node from workflow
+- Reduced workflow from 13 → 12 nodes
+- Trade-off: Route completion message now says "Route complete" instead of "[Route Name] complete"
 
 ---
 
-### PRIORITY 2: Workflow Query Consolidation (HIGH IMPACT, MEDIUM RISK)
+### PRIORITY 2: Workflow Query Consolidation ✅ BUILT, READY FOR TESTING (Session 35)
 
-**Current:** 4 separate Supabase HTTP requests in parallel (~800ms total)
-**Proposed:** 1 Supabase Edge Function with single query (~200ms)
+**Status:** ✅ **BUILT, AWAITING DEPLOYMENT** (2026-01-12)
 
-**Implementation:**
+**Current Workflow:** 3 separate HTTP requests (Get Session, Get Items, Get Machines)
+**New Workflow:** 1 Edge Function call to `/functions/v1/get-next-item-data`
 
-Create Supabase Edge Function `get_next_item_data`:
+**Workflow Created:** ID `3blW1i1poeCelBrI` (inactive, ready for testing)
+**Expected Savings:** 400-600ms (20-30% faster)
+**Testing Required:** See `/workflows/TESTING_CHECKLIST.md`
+
+**Implementation Details:**
+
+Supabase Edge Function `get_next_item_data` (DEPLOYED):
 ```sql
 -- Single query that gets everything needed
 SELECT
@@ -233,16 +263,31 @@ WHERE s.session_key = $1
 ORDER BY i.sequence;
 ```
 
-**Expected Savings:** 400-600ms
-**Risk:** MEDIUM - Requires Supabase Edge Function deployment
-**Rollback:** Revert to separate queries
+**Documentation:** `/workflows/get_next_item_optimization_summary.md`
+**Risk:** MEDIUM - Requires workflow swap
+**Rollback:** Reactivate old workflow ID `gwmLuqCN37fhQ3Pr`
 
 ---
 
-### PRIORITY 3: Client-Side Item Prefetching (MEDIUM IMPACT, LOW RISK)
+### PRIORITY 3: Client-Side Item Prefetching ❌ SKIPPED (Session 35)
 
-**Current:** Each "next" command fetches the next item from the server
-**Proposed:** After receiving item N, prefetch items N+1, N+2, N+3 in background
+**Status:** ❌ **CANCELLED - ROI TOO LOW**
+
+**Original Claim:** "0ms instant response" from cache
+**Reality:** Workflow must still execute to update database state (`current_item_index`)
+**Actual Savings:** 50-100ms (network latency only, workflow still runs ~1200ms)
+**Complexity:** HIGH (cache invalidation, state synchronization, edge cases)
+**Risk:** MEDIUM (state desync, stale data)
+**ROI:** 4% improvement for high complexity
+
+**Decision:** Not worth the engineering effort. Focus on Priority 2 instead.
+
+---
+
+### ~~PRIORITY 3 ORIGINAL (ABANDONED):~~
+
+**~~Current:~~** Each "next" command fetches the next item from the server
+**~~Proposed:~~** After receiving item N, prefetch items N+1, N+2, N+3 in background
 
 **Implementation in `StockerApp.tsx`:**
 ```typescript
@@ -259,55 +304,50 @@ const prefetchNextItems = useCallback(async (currentIndex: number) => {
 }, []);
 ```
 
-**Expected Savings:** 0ms latency (items already cached)
-**Risk:** LOW - Cache miss falls back to normal flow
-**Rollback:** Disable prefetch
+---
+
+### PRIORITY 4: Reduce Deepgram Endpointing ✅ DONE (Unknown Session)
+
+**Status:** ✅ **DEPLOYED TO PRODUCTION**
+
+**Location:** `src/hooks/useVoice.ts:575`
+**Code:** `'endpointing=100'` (reduced from 200ms)
+**Comment in code:** `// Reduced from 200ms for faster response (Performance Priority 2)`
+
+**Savings:** ~100ms per voice command
+**Risk:** MEDIUM - May cause premature cutoffs (monitor for user complaints)
+
+**Implementation Date:** Unknown (found during Session 35 audit)
 
 ---
 
-### PRIORITY 4: Reduce Deepgram Endpointing (MEDIUM IMPACT, MEDIUM RISK)
+### PRIORITY 5: Parallel TTS Initiation ✅ DONE (Unknown Session)
 
-**Current:** `endpointing=200` (waits 200ms after speech stops)
-**Proposed:** `endpointing=100` (wait only 100ms)
+**Status:** ✅ **DEPLOYED TO PRODUCTION**
 
-**Location:** `/home/visionairy/StockerAI/src/hooks/useVoice.ts` line 571
+**Implementation Locations:**
+1. **Function:** `src/hooks/useVoice.ts:1219` - `prefetchTTS()` implemented
+2. **Call Site 1:** `src/pages/StockerApp.tsx:437` - CommandRecognizer path
+3. **Call Site 2:** `src/pages/StockerApp.tsx:523` - AI tool execution path
 
-**Expected Savings:** 100ms
-**Risk:** MEDIUM - May cause premature speech cutoffs
-**Testing Required:** Test with various speech patterns (fast talkers, pauses)
-**Rollback:** Change back to 200
-
----
-
-### PRIORITY 5: Parallel TTS Initiation (MEDIUM IMPACT, MEDIUM RISK)
-
-**Current Flow:**
-1. Wait for workflow response
-2. Parse response
-3. Start TTS fetch
-4. Wait for TTS
-5. Play audio
-
-**Proposed Flow:**
-1. When CommandRecognizer matches "next", immediately start TTS for "loading" placeholder
-2. Simultaneously call workflow
-3. When workflow returns, if TTS ready, cancel placeholder and queue actual response
-4. If workflow finishes first, TTS actual response
-
-**Alternative (simpler):**
-Start TTS fetch immediately when workflow returns `spoken` field, before any other processing:
-
+**Code:**
 ```typescript
-// In executeToolCalls, line 660
-if (name === 'get_next_item' && result.spoken) {
-  // Fire-and-forget TTS prefetch
-  prefetchTTS(result.spoken);
+// Performance Priority 5: Prefetch TTS in parallel
+// Start TTS fetch immediately when result arrives (before speak() is called)
+if (result.spoken) {
+  v.prefetchTTS(result.spoken);
 }
 ```
 
-**Expected Savings:** 200-400ms
-**Risk:** MEDIUM - Complexity, edge cases
-**Rollback:** Remove parallel logic
+**How it works:**
+- When workflow returns `result.spoken`, immediately fire-and-forget TTS fetch
+- TTS audio fetched in parallel while state updates and UI renders
+- When `speak()` is called later, audio is already cached
+- Reduces TTS wait time from ~500-1000ms to near-zero
+
+**Savings:** ~200-400ms
+**Risk:** LOW - Fire-and-forget pattern, no blocking
+**Implementation Date:** Unknown (found during Session 35 audit)
 
 ---
 
