@@ -102,13 +102,15 @@ export function useStockerSession(userId: string | null) {
       }
 
       if (toolName === 'start_machine') {
+        // Handle 2-pick mode: if item1 exists, use it (item2 is handled separately in UI via lastItemPair)
+        const itemData = result.item1 || result;
         next.currentItem = {
-          product: result.product || result.product_name || '',
-          quantity: result.quantity || 0,
-          slot: result.slot || '',
-          slot_spoken: result.slot_spoken || result.slot || '',
-          inventory_current: result.inventory_current,
-          inventory_parlevel: result.inventory_parlevel,
+          product: itemData.product || itemData.product_name || '',
+          quantity: itemData.quantity || 0,
+          slot: itemData.slot || '',
+          slot_spoken: itemData.slot_spoken || itemData.slot || '',
+          inventory_current: itemData.inventory_current || result.inventory_current,
+          inventory_parlevel: itemData.inventory_parlevel || result.inventory_parlevel,
           machineName: prev.currentMachineName || ''
         };
       }
@@ -133,13 +135,15 @@ export function useStockerSession(userId: string | null) {
 
         if (action === 'next_item') {
           const machineName = result.machine_name || prev.currentMachineName || '';
+          // Handle 2-pick mode: if item1 exists, use it (item2 is handled separately in UI via lastItemPair)
+          const itemData = result.item1 || result;
           next.currentItem = {
-            product: result.product || result.product_name || '',
-            quantity: result.quantity || 0,
-            slot: result.slot || '',
-            slot_spoken: result.slot_spoken || result.slot || '',
-            inventory_current: result.inventory_current,
-            inventory_parlevel: result.inventory_parlevel,
+            product: itemData.product || itemData.product_name || '',
+            quantity: itemData.quantity || 0,
+            slot: itemData.slot || '',
+            slot_spoken: itemData.slot_spoken || itemData.slot || '',
+            inventory_current: itemData.inventory_current || result.inventory_current,
+            inventory_parlevel: itemData.inventory_parlevel || result.inventory_parlevel,
             machineName: machineName
           };
           next.currentMachineIndex = result.machine_index || prev.currentMachineIndex;

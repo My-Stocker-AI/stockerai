@@ -641,7 +641,18 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
                   result = {
                     ...result,
                     spoken: `${result.spoken}, ${result2.spoken}`,
-                    second_item: result2 // Keep second item data for reference
+                    item1: {
+                      product: result.product_name,
+                      quantity: result.quantity,
+                      slot: result.slot,
+                      slot_spoken: result.slot_spoken
+                    },
+                    item2: {
+                      product: result2.product_name,
+                      quantity: result2.quantity,
+                      slot: result2.slot,
+                      slot_spoken: result2.slot_spoken
+                    }
                   };
                   console.log('[Tools] Combined 2-pick response:', result.spoken);
                 } else if (result2.action === 'next_machine') {
@@ -653,6 +664,56 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
             } catch (e: any) {
               // If second item fails, just use the first one
               console.warn('[Tools] Second item fetch failed, using single item:', e);
+            }
+          }
+        }
+
+        // FEATURE: 2-Pick Mode for start_machine
+        if (name === 'start_machine') {
+          const callTwoItems = localStorage.getItem('stocker-call-two-items') === 'true';
+
+          if (callTwoItems && result.action === 'next_item' && result.spoken) {
+            console.log('[Tools] 2-Pick Mode enabled for start_machine - fetching second item');
+
+            try {
+              // Call get_next_item to get the second item
+              const resp2 = await fetchWithRetry(`${N8N_BASE}/next-item`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  session_id: sessionIdRef.current,
+                  user_id: userIdRef.current
+                })
+              });
+
+              if (resp2.ok) {
+                const result2 = await resp2.json();
+                console.log('[Tools] Second item fetched after start_machine:', result2);
+
+                if (result2.action === 'next_item' && result2.spoken) {
+                  result = {
+                    ...result,
+                    spoken: `${result.spoken}, ${result2.spoken}`,
+                    item1: {
+                      product: result.product_name,
+                      quantity: result.quantity,
+                      slot: result.slot,
+                      slot_spoken: result.slot_spoken
+                    },
+                    item2: {
+                      product: result2.product_name,
+                      quantity: result2.quantity,
+                      slot: result2.slot,
+                      slot_spoken: result2.slot_spoken
+                    }
+                  };
+                  console.log('[Tools] Combined 2-pick response for start_machine:', result.spoken);
+                } else if (result2.action === 'next_machine') {
+                  console.log('[Tools] Second call hit machine boundary - using single item');
+                }
+              }
+            } catch (e: any) {
+              console.warn('[Tools] Second item fetch failed for start_machine, using single item:', e);
             }
           }
         }

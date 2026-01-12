@@ -1580,12 +1580,25 @@ export default function StockerApp() {
           </div>
           {routeState.currentItem ? (
             <div className="mt-2">
+              {/* First Item */}
               <div className="flex items-baseline gap-2">
                 <span className="text-4xl font-bold text-emerald-400">{routeState.currentItem.quantity}x</span>
                 <span className="text-2xl">{routeState.currentItem.product}</span>
               </div>
               <div className="text-lg text-gray-300 mt-2">{routeState.currentItem.slot_spoken || routeState.currentItem.slot}</div>
-              <div className="text-sm text-gray-500 mt-1">{routeState.currentMachineName}</div>
+
+              {/* Second Item (2-Pick Mode) */}
+              {lastItemPair?.item2 && (
+                <div className="mt-4 pt-4 border-t border-gray-700">
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-4xl font-bold text-emerald-400">{lastItemPair.item2.quantity}x</span>
+                    <span className="text-2xl">{lastItemPair.item2.product}</span>
+                  </div>
+                  <div className="text-lg text-gray-300 mt-2">{lastItemPair.item2.slot_spoken || lastItemPair.item2.slot}</div>
+                </div>
+              )}
+
+              <div className="text-sm text-gray-500 mt-3">{routeState.currentMachineName}</div>
               {routeState.currentItem.inventory_current !== undefined && (
                 <div className="text-xs text-gray-500 mt-1">
                   In machine: {routeState.currentItem.inventory_current}/{routeState.currentItem.inventory_parlevel}
