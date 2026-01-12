@@ -562,7 +562,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
     console.log('[Voice] Deepgram keywords:', { count: allKeywords.length, boost: 1.5 });
 
     const wsUrl = 'wss://api.deepgram.com/v1/listen?' +
-      'model=nova-2-meeting&' +  // Optimized for conversational speech
+      'model=nova-2&' +  // Latest Nova 2 model (nova-3 not yet available)
       'language=en-US&' +
       `encoding=${encodingRef.current}&` +  // Tell Deepgram our audio format
       'smart_format=true&' +
