@@ -585,6 +585,114 @@ The following issues with n8n MCP tools cause **production corruption**:
 **Section 5.8 (Systematic Testing):**
 - New workflow creation triggers: "Webhook verification, branch connection verification"
 
+## 2.7 n8n Workflow Organization – MANDATORY STRUCTURE
+
+**Status:** ACTIVE (Session 36 - user requirement)
+**Purpose:** Prevent workflow chaos, enable easy maintenance
+
+### Folder Structure (n8n Cloud)
+
+All Stocker AI workflows MUST be in the **StockerAI folder** (under Personal project):
+
+```
+Personal/
+└── StockerAI/
+    ├── Stocker Tool: get_next_item
+    ├── Stocker Tool: get_next_item (Optimized)
+    ├── Stocker Tool: start_machine
+    ├── Stocker Tool: skip_current_machine
+    ├── Stocker Tool: switch_route
+    ├── Stocker Tool: get_routes_for_date
+    ├── Stocker Tool: set_route_sequence
+    ├── Stocker Tool: go_back_to_skipped
+    ├── Stocker Tool: update_session_state
+    ├── Stocker Tool: delete_route
+    ├── Stocker Tool: get_current_status
+    ├── Stocker - PDF Upload
+    ├── Stocker: Invite Team Member
+    └── Stocker Auth
+```
+
+### Workflow Lifecycle - Create, Test, Archive
+
+**WRONG workflow (old way):**
+```
+1. Create new workflow in Personal (root)
+2. Delete old workflow
+3. Move new workflow to StockerAI folder
+```
+
+**CORRECT workflow (new way):**
+```
+1. Create new workflow with version suffix (e.g., "get_next_item_v2")
+2. Place in StockerAI folder immediately
+3. Test thoroughly (webhook, execution, output)
+4. Verify it works correctly
+5. Activate new workflow
+6. ARCHIVE (not delete) old workflow
+7. Rename new workflow (remove version suffix if desired)
+```
+
+### Why Archive Instead of Delete
+
+**Benefits:**
+- **Rollback:** Instant restore if new version fails
+- **Reference:** Compare behavior between versions
+- **Audit trail:** Track what changed and when
+- **Zero risk:** Old workflow available if needed
+
+**How to Archive:**
+1. In n8n, open the workflow
+2. Click the "..." menu (top right)
+3. Select "Archive"
+4. Workflow disappears from active list but remains accessible
+
+### Workflow Naming Convention
+
+| Type | Format | Example |
+|------|--------|---------|
+| Voice tools | `Stocker Tool: <command_name>` | `Stocker Tool: get_next_item` |
+| Optimized versions | `Stocker Tool: <command> (Optimized)` | `Stocker Tool: get_next_item (Optimized)` |
+| Backend services | `Stocker - <service_name>` | `Stocker - PDF Upload` |
+| Auth/infrastructure | `Stocker <system_name>` | `Stocker Auth` |
+
+### Current Active Stocker Workflows (2026-01-12)
+
+| Workflow Name | ID | Webhook Path | Status | Location |
+|---------------|-----|--------------|--------|----------|
+| get_next_item | gwmLuqCN37fhQ3Pr | /next-item | ⚠️ ARCHIVED | StockerAI |
+| get_next_item (Optimized) | iykbFj7f9222PF7r | /next-item-optimized | ⏸️ INACTIVE (testing) | StockerAI |
+| start_machine | JbKdJuKgGbyvzlF0 | /start-machine | ✅ ACTIVE | StockerAI |
+| skip_current_machine | ElCSMeguJNxwp0HO | /skip-machine | ✅ ACTIVE | StockerAI |
+| switch_route | 3G01u7N9REhrC9tn | /switch-route | ✅ ACTIVE | StockerAI |
+| get_routes_for_date | 4XS07THe1uGak7rk | /get-routes | ✅ ACTIVE | StockerAI |
+| set_route_sequence | 46lMRdxTgD1E3WFz | /set-sequence | ✅ ACTIVE | StockerAI |
+| go_back_to_skipped | rpNfINhjbFCuFrlZ | /back-to-skipped | ✅ ACTIVE | StockerAI |
+| update_session_state | ueDSi9SDBZ5jMwpO | /update-session | ✅ ACTIVE | StockerAI |
+| delete_route | zmgTBX1w1rc5bOpO | /delete-route | ✅ ACTIVE | StockerAI |
+| get_current_status | PD3ErCuxWBWLFXIq | /current-status | ✅ ACTIVE | StockerAI |
+| PDF Upload | 7kO6o1wASKvbhc2U | /upload | ✅ ACTIVE | StockerAI |
+| Invite Team Member | TxrJyFmG4yNazEEF | /invite-member | ✅ ACTIVE | StockerAI |
+| Stocker Auth | cw0ERwaa1VXJ2Jah | /auth | ✅ ACTIVE | StockerAI |
+
+### Integration with RULE 1
+
+**Before (RULE 1 original):**
+```
+1. Create new workflow with different name
+2. Test thoroughly
+3. Delete old workflow ← WRONG
+```
+
+**After (RULE 1 updated with 2.7):**
+```
+1. Create new workflow in StockerAI folder with version suffix
+2. Test thoroughly (webhook, execution, output)
+3. Activate new workflow
+4. Archive (not delete) old workflow ← CORRECT
+5. Rename new workflow if needed
+```
+
 ---
 
 # 3. COMMUNICATION RULES
