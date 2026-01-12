@@ -242,6 +242,92 @@
 
 **Root Cause:** Manual documentation updates, no automated sync
 
+### Agent Architecture Analysis (Session 35 - Part 3)
+
+**User Request:** "Can you make a current and suggested list of Agents that would be helpful based on our historic interactions over the last couple of weeks?"
+
+**Document Created:** `/docs/RECOMMENDED_AGENTS.md` (416 lines, commit 0fd22d8)
+
+**Analysis:** Based on 2+ weeks of development patterns, identified 9 specialized agents that would improve efficiency and quality
+
+**Impact Estimate:** 3-4 hours saved per session (66-75% faster development)
+
+**Top 3 Critical Priority Agents:**
+
+1. **n8n-workflow-specialist** (Would use 5+ times per session)
+   - Creates, validates, deploys n8n workflows automatically
+   - Has access to all n8n MCP tools
+   - Would have saved 1 hour in Session 35 alone
+   - Systematic validation, execution analysis, workflow comparison
+
+2. **bug-validator** (Would use 5+ times per session)
+   - Systematic boundary analysis across 10 MECE boundaries (from CLAUDE.md)
+   - Cross-system impact checking (DB → n8n → frontend → AI)
+   - Would have caught threshold normalization bug BEFORE deployment
+   - Generates comprehensive test cases automatically
+
+3. **documentation-syncer** (Would use 3-4 times per session)
+   - Auto-detects code vs docs drift
+   - Updates MEMORY.md when code changes detected
+   - Would have prevented 3x documentation drift in Session 35
+   - Git analysis, pattern matching, automated commits
+
+**Additional 6 Agents Recommended:**
+- performance-analyzer (measure latency, track improvements)
+- database-migration-assistant (schema change impact analysis)
+- voice-recognition-tuner (phonetic variations, accuracy testing)
+- deployment-orchestrator (multi-system coordination)
+- test-report-generator (automated reporting)
+- ai-prompt-optimizer (voice/TTS quality)
+
+**Implementation Phases:**
+- Phase 1 (Week 1): Top 3 critical agents
+- Phase 2 (Week 2-3): Next 3 high-priority agents
+- Phase 3 (Week 4+): Final 3 medium-priority agents
+
+**User Question:** "And these agents will follow XF directives and the MCP?"
+
+**Answer on Agent Capabilities:**
+
+**YES - Agents inherit all constraints and capabilities:**
+
+1. **Xpansion (XF) Tools Access:**
+   - Agents have access to XF MCP tools (xpansion_intent, xpansion_system, xpansion_process)
+   - Can use BBRD (Boundary-Based Root Discovery) methodology
+   - Will apply MECE (Mutually Exclusive, Collectively Exhaustive) analysis
+   - Example: bug-validator agent would use xpansion_system for systematic boundary analysis
+
+2. **n8n MCP Tools Access:**
+   - Agents have access to n8n MCP tools (search_nodes, get_node, validate_node, create_workflow, etc.)
+   - n8n-workflow-specialist would heavily use these
+   - bug-validator would use n8n_executions and n8n_validate_workflow
+
+3. **Constraints They Follow:**
+   - All agents bound by CLAUDE.md operational directives
+   - Cannot violate n8n syntax rules (no optional chaining, no nullish coalescing)
+   - Must follow BBRD protocol for debugging
+   - Subject to same security/safety constraints as main AI
+   - Cannot persist across sessions (ephemeral, like current agents)
+
+4. **Tool Delegation:**
+   - Agents can be given specific tool subsets based on their domain
+   - Example: database-migration-assistant gets database query tools but not n8n tools
+   - Example: n8n-workflow-specialist gets ALL n8n MCP tools but not database tools
+
+5. **Current Limitation:**
+   - Agents CANNOT currently learn from past sessions (no persistent memory)
+   - Each agent invocation starts fresh
+   - No shared knowledge base between agents (yet)
+   - Would need enhancement to remember "this workflow pattern failed before because X"
+
+**Net Result:** Agents are specialized versions of me with:
+- Same foundational capabilities (XF, MCP, BBRD)
+- Narrower focus (domain expertise)
+- Specific tool subsets (what they need for their job)
+- Same constraints (CLAUDE.md, BBRD, n8n syntax rules)
+
+Think of them as: General AI (me) → Specialized AI (agents) with domain focus + specific tools
+
 ### Next Steps Identified
 
 1. **Test Priority 2** - Edge Function workflow ready for validation
