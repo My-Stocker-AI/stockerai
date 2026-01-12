@@ -523,11 +523,18 @@ export function useVoice(options: UseVoiceOptions = {}) {
   }, [getSupportedMimeType]); // Using ref, no deps needed
 
   const connectDeepgram = useCallback(async () => {
+    console.log('[DEBUG] connectDeepgram called:', {
+      existingSocket: socketRef.current?.readyState,
+      timestamp: new Date().toISOString()
+    });
+
     if (socketRef.current?.readyState === WebSocket.OPEN) {
+      console.log('[DEBUG] Socket already open, skipping connection');
       return;
     }
 
     const token = await ensureToken();
+    console.log('[DEBUG] Token acquired:', { hasToken: !!token, tokenLength: token?.length });
     if (!token) throw new Error('No token available');
 
     // Build keywords list: common commands + dynamic route names + products
@@ -572,9 +579,18 @@ export function useVoice(options: UseVoiceOptions = {}) {
       keywordsParam +
       boostParam;
 
+    console.log('[DEBUG] WebSocket URL constructed:', {
+      url: wsUrl.substring(0, 100) + '...',
+      encoding: encodingRef.current,
+      keywordCount: allKeywords.length,
+      timestamp: new Date().toISOString()
+    });
+
     return new Promise<void>((resolve, reject) => {
+      console.log('[DEBUG] Creating WebSocket connection...');
       const socket = new WebSocket(wsUrl, ['token', token]);
       socketRef.current = socket;
+      console.log('[DEBUG] WebSocket object created, waiting for events...');
 
       const timeout = setTimeout(() => {
         if (!isConnectedRef.current) {
@@ -585,6 +601,11 @@ export function useVoice(options: UseVoiceOptions = {}) {
 
       socket.onopen = () => {
         clearTimeout(timeout);
+        console.log('[DEBUG] ✅ WebSocket onopen fired successfully!', {
+          readyState: socket.readyState,
+          url: socket.url.substring(0, 100) + '...',
+          timestamp: new Date().toISOString()
+        });
         isConnectedRef.current = true;
         setIsDeepgramConnected(true);
         reconnectAttemptsRef.current = 0; // Reset reconnection counter on successful connect
@@ -603,6 +624,12 @@ export function useVoice(options: UseVoiceOptions = {}) {
 
       socket.onerror = (event) => {
         clearTimeout(timeout);
+        console.error('[DEBUG] WebSocket onerror fired:', {
+          readyState: socket.readyState,
+          url: socket.url,
+          event,
+          timestamp: new Date().toISOString()
+        });
         emitDiagnostic('error', 'Deepgram WebSocket error');
         onErrorRef.current?.('WebSocket error');
       };
