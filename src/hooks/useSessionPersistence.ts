@@ -117,8 +117,7 @@ export function useSessionPersistence() {
         current_route_id: data.routeId,
         current_machine_id: data.currentMachineId,
         current_item_index: data.currentMachineIndex,
-        delivery_date: data.routeDate,
-        status: data.completed ? 'completed' : 'in_progress',
+        status: data.completed ? 'completed' : 'stocking',
         updated_at: new Date().toISOString(),
       };
 
@@ -161,7 +160,7 @@ export function useSessionPersistence() {
           )
         `)
         .eq('user_id', userId)
-        .eq('status', 'in_progress')
+        .eq('status', 'stocking')
         .order('updated_at', { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -199,13 +198,13 @@ export function useSessionPersistence() {
       // Mark all in-progress sessions as completed
       await supabase
         .from('sessions')
-        .update({ 
+        .update({
           status: 'completed',
           completed_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         })
         .eq('user_id', userId)
-        .eq('status', 'in_progress');
+        .eq('status', 'stocking');
         
       console.log('[Session] Cleared server sessions');
     } catch (e) {
