@@ -86,10 +86,37 @@
 **Original Estimate:** 5-6 hours
 **Remaining:** Bug 4 root cause diagnosis via user testing
 
-**Deployment Status:**
-- Edge Function workflow: ✅ READY (webhook path fixed)
-- Environmental Detection: ✅ READY (all bugs fixed)
-- 2-Item Mode: ⚠️ NEEDS TESTING (debug logs will reveal issue)
+**Deployment Status (Updated 2026-01-11 23:00):**
+- ✅ Edge Function workflow: DEPLOYED to n8n (ID: `iykbFj7f9222PF7r`, webhook: `/next-item-optimized`, STATUS: Inactive - awaiting testing)
+- ✅ Environmental Detection: DEPLOYED to production (commit bcbb8e2, auto-deployed via Cloudflare Pages)
+- ⚠️ 2-Item Mode: Debug logging DEPLOYED (commit 1f9011d, needs user testing to diagnose UI rendering issue)
+
+**Testing Plan:** See `/TESTING_PLAN_2026-01-12.md` for comprehensive testing checklist (75 min estimated)
+
+### Next Steps for Tomorrow (2026-01-12)
+
+1. **Run Comprehensive Testing** (75 minutes)
+   - Test 1: Environmental Detection in quiet/moderate/loud environments
+   - Test 2: 2-Item Mode UI with debug logging (collect console output)
+   - Test 3: Skip Edge Function (workflow inactive)
+   - Test 4: Regression testing (basic commands + session persistence)
+
+2. **Send Test Results**
+   - Summary of what passed/failed
+   - Console logs from 2-Item Mode test
+   - Any bugs found (use Bug Discovery format in testing plan)
+   - Screenshots if applicable
+
+3. **After Testing (Session 36)**
+   - Fix 2-Item Mode UI bug based on console logs
+   - Activate Edge Function workflow if tests pass
+   - Measure performance improvements
+   - Plan personal wake word implementation
+
+**Files to Review Before Testing:**
+- `/TESTING_PLAN_2026-01-12.md` - Full testing procedures
+- `/test_results/TEST_RESULTS_SUMMARY.md` - What was tested programmatically
+- `/test_results/two_item_mode_debug_guide.md` - Debugging procedures
 
 ### Performance Optimization Status (ACTUAL vs DOCUMENTED)
 
