@@ -1,13 +1,25 @@
-import { X, Zap } from 'lucide-react';
+import { X, Zap, Volume2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useState, useEffect } from 'react';
+import { EnvironmentType } from '@/hooks/useEnvironmentDetection';
 
 interface SettingsSheetProps {
   isOpen: boolean;
   onClose: () => void;
+  currentEnvironment?: EnvironmentType;
+  onDetectEnvironment?: () => void;
+  onSetEnvironment?: (type: EnvironmentType) => void;
+  isDetecting?: boolean;
 }
 
-export function SettingsSheet({ isOpen, onClose }: SettingsSheetProps) {
+export function SettingsSheet({
+  isOpen,
+  onClose,
+  currentEnvironment = 'unknown',
+  onDetectEnvironment,
+  onSetEnvironment,
+  isDetecting = false
+}: SettingsSheetProps) {
   const [callTwoItems, setCallTwoItems] = useState(false);
   const [ttsVolume, setTtsVolume] = useState(1.5); // Default 150%
 
@@ -124,6 +136,90 @@ export function SettingsSheet({ isOpen, onClose }: SettingsSheetProps) {
               <div className="text-xs text-gray-500 text-center">
                 {ttsVolume < 1 ? 'Quieter than normal' : ttsVolume === 1 ? 'Normal volume' : 'Louder than normal'}
               </div>
+            </div>
+          </div>
+
+          {/* Environmental Detection */}
+          <div className="bg-[#0d1117] rounded-xl p-4 border border-gray-800">
+            <div className="mb-3">
+              <div className="flex items-center gap-2 mb-1">
+                <Volume2 className="h-4 w-4 text-teal-400" />
+                <h3 className="text-white font-semibold">Environment Type</h3>
+              </div>
+              <p className="text-sm text-gray-400">
+                Automatically adjust voice recognition for your environment. Improves accuracy in noisy warehouses.
+              </p>
+            </div>
+
+            {/* Current Environment Display */}
+            <div className="mb-3 p-3 bg-gray-800/50 rounded-lg">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-gray-400">Detected:</span>
+                <span className={`text-sm font-semibold ${
+                  currentEnvironment === 'quiet' ? 'text-green-400' :
+                  currentEnvironment === 'moderate' ? 'text-yellow-400' :
+                  currentEnvironment === 'loud' ? 'text-orange-400' :
+                  'text-gray-400'
+                }`}>
+                  {currentEnvironment === 'quiet' && '🏡 Quiet (Garage, Small Room)'}
+                  {currentEnvironment === 'moderate' && '🏢 Moderate (Office, Small Warehouse)'}
+                  {currentEnvironment === 'loud' && '🏭 Loud (Large Warehouse, Factory)'}
+                  {currentEnvironment === 'unknown' && '❓ Not Detected'}
+                </span>
+              </div>
+            </div>
+
+            {/* Auto-Detect Button */}
+            {onDetectEnvironment && (
+              <Button
+                onClick={onDetectEnvironment}
+                disabled={isDetecting}
+                className="w-full mb-3 bg-teal-600 hover:bg-teal-700 disabled:opacity-50"
+              >
+                {isDetecting ? '📊 Detecting...' : '🔍 Auto-Detect Environment'}
+              </Button>
+            )}
+
+            {/* Manual Override */}
+            <div className="space-y-2">
+              <p className="text-xs text-gray-500">Or choose manually:</p>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  onClick={() => onSetEnvironment?.('quiet')}
+                  className={`p-2 rounded-lg text-xs font-medium transition-colors ${
+                    currentEnvironment === 'quiet'
+                      ? 'bg-green-500/20 text-green-400 border border-green-500'
+                      : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                  }`}
+                >
+                  🏡 Quiet
+                </button>
+                <button
+                  onClick={() => onSetEnvironment?.('moderate')}
+                  className={`p-2 rounded-lg text-xs font-medium transition-colors ${
+                    currentEnvironment === 'moderate'
+                      ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500'
+                      : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                  }`}
+                >
+                  🏢 Moderate
+                </button>
+                <button
+                  onClick={() => onSetEnvironment?.('loud')}
+                  className={`p-2 rounded-lg text-xs font-medium transition-colors ${
+                    currentEnvironment === 'loud'
+                      ? 'bg-orange-500/20 text-orange-400 border border-orange-500'
+                      : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                  }`}
+                >
+                  🏭 Loud
+                </button>
+              </div>
+            </div>
+
+            {/* Helpful Info */}
+            <div className="mt-3 p-2 bg-gray-800/30 rounded text-xs text-gray-500">
+              💡 Tip: Run auto-detect at the start of each session for best results
             </div>
           </div>
         </div>

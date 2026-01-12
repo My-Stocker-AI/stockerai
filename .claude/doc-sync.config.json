@@ -1,0 +1,109 @@
+{
+  "version": "1.0.0",
+  "name": "Stocker AI Documentation Sync System",
+  "description": "Automated documentation sync to prevent drift between code and docs",
+
+  "watch_patterns": {
+    "performance": {
+      "files": [
+        "src/hooks/useVoice.ts",
+        "src/hooks/useStockerAI.ts",
+        "src/hooks/useItemCache.ts",
+        "supabase/functions/get-next-item-data/**",
+        "workflows/*.json"
+      ],
+      "required_docs": [
+        "MEMORY.md",
+        "docs/PERFORMANCE_OPTIMIZATION_ANALYSIS.md"
+      ],
+      "validation_rules": [
+        {
+          "name": "Priority status matches code",
+          "check": "code_feature_exists",
+          "doc_pattern": "Priority [0-9]: .* (DONE|BUILT|SKIPPED|NOT BUILT)"
+        }
+      ]
+    },
+    "workflows": {
+      "files": [
+        "workflows/*.json",
+        "supabase/functions/**"
+      ],
+      "required_docs": [
+        "MEMORY.md"
+      ],
+      "validation_rules": [
+        {
+          "name": "Workflow IDs are documented",
+          "check": "workflow_id_in_docs",
+          "doc_pattern": "ID: `[a-zA-Z0-9]{16}`"
+        }
+      ]
+    },
+    "voice_features": {
+      "files": [
+        "src/hooks/useVoice.ts",
+        "src/pages/StockerApp.tsx",
+        "src/utils/commandRecognizer.ts"
+      ],
+      "required_docs": [
+        "MEMORY.md",
+        "docs/ENVIRONMENTAL_ROBUSTNESS_ANALYSIS.md"
+      ],
+      "validation_rules": [
+        {
+          "name": "Voice features documented with status",
+          "check": "feature_status_exists"
+        }
+      ]
+    }
+  },
+
+  "session_template": {
+    "required_sections": [
+      "Session Summary",
+      "What Changed",
+      "Files Modified",
+      "Git Commits",
+      "Testing Status"
+    ],
+    "format": "markdown"
+  },
+
+  "commit_hooks": {
+    "pre_commit": {
+      "enabled": true,
+      "checks": [
+        "validate_feature_flags",
+        "check_doc_references"
+      ]
+    },
+    "post_commit": {
+      "enabled": true,
+      "actions": [
+        "prompt_doc_update"
+      ]
+    }
+  },
+
+  "auto_detection": {
+    "scan_for_features": true,
+    "feature_markers": [
+      "PRIORITY",
+      "TODO",
+      "FIXME",
+      "FEATURE:",
+      "Performance Priority"
+    ],
+    "doc_status_keywords": [
+      "DONE",
+      "BUILT",
+      "DEPLOYED",
+      "ACTIVE",
+      "INACTIVE",
+      "SKIPPED",
+      "NOT BUILT",
+      "CANCELLED"
+    ]
+  }
+}

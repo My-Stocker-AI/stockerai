@@ -1,0 +1,240 @@
+{
+  "name": "Stocker Tool: get_next_item (Optimized)",
+  "description": "Edge Function version - 1 query instead of 3",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "next-item",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook-node",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [224, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://wvtkuposrlvadyeixlke.supabase.co/functions/v1/get-next-item-data",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ user_id: $json.body.user_id }) }}",
+        "options": {}
+      },
+      "id": "call-edge-function",
+      "name": "Call Edge Function",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [448, 0],
+      "credentials": {
+        "supabaseApi": {
+          "id": "lT2naSkdNmv4X1Yp",
+          "name": "my-stocker-ai Supabase Secret Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract consolidated data from Edge Function response\n// Edge Function returns: { session: [...], items: [...], machines: [...] }\n\nvar data = $input.first().json;\n\nif (!data || !data.session || !Array.isArray(data.session) || data.session.length === 0) {\n  throw new Error('No active session found');\n}\n\nvar session = data.session[0];\nvar items = data.items || [];\nvar machines = data.machines || [];\n\n// Store all three datasets in a single output item\n// This mimics what the old Merge Query Results node did\nreturn [{\n  json: {\n    session: session,\n    items: items,\n    machines: machines\n  }\n}];"
+      },
+      "id": "extract-consolidated-data",
+      "name": "Extract Consolidated Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [672, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// UPDATED: Now references Extract Consolidated Data instead of 3 separate nodes\nvar consolidated = $('Extract Consolidated Data').first().json;\nvar session = consolidated.session;\nvar items = consolidated.items;\nvar machines = consolidated.machines;\n\nvar currentItemIndex = session.current_item_index || 0;\nvar currentMachineId = session.current_machine_id;\nvar currentRouteId = session.current_route_id;\nvar pickDirection = session.pick_direction || 'forward';\n\nvar currentMachine = null;\nvar currentMachineSeq = 0;\nfor (var i = 0; i < machines.length; i++) {\n  if (machines[i].id === currentMachineId) {\n    currentMachine = machines[i];\n    currentMachineSeq = machines[i].sequence;\n    break;\n  }\n}\n\nvar nextItem = null;\nif (pickDirection === 'reverse') {\n  for (var i = 0; i < items.length; i++) {\n    if (items[i].sequence === currentItemIndex - 1) {\n      nextItem = items[i];\n      break;\n    }\n  }\n} else {\n  for (var i = 0; i < items.length; i++) {\n    if (items[i].sequence === currentItemIndex + 1) {\n      nextItem = items[i];\n      break;\n    }\n  }\n}\n\nif (nextItem) {\n  var newIndex = pickDirection === 'reverse' ? currentItemIndex - 1 : currentItemIndex + 1;\n  var remaining = pickDirection === 'reverse' ? newIndex - 1 : items.length - newIndex;\n  return [{\n    json: {\n      action: 'next_item',\n      product_name: nextItem.product_name,\n      quantity: nextItem.quantity,\n      slot: nextItem.slot,\n      machine_name: currentMachine ? currentMachine.machine_name : '',\n      inventory_current: nextItem.inventory_current || 0,\n      inventory_parlevel: nextItem.inventory_parlevel || 0,\n      items_remaining: remaining,\n      new_item_index: newIndex,\n      new_machine_id: currentMachineId,\n      new_route_id: currentRouteId,\n      session_record_id: session.id,\n      machine_complete: false,\n      route_complete: false,\n      session_complete: false\n    }\n  }];\n}\n\nvar nextMachine = null;\nfor (var i = 0; i < machines.length; i++) {\n  if (machines[i].sequence === currentMachineSeq + 1 && machines[i].status !== 'skipped') {\n    nextMachine = machines[i];\n    break;\n  }\n}\n\nif (nextMachine) {\n  return [{\n    json: {\n      action: 'next_machine',\n      completed_machine: currentMachine ? currentMachine.machine_name : 'Machine',\n      completed_machine_number: currentMachine ? currentMachine.machine_number : 0,\n      completed_location: currentMachine ? currentMachine.location_name : '',\n      next_machine_id: nextMachine.id,\n      next_machine_name: nextMachine.machine_name,\n      next_machine_number: nextMachine.machine_number,\n      next_location: nextMachine.location_name,\n      new_item_index: 0,\n      new_machine_id: nextMachine.id,\n      new_route_id: currentRouteId,\n      session_record_id: session.id,\n      machine_complete: true,\n      route_complete: false,\n      session_complete: false\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    action: 'complete',\n    completed_route: 'Route',\n    total_routes: 1,\n    session_record_id: session.id,\n    new_status: 'completed',\n    new_item_index: currentItemIndex,\n    new_machine_id: currentMachineId,\n    new_route_id: currentRouteId,\n    machine_complete: true,\n    route_complete: true,\n    session_complete: true\n  }\n}];"
+      },
+      "id": "determine-next-state",
+      "name": "Determine Next State",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [896, 0]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "version": 2,
+                  "leftValue": "",
+                  "caseSensitive": true,
+                  "typeValidation": "strict"
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "2",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "next_machine",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "next_machine"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "version": 2,
+                  "leftValue": "",
+                  "caseSensitive": true,
+                  "typeValidation": "strict"
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "1",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "next_item",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "next_item"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "version": 2,
+                  "leftValue": "",
+                  "caseSensitive": true,
+                  "typeValidation": "strict"
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "3",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "complete",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "complete"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "switch-action",
+      "name": "Switch Action",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [1120, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "var stateData = $('Switch Action').first().json;\n\nreturn [{\n  json: {\n    action: stateData.action,\n    completed_machine: stateData.completed_machine,\n    completed_location: stateData.completed_location,\n    next_location: stateData.next_location,\n    next_machine: stateData.next_machine_name,\n    next_machine_number: stateData.next_machine_number,\n    new_item_index: stateData.new_item_index,\n    new_machine_id: stateData.new_machine_id,\n    new_route_id: stateData.new_route_id,\n    session_record_id: stateData.session_record_id,\n    machine_complete: stateData.machine_complete,\n    route_complete: stateData.route_complete,\n    session_complete: stateData.session_complete\n  }\n}];"
+      },
+      "id": "add-first-item",
+      "name": "Add First Item to Machine",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1360, -80]
+    },
+    {
+      "parameters": {
+        "numberInputs": 3
+      },
+      "id": "merge-all-paths",
+      "name": "Merge All Paths",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [1568, 0]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://wvtkuposrlvadyeixlke.supabase.co/rest/v1/sessions?id=eq.{{ $json.session_record_id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ current_item_index: $json.new_item_index, current_machine_id: $json.new_machine_id, current_route_id: $json.new_route_id, status: $json.new_status || 'stocking' }) }}",
+        "options": {}
+      },
+      "id": "update-session",
+      "name": "Update Session",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1792, 0],
+      "credentials": {
+        "supabaseApi": {
+          "id": "lT2naSkdNmv4X1Yp",
+          "name": "my-stocker-ai Supabase Secret Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// =============================================================================\n// COPY THIS CODE INTO: get_next_item workflow → \"Format Output\" node\n// =============================================================================\n// OPTIMIZATIONS: Semantic parsing, no slot in spoken, no random prefixes\n// UNCHANGED: All other nodes (especially \"Determine Next State\" picking logic)\n// =============================================================================\n\nvar data = $('Merge All Paths').first().json;\n\n// ===== SEMANTIC PRODUCT PARSING =====\nfunction parseProduct(productName) {\n  if (!productName) return { name: '', size: '', type: '' };\n\n  var text = productName.trim();\n\n  // Extract size (numbers + oz/ml/g/ct/pk/count)\n  var sizePattern = /(\\d+(?:\\.\\d+)?)\\s*(oz|ounce|ml|g|gram|ct|count|pk|pack)/gi;\n  var sizeMatch = sizePattern.exec(text);\n  var size = sizeMatch ? sizeMatch[0] : '';\n\n  // Extract type (Can/Bottle/Bag/Box/Bar)\n  var typePattern = /\\b(can|bottle|bag|box|bar|pouch|packet|pack)\\b/gi;\n  var typeMatch = typePattern.exec(text);\n  var type = typeMatch ? typeMatch[0] : '';\n\n  // Remove size and type from name to get base product\n  var name = text;\n  if (size) {\n    name = name.replace(sizePattern, '').trim();\n  }\n  if (type) {\n    // Only remove standalone type word, not if it's part of brand name\n    var typeWord = typeMatch[0];\n    // Remove if it's at the end or followed by size/quantity\n    name = name.replace(new RegExp('\\\\s*' + typeWord + '\\\\s*$', 'gi'), '');\n    name = name.replace(new RegExp('\\\\s*' + typeWord + '\\\\s*-', 'gi'), ' -');\n  }\n\n  // Clean up extra whitespace, dashes, parentheses\n  name = name.replace(/\\s+/g, ' ').trim();\n  name = name.replace(/\\s*-\\s*$/, '').trim();\n  name = name.replace(/\\(\\s*\\)/, '').trim();\n\n  return {\n    name: name,\n    size: size,\n    type: type\n  };\n}\n\n// Fix TTS pronunciation issues\nfunction fixPronunciation(text) {\n  if (!text) return text;\n  // Fix \"Can\" pronounced as \"Kahn\"\n  text = text.replace(/\\bCan\\b/g, 'Kan');\n  text = text.replace(/\\bCAN\\b/g, 'KAN');\n  // Fix abbreviations\n  text = text.replace(/\\boz\\b/gi, 'ounce');\n  text = text.replace(/\\bct\\b/gi, 'count');\n  text = text.replace(/\\bpk\\b/gi, 'pack');\n  return text;\n}\n\n// Format slot for TTS (only for data field, not spoken)\nfunction formatSlotForTTS(slot) {\n  if (!slot) return null;\n  slot = String(slot);\n\n  if (slot.indexOf('-') !== -1) {\n    var parts = slot.split('-');\n    var first = parseInt(parts[0], 10);\n    var second = parseInt(parts[1], 10);\n    if (!isNaN(first) && !isNaN(second)) {\n      return 'slots ' + first + ' and ' + second;\n    }\n    return slot;\n  }\n\n  var num = parseInt(slot, 10);\n  if (!isNaN(num)) {\n    return 'slot ' + num;\n  }\n\n  return slot;\n}\n\n// Generate optimized spoken response (NO slot, NO random prefixes)\nfunction generateSpoken(action, data, parsed) {\n  if (action === 'next_item') {\n    // Build spoken response: quantity + name + size + type\n    var parts = [];\n    parts.push(data.quantity);\n\n    if (parsed.name) {\n      parts.push(fixPronunciation(parsed.name));\n    }\n\n    if (parsed.size) {\n      parts.push(fixPronunciation(parsed.size));\n    }\n\n    // Fix type duplication: if parsed.type is already in name, don't add it\n    if (parsed.type) {\n      var typeLower = parsed.type.toLowerCase();\n      var nameLower = parsed.name.toLowerCase();\n      if (nameLower.indexOf(typeLower) === -1) {\n        // Type not in name, safe to add\n        parts.push(fixPronunciation(parsed.type));\n      }\n    }\n\n    return parts.join(' ');\n  }\n\n  if (action === 'next_machine') {\n    // Machine complete - ask for direction\n    return data.completed_machine + ' complete. Next is ' + data.next_machine + ' at ' + data.next_location + '. Top or bottom?';\n  }\n\n  if (action === 'complete') {\n    // Route complete\n    return data.completed_route + ' route complete. Nice work!';\n  }\n\n  return null;\n}\n\n// Build output object\nvar output = {\n  action: data.action,\n  machine_complete: data.machine_complete || false,\n  route_complete: data.route_complete || false,\n  session_complete: data.session_complete || false\n};\n\nvar slotSpoken = null;\nvar parsed = null;\n\nif (data.action === 'next_item') {\n  parsed = parseProduct(data.product_name);\n\n  output.product_name = data.product_name;\n  output.quantity = data.quantity;\n  output.slot = data.slot;\n  slotSpoken = formatSlotForTTS(data.slot);\n  output.slot_spoken = slotSpoken;\n  output.machine_name = data.machine_name || '';\n  output.inventory_current = data.inventory_current || 0;\n  output.inventory_parlevel = data.inventory_parlevel || 0;\n  output.items_remaining = data.items_remaining;\n\n  // Add parsed fields for AI context\n  output.product_parsed = {\n    name: parsed.name,\n    size: parsed.size,\n    type: parsed.type\n  };\n}\n\nif (data.action === 'next_machine') {\n  output.completed_machine = data.completed_machine;\n  output.completed_location = data.completed_location;\n  output.next_location = data.next_location;\n  output.next_machine = data.next_machine;\n  output.next_machine_id = data.new_machine_id;\n  output.next_machine_number = data.next_machine_number;\n}\n\nif (data.action === 'complete') {\n  output.completed_route = data.completed_route;\n  output.total_routes = data.total_routes;\n  output.message = 'All routes finished';\n}\n\n// Add spoken field for fast path\noutput.spoken = generateSpoken(data.action, data, parsed);\n\nreturn [{ json: output }];\n"
+      },
+      "id": "format-output",
+      "name": "Format Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2016, 0]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [[{ "node": "Call Edge Function", "type": "main", "index": 0 }]]
+    },
+    "Call Edge Function": {
+      "main": [[{ "node": "Extract Consolidated Data", "type": "main", "index": 0 }]]
+    },
+    "Extract Consolidated Data": {
+      "main": [[{ "node": "Determine Next State", "type": "main", "index": 0 }]]
+    },
+    "Determine Next State": {
+      "main": [[{ "node": "Switch Action", "type": "main", "index": 0 }]]
+    },
+    "Switch Action": {
+      "main": [
+        [{ "node": "Add First Item to Machine", "type": "main", "index": 0 }],
+        [{ "node": "Merge All Paths", "type": "main", "index": 1 }],
+        [{ "node": "Merge All Paths", "type": "main", "index": 2 }],
+        [{ "node": "Merge All Paths", "type": "main", "index": 2 }]
+      ]
+    },
+    "Add First Item to Machine": {
+      "main": [[{ "node": "Merge All Paths", "type": "main", "index": 0 }]]
+    },
+    "Merge All Paths": {
+      "main": [[{ "node": "Update Session", "type": "main", "index": 0 }]]
+    },
+    "Update Session": {
+      "main": [[{ "node": "Format Output", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  }
+}
