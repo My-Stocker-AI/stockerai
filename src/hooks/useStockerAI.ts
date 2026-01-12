@@ -210,13 +210,10 @@ const TOOLS = [
   }
 ];
 
-// TEST MODE: Set localStorage.testOptimization = 'true' to use optimized workflow
-const TEST_MODE = localStorage.getItem('testOptimization') === 'true';
-
 const WEBHOOK_MAP: Record<string, string> = {
   'get_routes_for_date': '/get-routes',
   'set_route_sequence': '/set-sequence',
-  'get_next_item': TEST_MODE ? '/next-item-test' : '/next-item',  // TEST: Optimized workflow (no Get Routes query)
+  'get_next_item': '/next-item',
   'get_current_status': '/status',
   'update_session_state': '/update-state',
   'start_machine': '/start-machine',
@@ -224,10 +221,6 @@ const WEBHOOK_MAP: Record<string, string> = {
   'go_back_to_skipped': '/back-to-skipped',
   'switch_route': '/switch-route'
 };
-
-if (TEST_MODE) {
-  console.log('[StockerAI] 🧪 TEST MODE: Using optimized workflow /next-item-test');
-}
 
 export function useStockerAI() {
   const sessionIdRef = useRef<string>('');
