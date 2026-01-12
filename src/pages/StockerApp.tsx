@@ -440,11 +440,15 @@ export default function StockerApp() {
               // Store last item pair for repeat functionality
               if (name === 'get_next_item' || name === 'start_machine') {
                 if (result.spoken) {
-                  setLastItemPair({
+                  console.log('[2-Pick Debug] result.item1:', result.item1);
+                  console.log('[2-Pick Debug] result.item2:', result.item2);
+                  const newItemPair = {
                     spokenText: result.spoken,
-                    item1: result.item1 || { product: result.product, quantity: result.quantity, slot: result.slot },
+                    item1: result.item1 || { product: result.product_name, quantity: result.quantity, slot: result.slot },
                     item2: result.item2 || null
-                  });
+                  };
+                  console.log('[2-Pick Debug] Setting lastItemPair:', newItemPair);
+                  setLastItemPair(newItemPair);
                 }
               }
             });
@@ -526,11 +530,15 @@ export default function StockerApp() {
           // Store last item pair for repeat functionality (2-item mode support)
           if (name === 'get_next_item' || name === 'start_machine') {
             if (result.spoken) {
-              setLastItemPair({
+              console.log('[2-Pick Debug AI Path] result.item1:', result.item1);
+              console.log('[2-Pick Debug AI Path] result.item2:', result.item2);
+              const newItemPair = {
                 spokenText: result.spoken,
-                item1: result.item1 || { product: result.product, quantity: result.quantity, slot: result.slot },
+                item1: result.item1 || { product: result.product_name, quantity: result.quantity, slot: result.slot },
                 item2: result.item2 || null
-              });
+              };
+              console.log('[2-Pick Debug AI Path] Setting lastItemPair:', newItemPair);
+              setLastItemPair(newItemPair);
             }
           }
         });
@@ -1588,15 +1596,20 @@ export default function StockerApp() {
               <div className="text-lg text-gray-300 mt-2">{routeState.currentItem.slot_spoken || routeState.currentItem.slot}</div>
 
               {/* Second Item (2-Pick Mode) */}
-              {lastItemPair?.item2 && (
-                <div className="mt-4 pt-4 border-t border-gray-700">
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-4xl font-bold text-emerald-400">{lastItemPair.item2.quantity}x</span>
-                    <span className="text-2xl">{lastItemPair.item2.product}</span>
+              {(() => {
+                console.log('[2-Pick Render] lastItemPair:', lastItemPair);
+                console.log('[2-Pick Render] lastItemPair?.item2:', lastItemPair?.item2);
+                console.log('[2-Pick Render] Conditional will render:', !!lastItemPair?.item2);
+                return lastItemPair?.item2 && (
+                  <div className="mt-4 pt-4 border-t border-gray-700">
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-4xl font-bold text-emerald-400">{lastItemPair.item2.quantity}x</span>
+                      <span className="text-2xl">{lastItemPair.item2.product}</span>
+                    </div>
+                    <div className="text-lg text-gray-300 mt-2">{lastItemPair.item2.slot_spoken || lastItemPair.item2.slot}</div>
                   </div>
-                  <div className="text-lg text-gray-300 mt-2">{lastItemPair.item2.slot_spoken || lastItemPair.item2.slot}</div>
-                </div>
-              )}
+                );
+              })()}
 
               <div className="text-sm text-gray-500 mt-3">{routeState.currentMachineName}</div>
               {routeState.currentItem.inventory_current !== undefined && (

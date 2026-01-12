@@ -6,7 +6,7 @@
     {
       "parameters": {
         "httpMethod": "POST",
-        "path": "next-item",
+        "path": "next-item-optimized",
         "responseMode": "lastNode",
         "options": {}
       },
