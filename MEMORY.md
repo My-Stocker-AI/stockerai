@@ -1,6 +1,59 @@
 # Stocker AI – Source of Truth
-**Last Updated:** 2026-01-12 (Session 35 - Performance Audit & Implementation Status)
-**Status:** ✅ COMPLETE - Performance priorities verified, docs corrected, Priority 2 ready for testing
+**Last Updated:** 2026-01-12 (Session 36 - Webhook Failure Hotfix)
+**Status:** ⚠️ TESTING - get_next_item webhook reactivated, awaiting user test
+
+---
+
+## ⚠️ SESSION 36: GET_NEXT_ITEM WEBHOOK FAILURE (2026-01-12)
+
+### Incident Report
+**Time:** 2026-01-12 ~18:15 UTC
+**User Report:** "Just tried using. It froze after the first product - didn't list 2 items also"
+
+### Root Cause Analysis
+**Symptom:** App froze after user said "next" following the first item
+**Boundary Trace:**
+1. User said "Next" ✓
+2. AI correctly called `get_next_item` tool ✓
+3. Frontend called n8n webhook → **`{"error":"Failed to fetch"}`** ❌
+4. AI retried → same error ❌
+5. AI gave up, said "Sorry, having trouble connecting"
+
+**Evidence:** n8n execution logs (OpenAI Proxy workflow, executions 26195, 26196)
+```json
+{
+  "role": "tool",
+  "tool_call_id": "toolu_01XnUUVm3vFWsAbbExKvdSo2",
+  "content": "{\"error\":\"Failed to fetch\"}"
+}
+```
+
+**Root Cause:** `get_next_item` workflow webhook was not responding
+- Workflow ID: `gwmLuqCN37fhQ3Pr` (created 2026-01-12 03:30)
+- Webhook path: `/next-item`
+- Issue: Webhook not registered/active despite workflow showing as "active"
+- This workflow was recreated multiple times recently (Session 33 optimization)
+
+### Fix Applied
+**Action:** User replaced webhook node and reactivated workflow
+**Time:** 2026-01-12 ~18:31 UTC
+**Changes:** Workflow updated timestamp: `2026-01-12T18:31:30.000Z`
+
+### Verification
+**Test:** `curl -X POST https://visionairy.app.n8n.cloud/webhook/next-item -H "Content-Type: application/json" -d '{"session_id":"test",...}'`
+**Result:** `{"message":"Error in workflow"}` ✅ (webhook responds, error is expected for test data)
+
+### Status
+- ✅ Webhook is now live and responding
+- ⚠️ Awaiting user test to confirm fix in production
+- Frontend code unchanged (no deployment needed)
+
+### Lesson Learned
+**Issue:** Recreating n8n workflows can leave webhooks in inactive/unregistered state even when workflow shows "active"
+**Prevention:** After recreating workflow, always:
+1. Test webhook with curl before user testing
+2. Check n8n executions list to confirm webhook received requests
+3. If webhook unresponsive, deactivate → reactivate workflow OR replace webhook node
 
 ---
 
