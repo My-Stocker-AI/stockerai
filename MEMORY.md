@@ -1,6 +1,46 @@
 # Stocker AI – Source of Truth
-**Last Updated:** 2026-01-11 (Session 33 - Workflow Optimization Applied)
-**Status:** ✅ COMPLETE - Workflow optimized (Get Routes query removed), deployed to production
+**Last Updated:** 2026-01-12 (Session 34 - Location Hierarchy UX Corrections)
+**Status:** ✅ DOCUMENTATION UPDATE - Location hierarchy analysis UX flow corrected
+
+---
+
+## ✅ SESSION 34: LOCATION HIERARCHY UX CORRECTIONS (2026-01-12)
+
+### Session Summary
+**User Feedback:** Corrected UX understanding for Location hierarchy feature
+
+**Critical Correction:**
+- Top/bottom choice is ONLY for machines (how operators stock them), NOT for location transitions
+- When skipping/completing locations, the system should immediately transition to the first machine and THEN ask top/bottom
+
+**Example Flow:**
+- User: "Skip Acme Hospital, move to Joe's Gym"
+- System: "Moving to Joe's Gym, Lobby machine, start at top or bottom?"
+
+**NOT:**
+- ~~"Next is Building B. Top or bottom?"~~ ❌
+
+### What Changed
+
+**File:** `docs/LOCATION_HIERARCHY_ANALYSIS.md`
+
+**Updated Sections:**
+1. Section 2.1A (skip_current_location workflow) - Line 254
+2. Section 2.1C (go_back_to_skipped_location workflow) - Line 305
+3. Section 2.2 (get_next_item workflow) - Line 350
+4. Section 3.2 (System prompt update) - Line 559
+5. Section 9 (Example Data Flow) - Line 824
+
+**Pattern Applied:**
+All location transition responses now include machine name and top/bottom prompt:
+- `"Skipped [Location]. Moving to [Next Location], [Machine Name], start at top or bottom?"`
+- `"[Location] complete. Moving to [Next Location], [Machine Name], start at top or bottom?"`
+- `"Resuming [Location], [Machine Name], start at top or bottom?"`
+
+### Git Commit
+**Commit:** `87a3f39`
+**Message:** "Fix Location hierarchy UX flow - top/bottom only for machines"
+**Status:** ✅ Committed and pushed to main
 
 ---
 
