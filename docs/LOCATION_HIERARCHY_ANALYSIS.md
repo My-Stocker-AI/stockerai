@@ -250,7 +250,7 @@ USING (
   "skipped_location": "Building A",
   "next_location": "Building B",
   "next_machine": "Vending Machine 5",
-  "spoken": "Skipped Building A. Next up is Building B. Top or bottom?"
+  "spoken": "Skipped Building A. Moving to Building B, Vending Machine 5, start at top or bottom?"
 }
 ```
 
@@ -302,7 +302,7 @@ USING (
   "action": "resumed_location",
   "location": "Building C",
   "machine": "Vending Machine 8",
-  "spoken": "Resuming Building C. Top or bottom?"
+  "spoken": "Resuming Building C, Vending Machine 8, start at top or bottom?"
 }
 ```
 
@@ -347,7 +347,7 @@ return route_complete;
   "completed_machines_count": 5,
   "next_location": "Building B",
   "next_machine": "Vending Machine 6",
-  "spoken": "Building A complete. Next is Building B. Top or bottom?"
+  "spoken": "Building A complete. Moving to Building B, Vending Machine 6, start at top or bottom?"
 }
 ```
 
@@ -556,7 +556,9 @@ Location-Level Commands:
 - "switch to [location name]" / "go to [location]" → switch_location
 - "go back to skipped location" → go_back_to_skipped_location
 
-When user completes a location, ask: "Building A complete. Next is Building B. Top or bottom?"
+IMPORTANT: Top/bottom choice is ONLY for machines, not locations.
+When transitioning to a new location, immediately announce the first machine and ask for direction:
+Example: "Building A complete. Moving to Building B, Vending Machine 6, start at top or bottom?"
 `;
 ```
 
@@ -821,7 +823,7 @@ Route: "Route A"
 **User Commands:**
 - "skip location" → Skips all of Building A, goes to Building B
 - "switch to Building A" → Jumps back to Building A, starts at Machine 1
-- "next" (after Machine 2) → "Building A complete. Next is Building B. Top or bottom?"
+- "next" (after Machine 2) → "Building A complete. Moving to Building B, Vending Machine 3, start at top or bottom?"
 
 ---
 
