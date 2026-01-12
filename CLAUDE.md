@@ -387,6 +387,204 @@ console.log()         // Use return instead
 | `n8n_get_workflow` | `mode: "structure"` | Full mode returns 50KB+ |
 | `n8n_executions` | `mode: "preview"` or `mode: "error"` | Default returns all node data |
 
+## 2.6 n8n Workflow Management – CRITICAL SAFETY RULES
+
+**Status:** ACTIVE (Session 36 - learned from production incidents)
+**Purpose:** Prevent known n8n MCP issues from causing production failures
+
+### Known n8n MCP Issues (As of 2026-01-12)
+
+The following issues with n8n MCP tools cause **production corruption**:
+
+| # | Issue | Impact | Status |
+|---|-------|--------|--------|
+| 1 | Deleting workflow before testing new one | Production downtime, lost reference | ACTIVE BUG |
+| 2 | Created workflows with webhooks don't auto-activate | Webhook unregistered, tool calls fail | ACTIVE BUG |
+| 3 | Partial update corrupts JS Code node content | Syntax errors, extra braces, execution failures | ACTIVE BUG |
+| 4 | IF/Switch/Merge node connections corrupt on creation | Wrong branches, broken flow logic | ACTIVE BUG |
+
+### MANDATORY Monitoring Protocol
+
+**Check for resolution every other day:**
+1. Search n8n MCP GitHub issues, documentation, release notes
+2. Test known failures in development environment
+3. Update this section when any issue is resolved
+4. Document new safe workflows when fixes are confirmed
+
+**Last checked:** 2026-01-12
+**Next check:** 2026-01-14
+
+### RULE 1: Never Delete Before Testing (CRITICAL)
+
+**WRONG workflow:**
+```
+1. Delete old workflow
+2. Create new workflow
+3. Test new workflow ← IF THIS FAILS, production is broken
+```
+
+**CORRECT workflow:**
+```
+1. Create new workflow with different name (e.g., "workflow_name_v2")
+2. Test new workflow thoroughly
+3. Verify webhook responds, execution succeeds, output correct
+4. ONLY AFTER CONFIRMED WORKING → delete old workflow
+5. Rename new workflow if needed
+```
+
+**Rationale:**
+- If creation fails → old workflow still works
+- If creation succeeds but has bugs → old workflow is reference
+- Zero downtime deployment possible
+- Easy rollback if needed
+
+**Exception:** NONE. This rule has NO exceptions.
+
+### RULE 2: Webhook Activation Verification (CRITICAL)
+
+**After creating ANY workflow with webhook trigger:**
+
+1. **Get workflow status:**
+   ```
+   n8n_get_workflow({id: "workflow_id", mode: "minimal"})
+   ```
+
+2. **Check if active:**
+   - If `active: true` → Test webhook with curl
+   - If `active: false` → Notify user
+
+3. **Test webhook responds:**
+   ```bash
+   curl -X POST "https://visionairy.app.n8n.cloud/webhook/[path]" \
+     -H "Content-Type: application/json" \
+     -d '{"test": "data"}'
+   ```
+
+4. **If webhook doesn't respond (404, timeout, etc.):**
+   ```
+   ⚠️ WEBHOOK NOT REGISTERED
+
+   The workflow was created but the webhook is not active.
+
+   REQUIRED ACTION:
+   1. Go to n8n: https://visionairy.app.n8n.cloud
+   2. Open workflow: [workflow_name] (ID: [workflow_id])
+   3. Click on the Webhook node
+   4. Click "Delete" on the webhook node
+   5. Press Cmd/Ctrl+Z to undo (this re-registers the webhook)
+   6. Click "Save" button
+   7. Toggle workflow to ACTIVE
+
+   Let me know when you've done this and I'll test again.
+   ```
+
+**Rationale:** Webhook registration is unreliable via API. Manual intervention prevents production failures.
+
+### RULE 3: JS Code Node Changes – Copy/Paste Method (CRITICAL)
+
+**If change affects ONLY ONE JS Code node:**
+
+1. **Create a .js file for copy/paste:**
+   ```
+   I've created the updated code in a file you can copy/paste.
+
+   File: /home/visionairy/StockerAI/workflows/[node_name]_update.js
+
+   STEPS:
+   1. Open that file in VS Code
+   2. Copy the entire contents (Ctrl+A, Ctrl+C)
+   3. Go to n8n workflow: [workflow_name]
+   4. Open the "[Node Name]" Code node
+   5. Delete all existing code
+   6. Paste the new code (Ctrl+V)
+   7. Click "Save"
+   8. Test the workflow
+   ```
+
+2. **NEVER use partial update for JS Code nodes** - known to corrupt syntax
+
+**If change affects MULTIPLE nodes:**
+
+1. **Ask user preference:**
+   ```
+   This change affects [N] nodes: [list node names]
+
+   OPTIONS:
+   1. Create [N] separate .js files for manual copy/paste (safest)
+   2. Delete old workflow + create new workflow (requires testing)
+   3. Provide step-by-step manual edit instructions
+
+   Which do you prefer?
+   ```
+
+**Rationale:** Partial updates have corrupted workflows in production. Copy/paste is 100% reliable.
+
+### RULE 4: IF/Switch/Merge Node Connection Verification (CRITICAL)
+
+**When creating workflow with IF, Switch, or Merge nodes:**
+
+1. **After creation, analyze structure:**
+   ```
+   n8n_get_workflow({id: "workflow_id", mode: "structure"})
+   ```
+
+2. **Verify connections for each branching node:**
+   - IF node: Verify `true` and `false` branches connect to correct downstream nodes
+   - Switch node: Verify each case connects to correct downstream node
+   - Merge node: Verify `chooseBranch` vs `combine` mode, verify all inputs connected
+
+3. **If any connection looks wrong:**
+   ```
+   ⚠️ POSSIBLE CONNECTION ISSUE DETECTED
+
+   The [Node Type] node "[Node Name]" may have incorrect connections.
+
+   EXPECTED:
+   - [Branch/Case] → [Expected Node]
+
+   ACTUAL:
+   - [Branch/Case] → [Actual Node]
+
+   REQUIRED ACTION:
+   1. Go to n8n workflow: [workflow_name]
+   2. Click on "[Node Name]" node
+   3. Verify connections:
+      - [Specific connection to check]
+      - [Specific connection to check]
+   4. If incorrect, drag connection to correct node
+   5. Save workflow
+
+   Let me know when verified and I'll proceed with testing.
+   ```
+
+4. **For Switch/IF nodes, notify on creation:**
+   ```
+   ✅ Workflow created with IF/Switch node
+
+   PLEASE VERIFY CONNECTIONS:
+   1. Open workflow: [workflow_name] in n8n
+   2. Click on "[Node Name]" IF/Switch node
+   3. Confirm branches connect correctly:
+      - [Branch 1] → [Node Name]
+      - [Branch 2] → [Node Name]
+   4. If connections are wrong, manually reconnect
+
+   Reply "connections verified" when done.
+   ```
+
+**Rationale:** API-created branch nodes have unreliable connection logic. Manual verification prevents logic errors.
+
+### Integration with Existing Rules
+
+**Section 0.5.3 (Three Gates):**
+- GATE 3 (Isolated Testing) now includes: "Verify no workflow corruption per Section 2.6"
+
+**Section 5.7 (Fix Specification):**
+- Rollback MUST include: "Restore old workflow ID if new one fails"
+
+**Section 5.8 (Systematic Testing):**
+- New workflow creation triggers: "Webhook verification, branch connection verification"
+
 ---
 
 # 3. COMMUNICATION RULES
