@@ -589,6 +589,12 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
       try {
         console.log(`[Tools] Calling ${name}:`, { args, endpoint: `${N8N_BASE}${path}` });
 
+        // Check if 2-item mode is enabled
+        const callTwoItems = localStorage.getItem('stocker-call-two-items') === 'true';
+
+        // Add count parameter for workflows that support it
+        const shouldAddCount = callTwoItems && (name === 'start_machine' || name === 'get_next_item');
+
         // PRIORITY 1.3: Use retry logic for webhook calls
         const resp = await fetchWithRetry(`${N8N_BASE}${path}`, {
           method: 'POST',
@@ -596,6 +602,7 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
           body: JSON.stringify({
             session_id: sessionIdRef.current,
             user_id: userIdRef.current,
+            ...(shouldAddCount ? { count: 2 } : {}),
             ...args
           })
         });
@@ -613,110 +620,7 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
         let result = await resp.json();
         console.log(`[Tools] ${name} succeeded:`, result);
 
-        // FEATURE: 2-Pick Mode - Call get_next_item twice when enabled
-        if (name === 'get_next_item') {
-          const callTwoItems = localStorage.getItem('stocker-call-two-items') === 'true';
-
-          if (callTwoItems && result.action === 'next_item' && result.spoken) {
-            console.log('[Tools] 2-Pick Mode enabled - fetching second item');
-
-            try {
-              // Call get_next_item again for the second item
-              const resp2 = await fetchWithRetry(`${N8N_BASE}${path}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  session_id: sessionIdRef.current,
-                  user_id: userIdRef.current,
-                  ...args
-                })
-              });
-
-              if (resp2.ok) {
-                const result2 = await resp2.json();
-                console.log('[Tools] Second item fetched:', result2);
-
-                // Combine the two spoken responses if second item exists
-                if (result2.action === 'next_item' && result2.spoken) {
-                  result = {
-                    ...result,
-                    spoken: `${result.spoken}, ${result2.spoken}`,
-                    item1: {
-                      product: result.product_name,
-                      quantity: result.quantity,
-                      slot: result.slot,
-                      slot_spoken: result.slot_spoken
-                    },
-                    item2: {
-                      product: result2.product_name,
-                      quantity: result2.quantity,
-                      slot: result2.slot,
-                      slot_spoken: result2.slot_spoken
-                    }
-                  };
-                  console.log('[Tools] Combined 2-pick response:', result.spoken);
-                } else if (result2.action === 'next_machine') {
-                  // If second call returns next_machine, keep original result
-                  // (means we're at the end of current machine)
-                  console.log('[Tools] Second call hit machine boundary - using single item');
-                }
-              }
-            } catch (e: any) {
-              // If second item fails, just use the first one
-              console.warn('[Tools] Second item fetch failed, using single item:', e);
-            }
-          }
-        }
-
-        // FEATURE: 2-Pick Mode for start_machine
-        if (name === 'start_machine') {
-          const callTwoItems = localStorage.getItem('stocker-call-two-items') === 'true';
-
-          if (callTwoItems && result.action === 'next_item' && result.spoken) {
-            console.log('[Tools] 2-Pick Mode enabled for start_machine - fetching second item');
-
-            try {
-              // Call get_next_item to get the second item
-              const resp2 = await fetchWithRetry(`${N8N_BASE}/next-item-optimized`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  session_id: sessionIdRef.current,
-                  user_id: userIdRef.current
-                })
-              });
-
-              if (resp2.ok) {
-                const result2 = await resp2.json();
-                console.log('[Tools] Second item fetched after start_machine:', result2);
-
-                if (result2.action === 'next_item' && result2.spoken) {
-                  result = {
-                    ...result,
-                    spoken: `${result.spoken}, ${result2.spoken}`,
-                    item1: {
-                      product: result.product_name,
-                      quantity: result.quantity,
-                      slot: result.slot,
-                      slot_spoken: result.slot_spoken
-                    },
-                    item2: {
-                      product: result2.product_name,
-                      quantity: result2.quantity,
-                      slot: result2.slot,
-                      slot_spoken: result2.slot_spoken
-                    }
-                  };
-                  console.log('[Tools] Combined 2-pick response for start_machine:', result.spoken);
-                } else if (result2.action === 'next_machine') {
-                  console.log('[Tools] Second call hit machine boundary - using single item');
-                }
-              }
-            } catch (e: any) {
-              console.warn('[Tools] Second item fetch failed for start_machine, using single item:', e);
-            }
-          }
-        }
+        // Workflow now returns item2 directly when count=2
 
         onResult?.(name, result);
         results.push({ tool_call_id: tc.id, result });
