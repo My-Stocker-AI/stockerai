@@ -213,7 +213,7 @@ const TOOLS = [
 const WEBHOOK_MAP: Record<string, string> = {
   'get_routes_for_date': '/get-routes',
   'set_route_sequence': '/set-sequence',
-  'get_next_item': '/next-item',
+  'get_next_item': '/next-item-optimized', // Edge Function version - 400-600ms faster
   'get_current_status': '/status',
   'update_session_state': '/update-state',
   'start_machine': '/start-machine',
@@ -677,7 +677,7 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
 
             try {
               // Call get_next_item to get the second item
-              const resp2 = await fetchWithRetry(`${N8N_BASE}/next-item`, {
+              const resp2 = await fetchWithRetry(`${N8N_BASE}/next-item-optimized`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
