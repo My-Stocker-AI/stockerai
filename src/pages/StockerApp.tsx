@@ -857,7 +857,7 @@ export default function StockerApp() {
           console.log('[Stocker] Navigation type:', isRefresh ? 'refresh' : 'new');
 
           if (isRefresh) {
-            // AUTO-RESUME on page refresh (e.g., pull-to-refresh)
+            // AUTO-RESUME on page refresh (e.g., pull-to-refresh, desktop F5)
             // Don't interrupt user with dialog - seamlessly continue where they left off
             console.log('[Stocker] Auto-resuming session after page refresh');
             setSavedSession(saved);
@@ -877,6 +877,26 @@ export default function StockerApp() {
               completedItems: saved.completedItems,
               machines: saved.machines || []
             });
+
+            // Restore conversation history
+            if (saved.conversationHistory && Array.isArray(saved.conversationHistory)) {
+              setMessages(sanitizeConversationHistory(saved.conversationHistory));
+            }
+
+            // CRITICAL: Restart voice system after refresh
+            await voice.startListening();
+
+            // Announce resume to user
+            const item = saved.currentItem;
+            if (item?.product) {
+              const msg = `Welcome back! Resuming ${saved.routeName}. Current item: ${item.quantity} ${item.product}, ${item.slot_spoken || item.slot}.`;
+              setAiResponse(msg);
+              await voice.speak(msg);
+            } else {
+              const msg = `Welcome back! Resuming ${saved.routeName}.`;
+              setAiResponse(msg);
+              await voice.speak(msg);
+            }
 
             setInitialized(true);
             setShowResumeDialog(false);
@@ -1019,8 +1039,8 @@ export default function StockerApp() {
           // SINGLE ROUTE: One smooth greeting that includes everything
           const routeName = names[0];
           const greeting = dateLabel === 'today'
-            ? `Hi ${userName}! You've got ${routeName} today. Starting now.`
-            : `Hi ${userName}! You've got ${routeName} for tomorrow. Starting now.`;
+            ? `Hi ${userName}! You've got ${routeName} today. Ready to go?`
+            : `Hi ${userName}! You've got ${routeName} for tomorrow. Ready to go?`;
           setAiResponse(greeting);
           addMessage({ role: 'assistant', content: greeting });
           await voice.speak(greeting);
