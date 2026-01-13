@@ -1,4 +1,5 @@
 import { useCallback, useRef } from 'react';
+import { supabase } from '@/integrations/supabase/client';
 
 const N8N_BASE = 'https://visionairy.app.n8n.cloud/webhook';
 
@@ -618,52 +619,133 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
           const callTwoItems = localStorage.getItem('stocker-call-two-items') === 'true';
 
           if (callTwoItems && result.action === 'next_item' && result.spoken) {
-            console.log('[Tools] 2-Pick Mode enabled - fetching second item');
+            console.log('[Tools] 2-Pick Mode enabled - fetching second item from database');
 
             try {
-              // Call get_next_item again for the second item
-              const resp2 = await fetchWithRetry(`${N8N_BASE}${path}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  session_id: sessionIdRef.current,
-                  user_id: userIdRef.current,
-                  ...args
-                })
-              });
+              // CRITICAL FIX: Query database directly instead of calling workflow
+              // Calling workflow twice marks both items as completed (bug!)
+              // We only want item1 marked as done, and PEEK at item2
 
-              if (resp2.ok) {
-                const result2 = await resp2.json();
-                console.log('[Tools] Second item fetched:', result2);
+              // Get current session
+              const { data: sessionData } = await supabase
+                .from('sessions')
+                .select('current_machine_id, pick_direction, current_item_index')
+                .eq('user_id', userIdRef.current)
+                .eq('status', 'stocking')
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
 
-                // Combine the two spoken responses if second item exists
-                if (result2.action === 'next_item' && result2.spoken) {
-                  result = {
-                    ...result,
-                    spoken: `${result.spoken}, ${result2.spoken}`,
-                    item1: {
-                      product: result.product_name,
-                      quantity: result.quantity,
-                      slot: result.slot,
-                      slot_spoken: result.slot_spoken
-                    },
-                    item2: {
-                      product: result2.product_name,
-                      quantity: result2.quantity,
-                      slot: result2.slot,
-                      slot_spoken: result2.slot_spoken
+              if (sessionData?.current_machine_id) {
+                // Get all items for this machine
+                const { data: items } = await supabase
+                  .from('items')
+                  .select('id, product_name, quantity, slot, sequence, inventory_current, inventory_parlevel')
+                  .eq('machine_id', sessionData.current_machine_id)
+                  .order('sequence', { ascending: true });
+
+                if (items && items.length > 0) {
+                  // Find item2 based on current position
+                  let item2Data = null;
+                  const currentIndex = sessionData.current_item_index || 1;
+
+                  if (sessionData.pick_direction === 'reverse') {
+                    // Going from bottom to top
+                    const currentSequence = items.length - currentIndex + 1;
+                    item2Data = items.find(item => item.sequence === currentSequence - 1);
+                  } else {
+                    // Going from top to bottom
+                    item2Data = items.find(item => item.sequence === currentIndex + 1);
+                  }
+
+                  if (item2Data) {
+                    // Parse and format item2 (same logic as workflow)
+                    const parseProduct = (productName: string) => {
+                      if (!productName) return { name: '', size: '', type: '' };
+                      const text = productName.trim();
+                      const sizePattern = /(\d+(?:\.\d+)?)\s*(oz|ounce|ml|g|gram|ct|count|pk|pack)/gi;
+                      const sizeMatch = sizePattern.exec(text);
+                      const size = sizeMatch ? sizeMatch[0] : '';
+                      const typePattern = /\b(can|bottle|bag|box|bar|pouch|packet|pack)\b/gi;
+                      const typeMatch = typePattern.exec(text);
+                      const type = typeMatch ? typeMatch[0] : '';
+                      let name = text;
+                      if (size) name = name.replace(sizePattern, '').trim();
+                      if (type) {
+                        const typeWord = typeMatch![0];
+                        name = name.replace(new RegExp('\\s*' + typeWord + '\\s*$', 'gi'), '');
+                        name = name.replace(new RegExp('\\s*' + typeWord + '\\s*-', 'gi'), ' -');
+                      }
+                      name = name.replace(/\s+/g, ' ').trim().replace(/\s*-\s*$/, '').replace(/\(\s*\)/, '').trim();
+                      return { name, size, type };
+                    };
+
+                    const fixPronunciation = (text: string) => {
+                      if (!text) return text;
+                      return text
+                        .replace(/\bCan\b/g, 'Kan')
+                        .replace(/\bCAN\b/g, 'KAN')
+                        .replace(/\boz\b/gi, 'ounce')
+                        .replace(/\bct\b/gi, 'count')
+                        .replace(/\bpk\b/gi, 'pack');
+                    };
+
+                    const formatSlotForTTS = (slot: string) => {
+                      if (!slot) return null;
+                      const slotStr = String(slot);
+                      if (slotStr.includes('-')) {
+                        const parts = slotStr.split('-');
+                        const first = parseInt(parts[0], 10);
+                        const second = parseInt(parts[1], 10);
+                        if (!isNaN(first) && !isNaN(second)) {
+                          return `slots ${first} and ${second}`;
+                        }
+                      }
+                      const num = parseInt(slotStr, 10);
+                      return !isNaN(num) ? `slot ${num}` : slotStr;
+                    };
+
+                    const parsed = parseProduct(item2Data.product_name);
+                    const slotSpoken = formatSlotForTTS(item2Data.slot);
+                    const parts = [item2Data.quantity];
+                    if (parsed.name) parts.push(fixPronunciation(parsed.name));
+                    if (parsed.size) parts.push(fixPronunciation(parsed.size));
+                    if (parsed.type) {
+                      const typeLower = parsed.type.toLowerCase();
+                      const nameLower = parsed.name.toLowerCase();
+                      if (!nameLower.includes(typeLower)) {
+                        parts.push(fixPronunciation(parsed.type));
+                      }
                     }
-                  };
-                  console.log('[Tools] Combined 2-pick response:', result.spoken);
-                } else if (result2.action === 'next_machine') {
-                  // If second call returns next_machine, keep original result
-                  // (means we're at the end of current machine)
-                  console.log('[Tools] Second call hit machine boundary - using single item');
+                    const item2Spoken = parts.join(' ');
+
+                    result = {
+                      ...result,
+                      spoken: `${result.spoken}, ${item2Spoken}`,
+                      item1: {
+                        product: result.product_name,
+                        quantity: result.quantity,
+                        slot: result.slot,
+                        slot_spoken: result.slot_spoken
+                      },
+                      item2: {
+                        product: item2Data.product_name,
+                        product_name: item2Data.product_name,
+                        quantity: item2Data.quantity,
+                        slot: item2Data.slot,
+                        slot_spoken: slotSpoken,
+                        inventory_current: item2Data.inventory_current || 0,
+                        inventory_parlevel: item2Data.inventory_parlevel || 0
+                      }
+                    };
+                    console.log('[Tools] Combined 2-pick response (DB query):', result.spoken);
+                  } else {
+                    console.log('[Tools] No second item available - using single item');
+                  }
                 }
               }
             } catch (e: any) {
-              // If second item fails, just use the first one
-              console.warn('[Tools] Second item fetch failed, using single item:', e);
+              console.warn('[Tools] Second item fetch from database failed, using single item:', e);
             }
           }
         }
@@ -673,47 +755,133 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
           const callTwoItems = localStorage.getItem('stocker-call-two-items') === 'true';
 
           if (callTwoItems && result.action === 'next_item' && result.spoken) {
-            console.log('[Tools] 2-Pick Mode enabled for start_machine - fetching second item');
+            console.log('[Tools] 2-Pick Mode enabled for start_machine - fetching second item from database');
 
             try {
-              // Call get_next_item to get the second item
-              const resp2 = await fetchWithRetry(`${N8N_BASE}/next-item-optimized`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  session_id: sessionIdRef.current,
-                  user_id: userIdRef.current
-                })
-              });
+              // CRITICAL FIX: Query database directly instead of calling workflow
+              // Calling the workflow marks item1 as completed (bug!)
+              // We just want to PEEK at item2 without advancing state
 
-              if (resp2.ok) {
-                const result2 = await resp2.json();
-                console.log('[Tools] Second item fetched after start_machine:', result2);
+              // Get current session to know machine_id and direction
+              const { data: sessionData } = await supabase
+                .from('sessions')
+                .select('current_machine_id, pick_direction, current_item_index')
+                .eq('user_id', userIdRef.current)
+                .eq('status', 'stocking')
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
 
-                if (result2.action === 'next_item' && result2.spoken) {
-                  result = {
-                    ...result,
-                    spoken: `${result.spoken}, ${result2.spoken}`,
-                    item1: {
-                      product: result.product_name,
-                      quantity: result.quantity,
-                      slot: result.slot,
-                      slot_spoken: result.slot_spoken
-                    },
-                    item2: {
-                      product: result2.product_name,
-                      quantity: result2.quantity,
-                      slot: result2.slot,
-                      slot_spoken: result2.slot_spoken
+              if (sessionData?.current_machine_id) {
+                // Get all items for this machine
+                const { data: items } = await supabase
+                  .from('items')
+                  .select('id, product_name, quantity, slot, sequence, inventory_current, inventory_parlevel')
+                  .eq('machine_id', sessionData.current_machine_id)
+                  .order('sequence', { ascending: true });
+
+                if (items && items.length > 0) {
+                  // Find item2 based on direction
+                  let item2Data = null;
+                  const currentIndex = sessionData.current_item_index || 1;
+
+                  if (sessionData.pick_direction === 'reverse') {
+                    // Going from bottom to top: next item is one position UP (lower sequence)
+                    const currentSequence = items.length - currentIndex + 1;
+                    item2Data = items.find(item => item.sequence === currentSequence - 1);
+                  } else {
+                    // Going from top to bottom: next item is currentIndex + 1
+                    item2Data = items.find(item => item.sequence === currentIndex + 1);
+                  }
+
+                  if (item2Data) {
+                    // Parse and format item2 (same logic as workflow)
+                    const parseProduct = (productName: string) => {
+                      if (!productName) return { name: '', size: '', type: '' };
+                      const text = productName.trim();
+                      const sizePattern = /(\d+(?:\.\d+)?)\s*(oz|ounce|ml|g|gram|ct|count|pk|pack)/gi;
+                      const sizeMatch = sizePattern.exec(text);
+                      const size = sizeMatch ? sizeMatch[0] : '';
+                      const typePattern = /\b(can|bottle|bag|box|bar|pouch|packet|pack)\b/gi;
+                      const typeMatch = typePattern.exec(text);
+                      const type = typeMatch ? typeMatch[0] : '';
+                      let name = text;
+                      if (size) name = name.replace(sizePattern, '').trim();
+                      if (type) {
+                        const typeWord = typeMatch![0];
+                        name = name.replace(new RegExp('\\s*' + typeWord + '\\s*$', 'gi'), '');
+                        name = name.replace(new RegExp('\\s*' + typeWord + '\\s*-', 'gi'), ' -');
+                      }
+                      name = name.replace(/\s+/g, ' ').trim().replace(/\s*-\s*$/, '').replace(/\(\s*\)/, '').trim();
+                      return { name, size, type };
+                    };
+
+                    const fixPronunciation = (text: string) => {
+                      if (!text) return text;
+                      return text
+                        .replace(/\bCan\b/g, 'Kan')
+                        .replace(/\bCAN\b/g, 'KAN')
+                        .replace(/\boz\b/gi, 'ounce')
+                        .replace(/\bct\b/gi, 'count')
+                        .replace(/\bpk\b/gi, 'pack');
+                    };
+
+                    const formatSlotForTTS = (slot: string) => {
+                      if (!slot) return null;
+                      const slotStr = String(slot);
+                      if (slotStr.includes('-')) {
+                        const parts = slotStr.split('-');
+                        const first = parseInt(parts[0], 10);
+                        const second = parseInt(parts[1], 10);
+                        if (!isNaN(first) && !isNaN(second)) {
+                          return `slots ${first} and ${second}`;
+                        }
+                      }
+                      const num = parseInt(slotStr, 10);
+                      return !isNaN(num) ? `slot ${num}` : slotStr;
+                    };
+
+                    const parsed = parseProduct(item2Data.product_name);
+                    const slotSpoken = formatSlotForTTS(item2Data.slot);
+                    const parts = [item2Data.quantity];
+                    if (parsed.name) parts.push(fixPronunciation(parsed.name));
+                    if (parsed.size) parts.push(fixPronunciation(parsed.size));
+                    if (parsed.type) {
+                      const typeLower = parsed.type.toLowerCase();
+                      const nameLower = parsed.name.toLowerCase();
+                      if (!nameLower.includes(typeLower)) {
+                        parts.push(fixPronunciation(parsed.type));
+                      }
                     }
-                  };
-                  console.log('[Tools] Combined 2-pick response for start_machine:', result.spoken);
-                } else if (result2.action === 'next_machine') {
-                  console.log('[Tools] Second call hit machine boundary - using single item');
+                    const item2Spoken = parts.join(' ');
+
+                    result = {
+                      ...result,
+                      spoken: `${result.spoken}, ${item2Spoken}`,
+                      item1: {
+                        product: result.product_name,
+                        quantity: result.quantity,
+                        slot: result.slot,
+                        slot_spoken: result.slot_spoken
+                      },
+                      item2: {
+                        product: item2Data.product_name,
+                        product_name: item2Data.product_name,
+                        quantity: item2Data.quantity,
+                        slot: item2Data.slot,
+                        slot_spoken: slotSpoken,
+                        inventory_current: item2Data.inventory_current || 0,
+                        inventory_parlevel: item2Data.inventory_parlevel || 0
+                      }
+                    };
+                    console.log('[Tools] Combined 2-pick response for start_machine (DB query):', result.spoken);
+                  } else {
+                    console.log('[Tools] No second item available - using single item');
+                  }
                 }
               }
             } catch (e: any) {
-              console.warn('[Tools] Second item fetch failed for start_machine, using single item:', e);
+              console.warn('[Tools] Second item fetch from database failed, using single item:', e);
             }
           }
         }
