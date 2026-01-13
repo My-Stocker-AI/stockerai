@@ -1,10 +1,19 @@
 # Stocker AI – Source of Truth
-**Last Updated:** 2026-01-13 (Session 37 - 2-Item Mode Fix)
-**Status:** ✅ DEPLOYED - 2-item mode UI and completedItems tracking fixed
+**Last Updated:** 2026-01-13 (Session 37 - Multi-Fix: 2-Item Mode + Greeting + Refresh)
+**Status:** ✅ DEPLOYED - All fixes live
 
 ---
 
-## ✅ SESSION 37: 2-ITEM MODE FIX (2026-01-13)
+## ✅ SESSION 37: MULTI-FIX SESSION (2026-01-13)
+
+Three separate issues identified and fixed in this session:
+1. **2-Item Mode UI/Tracking** (Commit 1792116) - First pick + Done card issues
+2. **Greeting Prompt** (Commit ff7dd32) - "Starting now." → "Ready to go?"
+3. **Desktop Refresh Resume** (Commit ff7dd32) - Voice system not restarting on refresh
+
+---
+
+### Fix 1: 2-Item Mode UI and Completed Items ✅ (Commit 1792116)
 
 ### User Report
 **Issue 1:** "The two item pick and pick card display are working. But only after the first pick. The first pick is only announcing and displaying one item, otherwise seems to be working"
@@ -99,6 +108,114 @@ if (prev.currentItem && prev.currentItem.slot) {
 - ✅ Done card shows ALL items (2 per pick in 2-item mode)
 - ✅ Session persistence preserves both items on reload
 - ✅ Repeat command still works (uses lastItemPair)
+
+---
+
+### Fix 2: Greeting Should Prompt Response ✅ (Commit ff7dd32)
+
+**User Report:** "Rather than '...starting now.' and waiting for a response, shouldn't it be a query, like '...Ready to go?' so it prompts a response?"
+
+**Issue:** Single-route greeting said "Starting now." which didn't invite user interaction.
+
+**Root Cause:** Greeting was declarative instead of interrogative.
+
+**Fix (StockerApp.tsx:1022-1023):**
+```typescript
+// BEFORE:
+const greeting = `Hi ${userName}! You've got ${routeName} today. Starting now.`;
+
+// AFTER:
+const greeting = `Hi ${userName}! You've got ${routeName} today. Ready to go?`;
+```
+
+**Impact:** More conversational, prompts user to respond (e.g., "yes", "let's go", "start", etc.)
+
+**Deployment:**
+- **Commit:** `ff7dd32` - "Fix greeting prompt and desktop refresh resume"
+- **Status:** ✅ Deployed
+
+---
+
+### Fix 3: Desktop Refresh Loses Session State ✅ (Commit ff7dd32)
+
+**User Report:** "I had paused and then had to refresh the screen from going to another window and talking to you. When I refreshed, it started the whole route over instead of maintaining the state from before, or asking the user if they wanted to start over or continue from the preserved state that was supposed to be there."
+
+**Issue:** Desktop refresh (F5, browser refresh button, window focus) appeared to "start route over" instead of resuming.
+
+**Root Cause Analysis:**
+
+**Boundary Trace:**
+1. User refreshes page (F5, browser refresh, window focus)
+2. Session persistence loads saved state ✓
+3. `isRefresh` detection works correctly (`performance.getEntriesByType('navigation')`) ✓
+4. RouteState restored from session ✓
+5. But `voice.startListening()` never called ❌
+6. User sees restored UI but voice system is dead
+7. User can't interact with voice → thinks it "started over"
+
+**The Code Gap (Lines 859-882 BEFORE fix):**
+```typescript
+if (isRefresh) {
+  console.log('[Stocker] Auto-resuming session after page refresh');
+  // Restore RouteState ✓
+  setRouteState({...saved});
+  setInitialized(true);
+  setShowResumeDialog(false);
+  // ❌ NO voice.startListening() call!
+  // ❌ NO resume announcement!
+}
+```
+
+**Fix Applied (StockerApp.tsx:859-893):**
+```typescript
+if (isRefresh) {
+  // Restore session state
+  setRouteState({...saved});
+
+  // Restore conversation history
+  if (saved.conversationHistory && Array.isArray(saved.conversationHistory)) {
+    setMessages(sanitizeConversationHistory(saved.conversationHistory));
+  }
+
+  // CRITICAL: Restart voice system after refresh
+  await voice.startListening();
+
+  // Announce resume to user with context
+  const item = saved.currentItem;
+  if (item?.product) {
+    const msg = `Welcome back! Resuming ${saved.routeName}. Current item: ${item.quantity} ${item.product}, ${item.slot_spoken || item.slot}.`;
+    setAiResponse(msg);
+    await voice.speak(msg);
+  } else {
+    const msg = `Welcome back! Resuming ${saved.routeName}.`;
+    setAiResponse(msg);
+    await voice.speak(msg);
+  }
+
+  setInitialized(true);
+  setShowResumeDialog(false);
+}
+```
+
+**What Now Happens:**
+1. User refreshes page ✓
+2. Session state restored ✓
+3. Conversation history restored ✓
+4. Voice system restarted (`voice.startListening()`) ✓
+5. User hears "Welcome back! Resuming {route}. Current item: {item details}" ✓
+6. User can immediately interact with voice ✓
+
+**Deployment:**
+- **Commit:** `ff7dd32` - "Fix greeting prompt and desktop refresh resume"
+- **Status:** ✅ Deployed
+
+**Testing Expected:**
+- ✅ Desktop F5 refresh resumes properly
+- ✅ Browser refresh button resumes properly
+- ✅ Mobile pull-to-refresh resumes properly
+- ✅ Voice system active immediately after refresh
+- ✅ User hears resume announcement with current item context
+- ✅ No "start over" experience
 
 ---
 
