@@ -32,6 +32,7 @@ export interface RouteState {
   currentMachineName: string | null;
   currentMachineId: string | null;
   currentItem: CurrentItem | null;
+  currentItem2: CurrentItem | null;  // Second item in 2-pick mode
   completedItems: CurrentItem[];
   machines: MachineState[];
   completed: boolean;
@@ -46,6 +47,7 @@ const INITIAL_STATE: RouteState = {
   currentMachineName: null,
   currentMachineId: null,
   currentItem: null,
+  currentItem2: null,
   completedItems: [],
   machines: [],
   completed: false
@@ -85,6 +87,7 @@ export function useStockerSession(userId: string | null) {
         next.currentMachineName = result.machine_name || '';
         next.currentMachineId = result.machine_id || null;
         next.currentItem = null;
+        next.currentItem2 = null;
         next.completedItems = [];
         next.completed = false;
         // Store machines list from workflow
@@ -102,7 +105,7 @@ export function useStockerSession(userId: string | null) {
       }
 
       if (toolName === 'start_machine') {
-        // Handle 2-pick mode: if item1 exists, use it (item2 is handled separately in UI via lastItemPair)
+        // Handle 2-pick mode: item1 and optionally item2
         const itemData = result.item1 || result;
         next.currentItem = {
           product: itemData.product || itemData.product_name || '',
@@ -113,20 +116,43 @@ export function useStockerSession(userId: string | null) {
           inventory_parlevel: itemData.inventory_parlevel || result.inventory_parlevel,
           machineName: prev.currentMachineName || ''
         };
+
+        // 2-pick mode: Set second item if present
+        if (result.item2) {
+          next.currentItem2 = {
+            product: result.item2.product || result.item2.product_name || '',
+            quantity: result.item2.quantity || 0,
+            slot: result.item2.slot || '',
+            slot_spoken: result.item2.slot_spoken || result.item2.slot || '',
+            inventory_current: result.item2.inventory_current,
+            inventory_parlevel: result.item2.inventory_parlevel,
+            machineName: prev.currentMachineName || ''
+          };
+        } else {
+          next.currentItem2 = null;
+        }
       }
 
       if (toolName === 'get_next_item') {
         const action = result.action || '';
 
         if (action === 'next_item' || action === 'next_machine' || action === 'route_complete') {
-          // Add current item to completed list if it exists
+          // Add current item(s) to completed list (2-pick mode: add both if present)
+          const itemsToAdd: CurrentItem[] = [];
           if (prev.currentItem && prev.currentItem.slot) {
-            next.completedItems = [...prev.completedItems, prev.currentItem];
+            itemsToAdd.push(prev.currentItem);
+          }
+          if (prev.currentItem2 && prev.currentItem2.slot) {
+            itemsToAdd.push(prev.currentItem2);
+          }
+
+          if (itemsToAdd.length > 0) {
+            next.completedItems = [...prev.completedItems, ...itemsToAdd];
             // Update machine's completedItems count
             if (prev.currentMachineId) {
               next.machines = prev.machines.map(m =>
                 m.id === prev.currentMachineId
-                  ? { ...m, completedItems: m.completedItems + 1 }
+                  ? { ...m, completedItems: m.completedItems + itemsToAdd.length }
                   : m
               );
             }
@@ -135,7 +161,7 @@ export function useStockerSession(userId: string | null) {
 
         if (action === 'next_item') {
           const machineName = result.machine_name || prev.currentMachineName || '';
-          // Handle 2-pick mode: if item1 exists, use it (item2 is handled separately in UI via lastItemPair)
+          // Handle 2-pick mode: item1 and optionally item2
           const itemData = result.item1 || result;
           next.currentItem = {
             product: itemData.product || itemData.product_name || '',
@@ -146,6 +172,22 @@ export function useStockerSession(userId: string | null) {
             inventory_parlevel: itemData.inventory_parlevel || result.inventory_parlevel,
             machineName: machineName
           };
+
+          // 2-pick mode: Set second item if present
+          if (result.item2) {
+            next.currentItem2 = {
+              product: result.item2.product || result.item2.product_name || '',
+              quantity: result.item2.quantity || 0,
+              slot: result.item2.slot || '',
+              slot_spoken: result.item2.slot_spoken || result.item2.slot || '',
+              inventory_current: result.item2.inventory_current,
+              inventory_parlevel: result.item2.inventory_parlevel,
+              machineName: machineName
+            };
+          } else {
+            next.currentItem2 = null;
+          }
+
           next.currentMachineIndex = result.machine_index || prev.currentMachineIndex;
           next.currentMachineName = machineName;
         } else if (action === 'next_machine') {
@@ -161,6 +203,7 @@ export function useStockerSession(userId: string | null) {
           next.currentMachineName = result.next_machine || '';
           next.currentMachineId = result.next_machine_id || null;
           next.currentItem = null;
+          next.currentItem2 = null;
           // Mark next machine as in_progress
           if (result.next_machine_id) {
             next.machines = next.machines.map(m =>
@@ -179,6 +222,7 @@ export function useStockerSession(userId: string | null) {
             );
           }
           next.currentItem = null;
+          next.currentItem2 = null;
           next.completed = true;
         }
       }
@@ -197,6 +241,7 @@ export function useStockerSession(userId: string | null) {
         next.currentMachineName = result.next_machine || '';
         next.currentMachineId = result.next_machine_id || null;
         next.currentItem = null;
+        next.currentItem2 = null;
         // Mark next machine as in_progress
         if (result.next_machine_id) {
           next.machines = next.machines.map(m =>

@@ -17,6 +17,7 @@ interface SessionData {
   currentMachineId: string | null;
   currentMachineName: string | null;
   currentItem: any;
+  currentItem2?: any;  // Second item in 2-pick mode
   completedItems: any[];
   completed: boolean;
   conversationHistory: any[];
