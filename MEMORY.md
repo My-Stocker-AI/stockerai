@@ -1,6 +1,104 @@
 # Stocker AI – Source of Truth
-**Last Updated:** 2026-01-12 (Session 36 - Webhook Failure Hotfix)
-**Status:** ⚠️ TESTING - get_next_item webhook reactivated, awaiting user test
+**Last Updated:** 2026-01-13 (Session 37 - 2-Item Mode Fix)
+**Status:** ✅ DEPLOYED - 2-item mode UI and completedItems tracking fixed
+
+---
+
+## ✅ SESSION 37: 2-ITEM MODE FIX (2026-01-13)
+
+### User Report
+**Issue 1:** "The two item pick and pick card display are working. But only after the first pick. The first pick is only announcing and displaying one item, otherwise seems to be working"
+
+**Issue 2:** "Also, I don't believe the Done card is accurately showing all picks announced, confirm"
+
+### Root Cause Analysis
+
+#### Issue 1: First Pick Shows Only 1 Item
+**Symptom:** First pick shows 1 item, subsequent picks show 2 items (but WRONG items)
+
+**Boundary Trace:**
+1. User says "next" (first time)
+2. Workflow returns `{ item1: {...}, item2: {...}, spoken: "..." }` ✓
+3. `updateFromTool` sets `routeState.currentItem = result.item1` ✓
+4. `setLastItemPair({ item1, item2 })` stores data for "repeat" command ✓
+5. React re-renders:
+   - First item: `routeState.currentItem` (item1) ✅
+   - Second item: `lastItemPair?.item2` (PREVIOUS pick's item2 = null on first pick) ❌
+
+**Root Cause:** UI rendered `lastItemPair.item2` (previous pick) instead of current pick's item2
+
+#### Issue 2: Done Card Missing Items
+**Symptom:** Only 1 item added to "Done" card per pick in 2-item mode (should be 2)
+
+**Root Cause in useStockerSession.ts:122-134:**
+```typescript
+// When "next" is called, only prev.currentItem added to completedItems:
+if (prev.currentItem && prev.currentItem.slot) {
+  next.completedItems = [...prev.completedItems, prev.currentItem];
+}
+// currentItem2 never added!
+```
+
+### Fix Applied (Commit 1792116)
+
+#### Changes to `useStockerSession.ts`:
+1. **Added `currentItem2` field to RouteState** (lines 26-39)
+   - Stores second item in 2-pick mode
+   - Initialized to null in INITIAL_STATE
+
+2. **Updated `start_machine` handler** (lines 104-130)
+   - Sets `currentItem2` from `result.item2` if present
+   - Sets to null if only 1 item returned
+
+3. **Updated `get_next_item` handler** (lines 136-180)
+   - **CRITICAL FIX:** Add BOTH currentItem and currentItem2 to completedItems:
+     ```typescript
+     const itemsToAdd: CurrentItem[] = [];
+     if (prev.currentItem && prev.currentItem.slot) {
+       itemsToAdd.push(prev.currentItem);
+     }
+     if (prev.currentItem2 && prev.currentItem2.slot) {
+       itemsToAdd.push(prev.currentItem2);
+     }
+     next.completedItems = [...prev.completedItems, ...itemsToAdd];
+     ```
+   - Sets new `currentItem2` from `result.item2`
+   - Clears `currentItem2 = null` on machine transitions
+
+4. **Cleared currentItem2 on state transitions**
+   - `next_machine`: Set currentItem2 = null
+   - `route_complete`: Set currentItem2 = null
+   - `skip_current_machine`: Set currentItem2 = null
+   - `set_route_sequence`: Set currentItem2 = null
+
+#### Changes to `StockerApp.tsx`:
+1. **Render second item from routeState.currentItem2** (lines 1598-1607)
+   - BEFORE: `lastItemPair?.item2` (wrong - previous pick)
+   - AFTER: `routeState.currentItem2` (correct - current pick)
+
+2. **Removed debug logging**
+   - Cleaned up console.log statements (root cause identified)
+
+3. **Save/restore currentItem2 in session persistence**
+   - Added to sessionData save object (line 192)
+   - Restored in auto-resume (line 868)
+   - Restored in resumeSession (line 917)
+
+#### Changes to `useSessionPersistence.ts`:
+1. **Added currentItem2 to SessionData interface** (line 21)
+   - Optional field: `currentItem2?: any;`
+
+### Deployment
+- **Commit:** `1792116` - "Fix 2-item mode UI display and completed items tracking"
+- **Timestamp:** 2026-01-13 11:58 AM
+- **Status:** ✅ Pushed to GitHub, auto-deployed via Cloudflare Pages
+
+### Testing Expected
+- ✅ First pick shows BOTH items immediately
+- ✅ Subsequent picks show correct 2 items (not previous pick's items)
+- ✅ Done card shows ALL items (2 per pick in 2-item mode)
+- ✅ Session persistence preserves both items on reload
+- ✅ Repeat command still works (uses lastItemPair)
 
 ---
 
