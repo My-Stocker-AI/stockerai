@@ -1,17 +1,18 @@
 # Stocker AI – Source of Truth
-**Last Updated:** 2026-01-13 (Session 37 - Multi-Fix: 5 Critical Bugs)
+**Last Updated:** 2026-01-13 (Session 37 - Multi-Fix: 6 Critical Bugs)
 **Status:** ✅ DEPLOYED - All fixes live
 
 ---
 
 ## ✅ SESSION 37: MULTI-FIX SESSION (2026-01-13)
 
-Five separate issues identified and fixed in this session:
+Six separate issues identified and fixed in this session:
 1. **2-Item Mode UI/Tracking** (Commit 1792116) - First pick + Done card issues
 2. **Greeting Prompt** (Commits ff7dd32, 4ef28fe) - "Starting now." → "Ready to go?"
 3. **Desktop Refresh Resume** (Commit ff7dd32) - Voice system not restarting on refresh
 4. **2-Item Mode Premature Completion** (Commit df0c18b) - 🔴 CRITICAL - Items marked done before picking
 5. **Route Switching Session Restoration** (Commit ce71669) - 🔴 CRITICAL - Stale completedItems from previous session
+6. **2-Item Mode TypeError** (Commit bed0708) - 🔴 CRITICAL - Cannot read properties of undefined
 
 ---
 
@@ -400,6 +401,89 @@ const [urlRouteProcessed, setUrlRouteProcessed] = useState(false);
 - **Hard refresh** (Ctrl+Shift+R or close/reopen tab) to clear cached code
 - Click route from My Routes again
 - Done card should now be empty on fresh start
+
+---
+
+### Fix 6: TypeError in 2-Item Mode Database Query 🔴 (Commit bed0708)
+
+**User Report:** After Fix 5 deployment, user did hard refresh and tested. Console showed JavaScript error:
+```
+[Tools] start_machine exception: TypeError: Cannot read properties of undefined (reading 'product_name')
+    at index-BwP3Y2f5.js:858:25621
+```
+
+**Issue:** TypeError occurring in BOTH `start_machine` and `get_next_item` 2-item mode database query code (Fix 4).
+
+**Root Cause Analysis:**
+
+**Boundary Trace:**
+1. User says "start at the bottom"
+2. AI calls `start_machine` tool
+3. Workflow returns result with item1 data
+4. 2-item mode enabled → query database for item2 (Fix 4 code)
+5. Code tries to create `item1` object from workflow result:
+   ```typescript
+   item1: {
+     product: result.product_name,  // ❌ result.product_name may be undefined!
+     quantity: result.quantity,
+     slot: result.slot,
+     slot_spoken: result.slot_spoken
+   }
+   ```
+6. **TypeError thrown** if `result.product_name` doesn't exist
+
+**The Core Problem:**
+Fix 4 (Commit df0c18b) added database query logic to fetch item2, but assumed workflow result would ALWAYS have `product_name`, `quantity`, `slot`, and `slot_spoken` at the top level. Different workflows may return different structures, or fields may be nested differently.
+
+**Fix Applied (useStockerAI.ts):**
+
+1. **Enhanced item2Data validation** (lines 661, 797):
+   - **BEFORE:** `if (item2Data)`
+   - **AFTER:** `if (item2Data && item2Data.product_name)`
+   - Ensures product_name exists before parsing
+
+2. **Safe item1 creation** (lines 725-730, 861-866):
+   ```typescript
+   // Only create item1 if workflow returned the required fields
+   const item1Obj = (result.product_name || result.product) ? {
+     product: result.product_name || result.product,
+     product_name: result.product_name || result.product,
+     quantity: result.quantity,
+     slot: result.slot,
+     slot_spoken: result.slot_spoken
+   } : undefined;
+   ```
+
+3. **Conditional spreading** (lines 722-740, 858-876):
+   ```typescript
+   result = {
+     ...result,
+     spoken: `${result.spoken}, ${item2Spoken}`,
+     ...(item1Obj && { item1: item1Obj }),  // Only add if valid
+     item2: { /* ... */ }
+   };
+   ```
+
+**What This Fixes:**
+- ✅ Prevents TypeError when workflow result is missing expected fields
+- ✅ Gracefully handles different workflow response structures
+- ✅ Safely creates item1 object only when data is available
+- ✅ Both `start_machine` and `get_next_item` 2-item paths fixed
+
+**Deployment:**
+- **Commit:** `bed0708` - "Fix TypeError in 2-item mode database query"
+- **Status:** ✅ Deployed
+- **Timestamp:** 2026-01-13 ~1:15 PM
+
+**Testing Expected:**
+- ✅ "start at the bottom" with 2-item mode: No TypeError
+- ✅ "next" with 2-item mode: No TypeError
+- ✅ Both items display correctly in pick card
+- ✅ Done card shows completed items only
+
+**User Action Required:**
+- **Hard refresh** (Ctrl+Shift+R) to get updated code
+- Test 2-item mode with "start at the bottom" or "next"
 
 ---
 
