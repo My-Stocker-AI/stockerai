@@ -1,6 +1,194 @@
 # Stocker AI – Source of Truth
-**Last Updated:** 2026-01-13 (Session 37 - BBRD Root Cause Discovery)
-**Status:** ✅ DEPLOYED - Systematic fix live
+**Last Updated:** 2026-01-13 (Session 38 - Option A Implementation)
+**Status:** ✅ READY FOR TESTING - Workflow-based 2-item mode deployed
+
+---
+
+## ✅ SESSION 38: OPTION A IMPLEMENTATION (2026-01-13)
+
+**Problem:** Previous symptomatic fixes (Sessions 37 commits df0c18b, bed0708, 201221e) created state synchronization issues:
+- Frontend pre-queried database for item2
+- Workflow also queried and mutated state
+- Result: Items shown twice, wrong data displayed, premature completion
+
+**User Direction:** "Seems like if we simply have a toggle for 2 item vs 1, Option A might be best if it will work predictably"
+
+**Solution Implemented:** Option A - Workflow-Based 2-Item Mode
+
+### Changes Made
+
+**1. Reverted Symptomatic Fixes (Commit 02d8ed0)**
+- Removed 240 lines of pre-query/post-query database logic
+- Reverted commits: 201221e, bed0708, df0c18b
+- Clean slate for systematic solution
+
+**2. Modified n8n Workflows (via MCP)**
+
+**Workflow: get_next_item (Optimized)** (ID: iykbFj7f9222PF7r)
+- ✅ "Determine Next State" node: Added count parameter, finds item2 when count=2
+- ✅ "Format Output" node: Formats item2, combines spoken text
+- ✅ Index advancement: Advances by 2 when count=2 (prevents duplicate displays)
+
+**Workflow: start_machine** (ID: JbKdJuKgGbyvzlF0)
+- ✅ "Select Item" node: Added count parameter, finds item2 when count=2
+- ✅ "Format Output" node: Formats item2, combines spoken text
+- ✅ Index advancement: Advances by 2 when count=2
+
+**3. Simplified Frontend (Commit 5b5c570)**
+- Removed 104 lines of duplicate workflow call logic
+- Added simple count parameter: `count: callTwoItems ? 2 : 1`
+- Workflow response now includes item2 directly
+
+### Benefits of Option A
+
+✅ **Single source of truth**: Workflows own state advancement
+✅ **Proper state sync**: Index advances by 2 when returning 2 items
+✅ **No code duplication**: Parsing logic stays in workflow
+✅ **Backward compatible**: count=1 is default (existing behavior)
+✅ **Simpler frontend**: Just pass parameter, use result
+✅ **Predictable**: Workflow guarantees consistency
+
+### Testing Required
+
+User should test with localStorage toggle enabled:
+```javascript
+localStorage.setItem('stocker-call-two-items', 'true');
+```
+
+**Test Cases:**
+1. ✅ Single-item mode (count=1) - backward compatibility
+2. ⏳ Two-item mode (count=2) - both items returned
+3. ⏳ Done card behavior - empty until "next" command
+4. ⏳ State sync - no duplicate displays
+5. ⏳ Edge cases - only 1 item left, last 2 items, direction reversal
+
+### Next Steps
+
+1. User: Hard refresh browser to load new frontend code
+2. User: Enable 2-item mode via localStorage
+3. User: Test picking workflow end-to-end
+4. If issues found: Check n8n execution logs via MCP tools
+5. If successful: Document results, consider making toggle a UI setting
+
+---
+
+## 🔍 ACTIVE TROUBLESHOOTING: 2-Item Mode Still Failing (2026-01-13)
+
+### Problem Statement
+
+After implementing Option A (workflow-based 2-item mode), user tested and saw:
+- ❌ Wrong item2 data: "Hanna Andersson - Snack" (this is a MACHINE NAME, not a product)
+- ❌ Premature completion: "4x Coke Zero Can 12 oz - Can" in Done card BEFORE user picked it
+- ❌ Error message: "Sorry Russ, I'm hitting a technical issue. Let me try that again in a moment."
+- ❌ Only 1 item shown in Pick card (should show 2 items)
+
+### What We Know from Execution Logs
+
+**Workflow Execution ID:** 26348
+**Workflow:** start_machine (ID: JbKdJuKgGbyvzlF0)
+**Timestamp:** 2026-01-13T22:53:37.969Z
+
+**CRITICAL FINDING: Webhook received NO count parameter**
+
+```json
+{
+  "session_id": "session_1768344765993_w8dln8yzn",
+  "user_id": "bdc96b72-3f35-4cae-9e79-99473eb4a23b",
+  "direction": "end"
+}
+```
+
+**Expected (if frontend code worked):**
+```json
+{
+  "session_id": "...",
+  "user_id": "...",
+  "count": 2,  // ← MISSING!
+  "direction": "end"
+}
+```
+
+**Workflow Response (Select Item node):**
+```json
+{
+  "current_item_index": 25,
+  "product_name": "Coke Zero Can 12 oz - Can",
+  "quantity": 4,
+  "slot": "058",
+  "item2_product_name": null,  // ← No item2 because count defaulted to 1
+  "item2_quantity": null,
+  "count": 1  // ← Defaulted to 1 (not 2)
+}
+```
+
+**Workflow Final Output (Format Output node):**
+```json
+{
+  "action": "item_ready",
+  "spoken": "Starting from bottom. 4 Coke Zero 12 ounce Kan",
+  // NO item2 object because count was 1
+}
+```
+
+### Root Cause Analysis
+
+**Frontend code is correct** (src/hooks/useStockerAI.ts:592-606):
+- ✅ Checks localStorage for 'stocker-call-two-items'
+- ✅ Adds `count: 2` when enabled
+- ✅ Code is in Git (commit 5b5c570)
+
+**BUT webhook received NO count parameter**, which means:
+
+**Hypothesis 1:** Frontend code not deployed to production
+- User cleared cache and hard refreshed
+- Code is in Git and should be deployed via Cloudflare Pages
+- **Possible issue:** Cloudflare Pages didn't rebuild/deploy after push?
+
+**Hypothesis 2:** Wrong frontend file is being served
+- The PWA uses index.html
+- React app is in src/
+- **Possible issue:** Are we editing src/hooks/useStockerAI.ts but PWA uses a different file?
+
+**Hypothesis 3:** localStorage flag not set correctly
+- User said they cleared Application data (which would clear localStorage)
+- Need to verify flag is set AFTER clearing cache
+
+### What Still Needs Investigation
+
+1. **Is the React app being built and deployed?**
+   - Check Cloudflare Pages build logs
+   - Verify dist/ output includes updated useStockerAI code
+   - Check if my-stocker-ai.com serves PWA or React app
+
+2. **Is localStorage flag actually set?**
+   - User cleared Application data (removes localStorage)
+   - Did user re-set the flag after clearing?
+   - Console check: `localStorage.getItem('stocker-call-two-items')`
+
+3. **Is there a separate PWA codebase?**
+   - PWA directory exists at /pwa/
+   - Are there TWO separate apps (PWA and React)?
+   - Which one is deployed to my-stocker-ai.com?
+
+### Where the Wrong Data Comes From
+
+The "Hanna Andersson - Snack" is a **MACHINE NAME** showing as item2 because:
+1. Frontend doesn't receive item2 from workflow (workflow sent null)
+2. Frontend state has stale data or wrong data structure
+3. UI renders wrong field (machine name instead of product name)
+
+This is a **UI state issue**, not a workflow issue (workflow correctly returns null for item2 when count=1).
+
+### Next Debugging Steps
+
+**Use Xpansion MCP to:**
+1. **Map the complete data flow** from user speech → workflow → UI display
+2. **Identify all boundaries** where data transforms
+3. **Find the exact point** where machine name replaces product name
+4. **Trace localStorage flag** through frontend code
+5. **Verify build/deploy pipeline** for code deployment
+
+**Command for next session:** "Use MCP to fix two item issue"
 
 ---
 
