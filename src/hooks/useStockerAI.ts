@@ -1,5 +1,4 @@
 import { useCallback, useRef } from 'react';
-import { supabase } from '@/integrations/supabase/client';
 
 const N8N_BASE = 'https://visionairy.app.n8n.cloud/webhook';
 
@@ -590,64 +589,6 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
       try {
         console.log(`[Tools] Calling ${name}:`, { args, endpoint: `${N8N_BASE}${path}` });
 
-        // CRITICAL: Pre-query database for 2-item mode BEFORE workflow mutates state
-        let preQueriedItems: { item1: any; item2: any } | null = null;
-        const callTwoItems = localStorage.getItem('stocker-call-two-items') === 'true';
-
-        if (callTwoItems && (name === 'start_machine' || name === 'get_next_item')) {
-          console.log('[Tools] 2-Pick Mode: Pre-querying database BEFORE workflow runs');
-
-          try {
-            // Get current session state BEFORE workflow changes it
-            const { data: sessionData } = await supabase
-              .from('sessions')
-              .select('current_machine_id, pick_direction, current_item_index')
-              .eq('user_id', userIdRef.current)
-              .eq('status', 'stocking')
-              .order('created_at', { ascending: false })
-              .limit(1)
-              .maybeSingle();
-
-            if (sessionData?.current_machine_id) {
-              // Get all items for this machine
-              const { data: items } = await supabase
-                .from('items')
-                .select('id, product_name, quantity, slot, sequence, inventory_current, inventory_parlevel, status')
-                .eq('machine_id', sessionData.current_machine_id)
-                .order('sequence', { ascending: true });
-
-              if (items && items.length > 0) {
-                // Find BOTH item1 and item2 based on current state
-                let item1Data = null;
-                let item2Data = null;
-                const currentIndex = sessionData.current_item_index || (name === 'start_machine' ? 0 : 1);
-
-                if (sessionData.pick_direction === 'reverse' || args.direction === 'ending') {
-                  // Going from bottom to top
-                  const currentSequence = items.length - currentIndex;
-                  item1Data = items.find(item => item.sequence === currentSequence && item.status === 'pending');
-                  item2Data = items.find(item => item.sequence === currentSequence - 1 && item.status === 'pending');
-                } else {
-                  // Going from top to bottom
-                  item1Data = items.find(item => item.sequence === currentIndex + 1 && item.status === 'pending');
-                  item2Data = items.find(item => item.sequence === currentIndex + 2 && item.status === 'pending');
-                }
-
-                if (item1Data) {
-                  console.log('[Tools] Pre-queried item1:', item1Data.product_name);
-                  console.log('[Tools] Pre-queried item2:', item2Data?.product_name || 'none');
-                  preQueriedItems = {
-                    item1: item1Data,
-                    item2: item2Data
-                  };
-                }
-              }
-            }
-          } catch (e) {
-            console.warn('[Tools] Pre-query failed, proceeding with workflow:', e);
-          }
-        }
-
         // PRIORITY 1.3: Use retry logic for webhook calls
         const resp = await fetchWithRetry(`${N8N_BASE}${path}`, {
           method: 'POST',
@@ -672,107 +613,57 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
         let result = await resp.json();
         console.log(`[Tools] ${name} succeeded:`, result);
 
-        // FEATURE: 2-Pick Mode - Use pre-queried data
+        // FEATURE: 2-Pick Mode - Call get_next_item twice when enabled
         if (name === 'get_next_item') {
           const callTwoItems = localStorage.getItem('stocker-call-two-items') === 'true';
 
-          if (callTwoItems && result.action === 'next_item' && result.spoken && preQueriedItems) {
-            console.log('[Tools] 2-Pick Mode enabled - using pre-queried item2 data');
+          if (callTwoItems && result.action === 'next_item' && result.spoken) {
+            console.log('[Tools] 2-Pick Mode enabled - fetching second item');
 
             try {
-              // Use pre-queried item2 data (queried BEFORE workflow modified state)
-              const item2Data = preQueriedItems.item2;
+              // Call get_next_item again for the second item
+              const resp2 = await fetchWithRetry(`${N8N_BASE}${path}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  session_id: sessionIdRef.current,
+                  user_id: userIdRef.current,
+                  ...args
+                })
+              });
 
-              if (item2Data && item2Data.product_name) {
-                    // Parse and format item2 (same logic as workflow)
-                    const parseProduct = (productName: string) => {
-                      if (!productName) return { name: '', size: '', type: '' };
-                      const text = productName.trim();
-                      const sizePattern = /(\d+(?:\.\d+)?)\s*(oz|ounce|ml|g|gram|ct|count|pk|pack)/gi;
-                      const sizeMatch = sizePattern.exec(text);
-                      const size = sizeMatch ? sizeMatch[0] : '';
-                      const typePattern = /\b(can|bottle|bag|box|bar|pouch|packet|pack)\b/gi;
-                      const typeMatch = typePattern.exec(text);
-                      const type = typeMatch ? typeMatch[0] : '';
-                      let name = text;
-                      if (size) name = name.replace(sizePattern, '').trim();
-                      if (type) {
-                        const typeWord = typeMatch![0];
-                        name = name.replace(new RegExp('\\s*' + typeWord + '\\s*$', 'gi'), '');
-                        name = name.replace(new RegExp('\\s*' + typeWord + '\\s*-', 'gi'), ' -');
-                      }
-                      name = name.replace(/\s+/g, ' ').trim().replace(/\s*-\s*$/, '').replace(/\(\s*\)/, '').trim();
-                      return { name, size, type };
-                    };
+              if (resp2.ok) {
+                const result2 = await resp2.json();
+                console.log('[Tools] Second item fetched:', result2);
 
-                    const fixPronunciation = (text: string) => {
-                      if (!text) return text;
-                      return text
-                        .replace(/\bCan\b/g, 'Kan')
-                        .replace(/\bCAN\b/g, 'KAN')
-                        .replace(/\boz\b/gi, 'ounce')
-                        .replace(/\bct\b/gi, 'count')
-                        .replace(/\bpk\b/gi, 'pack');
-                    };
-
-                    const formatSlotForTTS = (slot: string) => {
-                      if (!slot) return null;
-                      const slotStr = String(slot);
-                      if (slotStr.includes('-')) {
-                        const parts = slotStr.split('-');
-                        const first = parseInt(parts[0], 10);
-                        const second = parseInt(parts[1], 10);
-                        if (!isNaN(first) && !isNaN(second)) {
-                          return `slots ${first} and ${second}`;
-                        }
-                      }
-                      const num = parseInt(slotStr, 10);
-                      return !isNaN(num) ? `slot ${num}` : slotStr;
-                    };
-
-                    const parsed = parseProduct(item2Data.product_name);
-                    const slotSpoken = formatSlotForTTS(item2Data.slot);
-                    const parts = [item2Data.quantity];
-                    if (parsed.name) parts.push(fixPronunciation(parsed.name));
-                    if (parsed.size) parts.push(fixPronunciation(parsed.size));
-                    if (parsed.type) {
-                      const typeLower = parsed.type.toLowerCase();
-                      const nameLower = parsed.name.toLowerCase();
-                      if (!nameLower.includes(typeLower)) {
-                        parts.push(fixPronunciation(parsed.type));
-                      }
-                    }
-                    const item2Spoken = parts.join(' ');
-
-                    // Only create item1 if workflow returned the required fields
-                    const item1Obj = (result.product_name || result.product) ? {
-                      product: result.product_name || result.product,
-                      product_name: result.product_name || result.product,
+                // Combine the two spoken responses if second item exists
+                if (result2.action === 'next_item' && result2.spoken) {
+                  result = {
+                    ...result,
+                    spoken: `${result.spoken}, ${result2.spoken}`,
+                    item1: {
+                      product: result.product_name,
                       quantity: result.quantity,
                       slot: result.slot,
                       slot_spoken: result.slot_spoken
-                    } : undefined;
-
-                    result = {
-                      ...result,
-                      spoken: `${result.spoken}, ${item2Spoken}`,
-                      ...(item1Obj && { item1: item1Obj }),
-                      item2: {
-                        product: item2Data.product_name,
-                        product_name: item2Data.product_name,
-                        quantity: item2Data.quantity,
-                        slot: item2Data.slot,
-                        slot_spoken: slotSpoken,
-                        inventory_current: item2Data.inventory_current || 0,
-                        inventory_parlevel: item2Data.inventory_parlevel || 0
-                      }
-                    };
-                    console.log('[Tools] Combined 2-pick response (pre-queried):', result.spoken);
-              } else {
-                console.log('[Tools] No second item available - using single item');
+                    },
+                    item2: {
+                      product: result2.product_name,
+                      quantity: result2.quantity,
+                      slot: result2.slot,
+                      slot_spoken: result2.slot_spoken
+                    }
+                  };
+                  console.log('[Tools] Combined 2-pick response:', result.spoken);
+                } else if (result2.action === 'next_machine') {
+                  // If second call returns next_machine, keep original result
+                  // (means we're at the end of current machine)
+                  console.log('[Tools] Second call hit machine boundary - using single item');
+                }
               }
             } catch (e: any) {
-              console.warn('[Tools] Failed to use pre-queried item2:', e);
+              // If second item fails, just use the first one
+              console.warn('[Tools] Second item fetch failed, using single item:', e);
             }
           }
         }
@@ -781,103 +672,48 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
         if (name === 'start_machine') {
           const callTwoItems = localStorage.getItem('stocker-call-two-items') === 'true';
 
-          if (callTwoItems && result.action === 'next_item' && result.spoken && preQueriedItems) {
-            console.log('[Tools] 2-Pick Mode enabled for start_machine - using pre-queried item2 data');
+          if (callTwoItems && result.action === 'next_item' && result.spoken) {
+            console.log('[Tools] 2-Pick Mode enabled for start_machine - fetching second item');
 
             try {
-              // Use pre-queried item2 data (queried BEFORE workflow modified state)
-              const item2Data = preQueriedItems.item2;
+              // Call get_next_item to get the second item
+              const resp2 = await fetchWithRetry(`${N8N_BASE}/next-item-optimized`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  session_id: sessionIdRef.current,
+                  user_id: userIdRef.current
+                })
+              });
 
-              if (item2Data && item2Data.product_name) {
-                    // Parse and format item2 (same logic as workflow)
-                    const parseProduct = (productName: string) => {
-                      if (!productName) return { name: '', size: '', type: '' };
-                      const text = productName.trim();
-                      const sizePattern = /(\d+(?:\.\d+)?)\s*(oz|ounce|ml|g|gram|ct|count|pk|pack)/gi;
-                      const sizeMatch = sizePattern.exec(text);
-                      const size = sizeMatch ? sizeMatch[0] : '';
-                      const typePattern = /\b(can|bottle|bag|box|bar|pouch|packet|pack)\b/gi;
-                      const typeMatch = typePattern.exec(text);
-                      const type = typeMatch ? typeMatch[0] : '';
-                      let name = text;
-                      if (size) name = name.replace(sizePattern, '').trim();
-                      if (type) {
-                        const typeWord = typeMatch![0];
-                        name = name.replace(new RegExp('\\s*' + typeWord + '\\s*$', 'gi'), '');
-                        name = name.replace(new RegExp('\\s*' + typeWord + '\\s*-', 'gi'), ' -');
-                      }
-                      name = name.replace(/\s+/g, ' ').trim().replace(/\s*-\s*$/, '').replace(/\(\s*\)/, '').trim();
-                      return { name, size, type };
-                    };
+              if (resp2.ok) {
+                const result2 = await resp2.json();
+                console.log('[Tools] Second item fetched after start_machine:', result2);
 
-                    const fixPronunciation = (text: string) => {
-                      if (!text) return text;
-                      return text
-                        .replace(/\bCan\b/g, 'Kan')
-                        .replace(/\bCAN\b/g, 'KAN')
-                        .replace(/\boz\b/gi, 'ounce')
-                        .replace(/\bct\b/gi, 'count')
-                        .replace(/\bpk\b/gi, 'pack');
-                    };
-
-                    const formatSlotForTTS = (slot: string) => {
-                      if (!slot) return null;
-                      const slotStr = String(slot);
-                      if (slotStr.includes('-')) {
-                        const parts = slotStr.split('-');
-                        const first = parseInt(parts[0], 10);
-                        const second = parseInt(parts[1], 10);
-                        if (!isNaN(first) && !isNaN(second)) {
-                          return `slots ${first} and ${second}`;
-                        }
-                      }
-                      const num = parseInt(slotStr, 10);
-                      return !isNaN(num) ? `slot ${num}` : slotStr;
-                    };
-
-                    const parsed = parseProduct(item2Data.product_name);
-                    const slotSpoken = formatSlotForTTS(item2Data.slot);
-                    const parts = [item2Data.quantity];
-                    if (parsed.name) parts.push(fixPronunciation(parsed.name));
-                    if (parsed.size) parts.push(fixPronunciation(parsed.size));
-                    if (parsed.type) {
-                      const typeLower = parsed.type.toLowerCase();
-                      const nameLower = parsed.name.toLowerCase();
-                      if (!nameLower.includes(typeLower)) {
-                        parts.push(fixPronunciation(parsed.type));
-                      }
-                    }
-                    const item2Spoken = parts.join(' ');
-
-                    // Only create item1 if workflow returned the required fields
-                    const item1Obj = (result.product_name || result.product) ? {
-                      product: result.product_name || result.product,
-                      product_name: result.product_name || result.product,
+                if (result2.action === 'next_item' && result2.spoken) {
+                  result = {
+                    ...result,
+                    spoken: `${result.spoken}, ${result2.spoken}`,
+                    item1: {
+                      product: result.product_name,
                       quantity: result.quantity,
                       slot: result.slot,
                       slot_spoken: result.slot_spoken
-                    } : undefined;
-
-                    result = {
-                      ...result,
-                      spoken: `${result.spoken}, ${item2Spoken}`,
-                      ...(item1Obj && { item1: item1Obj }),
-                      item2: {
-                        product: item2Data.product_name,
-                        product_name: item2Data.product_name,
-                        quantity: item2Data.quantity,
-                        slot: item2Data.slot,
-                        slot_spoken: slotSpoken,
-                        inventory_current: item2Data.inventory_current || 0,
-                        inventory_parlevel: item2Data.inventory_parlevel || 0
-                      }
-                    };
-                    console.log('[Tools] Combined 2-pick response for start_machine (pre-queried):', result.spoken);
-              } else {
-                console.log('[Tools] No second item available - using single item');
+                    },
+                    item2: {
+                      product: result2.product_name,
+                      quantity: result2.quantity,
+                      slot: result2.slot,
+                      slot_spoken: result2.slot_spoken
+                    }
+                  };
+                  console.log('[Tools] Combined 2-pick response for start_machine:', result.spoken);
+                } else if (result2.action === 'next_machine') {
+                  console.log('[Tools] Second call hit machine boundary - using single item');
+                }
               }
             } catch (e: any) {
-              console.warn('[Tools] Failed to use pre-queried item2 for start_machine:', e);
+              console.warn('[Tools] Second item fetch failed for start_machine, using single item:', e);
             }
           }
         }
