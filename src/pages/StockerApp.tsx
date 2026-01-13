@@ -531,7 +531,7 @@ export default function StockerApp() {
             if (result.spoken) {
               const newItemPair = {
                 spokenText: result.spoken,
-                item1: result.item1 || { product: result.item1.product_name, quantity: result.quantity, slot: result.slot },
+                item1: result.item1 || { product: result.product_name, quantity: result.quantity, slot: result.slot },
                 item2: result.item2 || null
               };
               setLastItemPair(newItemPair);
