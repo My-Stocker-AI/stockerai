@@ -1,15 +1,16 @@
 # Stocker AI – Source of Truth
-**Last Updated:** 2026-01-13 (Session 37 - Multi-Fix: 2-Item Mode + Greeting + Refresh)
+**Last Updated:** 2026-01-13 (Session 37 - Multi-Fix: 4 Critical Bugs)
 **Status:** ✅ DEPLOYED - All fixes live
 
 ---
 
 ## ✅ SESSION 37: MULTI-FIX SESSION (2026-01-13)
 
-Three separate issues identified and fixed in this session:
+Four separate issues identified and fixed in this session:
 1. **2-Item Mode UI/Tracking** (Commit 1792116) - First pick + Done card issues
 2. **Greeting Prompt** (Commit ff7dd32) - "Starting now." → "Ready to go?"
 3. **Desktop Refresh Resume** (Commit ff7dd32) - Voice system not restarting on refresh
+4. **2-Item Mode Premature Completion** (Commit df0c18b) - 🔴 CRITICAL - Items marked done before picking
 
 ---
 
@@ -216,6 +217,105 @@ if (isRefresh) {
 - ✅ Voice system active immediately after refresh
 - ✅ User hears resume announcement with current item context
 - ✅ No "start over" experience
+
+---
+
+### Fix 4: 2-Item Mode Prematurely Marks Items as Completed 🔴 (Commit df0c18b)
+
+**User Report:** "I said 'start at the bottom'. There was a longer pause, it didn't acknowledge starting at the bottom. It then showed a 2 pick with a single pick already showing in the 'done' card: 2 Dr. Pepper 12 ounce Kan, 6 Diet Coke 12 ounce Kan. Done: 1 items, 4x Coke Zero Can 12 oz - Can"
+
+**Issue:** When starting machine with 2-item mode enabled, Coke Zero (first item) appeared in Done card BEFORE user picked it.
+
+**Root Cause Analysis:**
+
+**Boundary Trace:**
+1. User says "start at the bottom"
+2. AI calls `start_machine(direction="bottom")`
+3. Workflow returns **Coke Zero** (bottom/last item) as item1 ✓
+4. Frontend sets `currentItem = Coke Zero` ✓
+5. **BUT** user has "Call 2 Items at Once" toggle ON
+6. Code needs item2, so calls `/next-item-optimized` workflow (useStockerAI.ts:680)
+7. **❌ n8n workflow marks Coke Zero as COMPLETED in database** (that's what get_next_item does!)
+8. Workflow returns Dr. Pepper as the "next" item
+9. User sees:
+   - **Done card: Coke Zero** (marked completed by workflow before picking!)
+   - **Current pick: Dr. Pepper + Diet Coke**
+
+**The Core Problem:**
+```typescript
+// BEFORE FIX (lines 672-719):
+if (callTwoItems && result.action === 'next_item') {
+  // Call n8n workflow to get second item
+  const resp2 = await fetch('/next-item-optimized', {...});
+  // ❌ This workflow has side effects:
+  //    1. Marks current item as completed in database
+  //    2. Increments session item index
+  //    3. Returns "next" item
+}
+```
+
+**Same bug in regular get_next_item (lines 620-669):**
+Calling workflow TWICE marks both item1 AND item2 as completed before user picks them.
+
+**Fix Applied:**
+Replace workflow calls with **direct database queries** to peek at item2 without state changes:
+
+```typescript
+// AFTER FIX:
+// 1. Query session for current position
+const { data: sessionData } = await supabase
+  .from('sessions')
+  .select('current_machine_id, pick_direction, current_item_index')
+
+// 2. Query items table for next item in sequence
+const { data: items } = await supabase
+  .from('items')
+  .select('...')
+  .eq('machine_id', sessionData.current_machine_id)
+
+// 3. Find item2 based on direction and current index
+let item2Data = null;
+if (pick_direction === 'reverse') {
+  item2Data = items.find(item => item.sequence === currentSequence - 1);
+} else {
+  item2Data = items.find(item => item.sequence === currentIndex + 1);
+}
+
+// 4. Format item2 with same TTS logic as workflow
+// 5. Return combined result
+// ✅ NO database state changes!
+```
+
+**Changes (useStockerAI.ts):**
+1. **Added supabase import** (line 2)
+2. **Replaced start_machine 2-item logic** (lines 672-809)
+   - Direct database query instead of workflow call
+   - Duplicated product parsing and TTS formatting from workflow
+3. **Replaced get_next_item 2-item logic** (lines 620-757)
+   - Same fix applied to regular "next" command
+
+**Duplicated Code:**
+To avoid calling workflows, we duplicated these functions from n8n workflows:
+- `parseProduct()` - Extract product name, size, type from product_name
+- `fixPronunciation()` - Replace "Can" → "Kan", "oz" → "ounce" for TTS
+- `formatSlotForTTS()` - Convert slot numbers to spoken format
+
+**Deployment:**
+- **Commit:** `df0c18b` - "CRITICAL FIX: 2-item mode prematurely marks items as completed"
+- **Status:** ✅ Deployed
+- **Timestamp:** 2026-01-13 12:33 PM
+
+**Testing Expected:**
+- ✅ start_machine with 2-item mode: Both items in CURRENT pick, Done card empty
+- ✅ get_next_item with 2-item mode: Only PREVIOUS items in Done card
+- ✅ No premature marking of items as completed
+- ✅ Coke Zero stays in current pick until user says "next"
+
+**Known Issue: No acknowledgment of "start at the bottom"**
+User reported not hearing acknowledgment. Workflow returns `spoken: "Starting from bottom. {item details}"` but user didn't hear it. Possible causes:
+- Network delay causing long pause
+- Voice system issue
+- Needs investigation if recurring
 
 ---
 
