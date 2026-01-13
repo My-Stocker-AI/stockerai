@@ -8,6 +8,135 @@
 
 **MEMORY.md is the primary SOT.** Always read it first.
 
+---
+
+# 0.0 XPANSION OS - MANDATORY FOR ALL BOUNDARY-CROSSING CHANGES
+
+**Status:** ACTIVE (2026-01-12)
+**Purpose:** Enforce verification before execution - AI CANNOT skip
+
+## 0.0.1 What is Xpansion OS?
+
+**Xpansion OS** = Discovery + Execution with CODE-ENFORCED verification
+
+**The problem it solves:**
+- WITHOUT Xpansion: AI can call verification tools, then ignore results and execute anyway
+- WITH Xpansion: Verification ALWAYS runs first, execution ONLY if verification passes
+- **Code-enforced, not doc-enforced**
+
+## 0.0.2 When to Use Xpansion OS
+
+**MANDATORY for these operations:**
+
+| Operation Type | Use Xpansion | Example |
+|----------------|--------------|---------|
+| **Workflow Activation** | ✅ YES | Activating n8n workflow |
+| **Database Schema Changes** | ✅ YES | ALTER TABLE, CASCADE rules, RLS policies |
+| **API Contract Changes** | ✅ YES | Updating WEBHOOK_MAP, endpoint changes |
+| **Multi-boundary Fixes** | ✅ YES | Fix that spans frontend + backend + database |
+
+## 0.0.3 How to Use Xpansion OS
+
+### Single Unified Tool: `xpansion()`
+
+**Discovery Only (analyze problem):**
+```python
+xpansion(
+    operation="discover",
+    mode="system",
+    intent="analyze get_next_item workflow issue",
+    context={
+        "workflow_id": "GPeduKWdn9tMrZmT",
+        "frontend_webhook_map": {"get_next_item": "/next-item"}
+    }
+)
+```
+
+**Discovery + Execution (verify then fix):**
+```python
+xpansion(
+    operation="execute",
+    mode="system",
+    intent="fix get_next_item workflow activation",
+    context={
+        "workflow_id": "GPeduKWdn9tMrZmT",
+        "webhook_path": "/next-item",
+        "tool_name": "get_next_item",
+        "frontend_webhook_map": {"get_next_item": "/next-item"}
+    }
+)
+```
+
+**Auto Mode (intelligent routing):**
+```python
+xpansion(
+    operation="auto",  # Automatically determines if discovery, execution, or both
+    intent="optimize database cascade rules"
+)
+```
+
+## 0.0.4 What Xpansion Does Automatically
+
+1. **Discovery Phase:**
+   - Applies BBRD to identify boundaries (DATA, NODES, FLOW, ERRORS)
+   - Detects contract violations (e.g., webhook path mismatch)
+   - Returns terminal root causes
+
+2. **Verification Phase:**
+   - Checks all contracts between boundaries
+   - If violations found → BLOCKS execution
+   - Returns specific violations and recommendations
+
+3. **Execution Phase (only if verification passes):**
+   - Decomposes fix into atomic operations (DATA, STRUCTURE, CONFIGURATION, EXECUTION)
+   - Routes to appropriate adapters
+   - Executes with full audit trail
+   - Returns proof of verification
+
+## 0.0.5 Integration with Existing Stocker AI
+
+**For workflow activation:**
+```python
+# OLD WAY (no enforcement):
+# xpansion_system("Analyze workflow")  # AI can skip this
+# n8n_update_workflow(...)  # Executes anyway
+
+# NEW WAY (enforced):
+xpansion(
+    operation="execute",
+    intent="activate workflow",
+    context={...}  # Workflow details
+)
+# Xpansion CANNOT skip verification - it's code-enforced
+```
+
+**For database changes:**
+```python
+# OLD WAY:
+# Manually run SQL, hope it works
+
+# NEW WAY:
+xpansion(
+    operation="execute",
+    mode="system",
+    intent="update cascade delete rules",
+    context={
+        "table": "machines",
+        "cascade_rule": "SET NULL"
+    }
+)
+# Xpansion verifies RLS, checks for orphaned data, then executes
+```
+
+## 0.0.6 Success Criteria for Tomorrow's Test
+
+✅ Use Xpansion OS to fix real Stocker AI workflow issue
+✅ Xpansion detects contract violation automatically
+✅ Xpansion fixes contract + activates workflow
+✅ ONE tool call, end-to-end, with proof of verification
+
+---
+
 | Document | Purpose |
 |----------|---------|
 | `MEMORY.md` | Current state, IDs, credentials, next steps |
