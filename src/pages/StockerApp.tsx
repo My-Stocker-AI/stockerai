@@ -156,6 +156,7 @@ export default function StockerApp() {
   const [showPWAWarning, setShowPWAWarning] = useState(false);
   const processingRef = useRef(false);
   const initStartedRef = useRef(false); // Prevent double initialization
+  const lastRouteIdRef = useRef<string | null>(null); // Track last processed route ID
   const MAX_RETRIES = 2;
   const voiceRef = useRef<any>(null); // Ref to hold voice methods for callbacks
 
@@ -770,6 +771,20 @@ export default function StockerApp() {
 
     checkMicPermission();
   }, []);
+
+  // Reset urlRouteProcessed when route ID in URL changes
+  // CRITICAL: Prevents stale session restoration when clicking different route from dashboard
+  useEffect(() => {
+    if (routeIdFromUrl && routeIdFromUrl !== lastRouteIdRef.current) {
+      console.log('[Stocker] Route ID changed:', {
+        from: lastRouteIdRef.current,
+        to: routeIdFromUrl
+      });
+      lastRouteIdRef.current = routeIdFromUrl;
+      setUrlRouteProcessed(false); // Reset so new route gets processed
+      initStartedRef.current = false; // Allow re-initialization
+    }
+  }, [routeIdFromUrl]);
 
   // Check for saved session on mount (with route verification from original PWA)
   // Also handle route ID from URL parameter
