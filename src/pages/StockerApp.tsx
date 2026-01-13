@@ -819,7 +819,7 @@ export default function StockerApp() {
           setRouteSelectionDate(routeData.delivery_date);
           
           // Announce and auto-start
-          const greeting = `Hi ${userName}! Starting ${routeData.route_name} route. Let's go!`;
+          const greeting = `Hi ${userName}! Starting ${routeData.route_name} route. Ready to go?`;
           setAiResponse(greeting);
           addMessage({ role: 'assistant', content: greeting });
           await voice.speak(greeting);
