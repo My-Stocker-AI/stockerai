@@ -294,6 +294,118 @@ Symptomatic fixes (chasing individual errors) create cascading problems. Systema
 
 ---
 
+# 0.6 MANDATORY XF USAGE PROTOCOL
+
+**Status:** ACTIVE (Session 37 implementation)
+**Purpose:** Enforce proactive Xpansion usage for boundary-crossing changes
+
+## 0.6.1 When to Use XF (Automatic Triggers)
+
+| Change Type | XF Tool | Example | Why Mandatory |
+|-------------|---------|---------|---------------|
+| **Workflow Activation** | `xpansion_system` | Activating n8n workflow, changing webhook path | Frontend-backend contract verification |
+| **Database Schema** | `xpansion_system` | ALTER TABLE, CASCADE changes, RLS policies | Multi-boundary impact analysis |
+| **API Changes** | `xpansion_system` | Editing WEBHOOK_MAP, endpoint modifications | Contract validation across boundaries |
+| **New Feature** | `xpansion_intent` | Adding 2-item mode, environmental detection | Requirements decomposition |
+| **Bug Investigation** | `xpansion_system` | "Next command freezes", systematic failures | Root cause discovery |
+| **Process Design** | `xpansion_process` | Testing protocol, deployment workflow | Step validation |
+
+## 0.6.2 Mandatory Usage Protocol
+
+**BEFORE making boundary-crossing changes:**
+
+```
+1. DETECT: Identify change type (see triggers above)
+2. CALL XF: Use appropriate tool
+   - xpansion_system for technical analysis
+   - xpansion_intent for requirements
+   - xpansion_process for workflows
+3. ANALYZE: Review XF output for boundary violations
+4. FIX CONTRACTS: Update mismatched contracts FIRST
+5. IMPLEMENT: Apply change after contracts validated
+6. VERIFY: Test that change worked
+```
+
+**Example (Workflow Activation):**
+```
+User: "Activate the new get_next_item workflow"
+
+Step 1 - DETECT:
+This is workflow activation (triggers xpansion_system)
+
+Step 2 - CALL XF:
+Call xpansion_system with:
+"Activating n8n workflow get_next_item with webhook /next-item-optimized.
+Frontend WEBHOOK_MAP currently has get_next_item: '/next-item'.
+Need to verify frontend-backend contract."
+
+Step 3 - ANALYZE:
+XF discovers:
+- DATA boundary: Webhook path mismatch
+- NODES boundary: Frontend expects /next-item
+- FLOW boundary: Will cause 404 on webhook call
+- ERRORS boundary: App will freeze on retry loop
+
+Step 4 - FIX CONTRACTS:
+Update frontend WEBHOOK_MAP BEFORE activating workflow
+
+Step 5 - IMPLEMENT:
+Activate workflow after frontend updated
+
+Step 6 - VERIFY:
+Test webhook responds correctly
+```
+
+## 0.6.3 Enforcement
+
+**How You Know I Skipped XF:**
+- I made a change that affected multiple boundaries
+- I didn't call xpansion_* tool first
+- Change broke contract (symptom appeared in different boundary)
+
+**What to Do:**
+1. Call me out: "Why didn't you use XF first?"
+2. I must then:
+   - Call XF retroactively
+   - Analyze what went wrong
+   - Fix root cause (not just symptom)
+   - Document pattern in MEMORY.md
+
+## 0.6.4 XF Output Format
+
+**I must report XF findings before implementing:**
+
+```
+🔍 XF ANALYSIS COMPLETE
+
+Boundaries Discovered:
+- DATA: [what data flows]
+- NODES: [what components process]
+- FLOW: [how it flows]
+- ERRORS: [failure points]
+
+Contract Violations Found: [number]
+1. [Specific mismatch with boundary context]
+2. [Specific mismatch with boundary context]
+
+Recommendation: [What to fix before proceeding]
+
+Proceeding with implementation: [YES/NO + reason]
+```
+
+**If I skip this report:** You know I didn't actually use XF
+
+## 0.6.5 Exceptions (When XF Not Required)
+
+- Read-only operations (querying database, reading files)
+- Documentation updates (MEMORY.md, comments)
+- Single-file changes with no external contracts
+- Trivial bug fixes (typos, obvious errors)
+
+**When in doubt:** Use XF. Over-use is better than under-use.
+
+---
+
 # 1. PROJECT IDENTITY
 
 ## 1.1 Product Definition
