@@ -658,7 +658,7 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
                     item2Data = items.find(item => item.sequence === currentIndex + 1);
                   }
 
-                  if (item2Data) {
+                  if (item2Data && item2Data.product_name) {
                     // Parse and format item2 (same logic as workflow)
                     const parseProduct = (productName: string) => {
                       if (!productName) return { name: '', size: '', type: '' };
@@ -719,15 +719,19 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
                     }
                     const item2Spoken = parts.join(' ');
 
+                    // Only create item1 if workflow returned the required fields
+                    const item1Obj = (result.product_name || result.product) ? {
+                      product: result.product_name || result.product,
+                      product_name: result.product_name || result.product,
+                      quantity: result.quantity,
+                      slot: result.slot,
+                      slot_spoken: result.slot_spoken
+                    } : undefined;
+
                     result = {
                       ...result,
                       spoken: `${result.spoken}, ${item2Spoken}`,
-                      item1: {
-                        product: result.product_name,
-                        quantity: result.quantity,
-                        slot: result.slot,
-                        slot_spoken: result.slot_spoken
-                      },
+                      ...(item1Obj && { item1: item1Obj }),
                       item2: {
                         product: item2Data.product_name,
                         product_name: item2Data.product_name,
@@ -794,7 +798,7 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
                     item2Data = items.find(item => item.sequence === currentIndex + 1);
                   }
 
-                  if (item2Data) {
+                  if (item2Data && item2Data.product_name) {
                     // Parse and format item2 (same logic as workflow)
                     const parseProduct = (productName: string) => {
                       if (!productName) return { name: '', size: '', type: '' };
@@ -855,15 +859,19 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
                     }
                     const item2Spoken = parts.join(' ');
 
+                    // Only create item1 if workflow returned the required fields
+                    const item1Obj = (result.product_name || result.product) ? {
+                      product: result.product_name || result.product,
+                      product_name: result.product_name || result.product,
+                      quantity: result.quantity,
+                      slot: result.slot,
+                      slot_spoken: result.slot_spoken
+                    } : undefined;
+
                     result = {
                       ...result,
                       spoken: `${result.spoken}, ${item2Spoken}`,
-                      item1: {
-                        product: result.product_name,
-                        quantity: result.quantity,
-                        slot: result.slot,
-                        slot_spoken: result.slot_spoken
-                      },
+                      ...(item1Obj && { item1: item1Obj }),
                       item2: {
                         product: item2Data.product_name,
                         product_name: item2Data.product_name,
