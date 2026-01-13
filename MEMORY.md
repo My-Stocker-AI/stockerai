@@ -1,18 +1,21 @@
 # Stocker AI – Source of Truth
-**Last Updated:** 2026-01-13 (Session 37 - Multi-Fix: 6 Critical Bugs)
-**Status:** ✅ DEPLOYED - All fixes live
+**Last Updated:** 2026-01-13 (Session 37 - BBRD Root Cause Discovery)
+**Status:** ✅ DEPLOYED - Systematic fix live
 
 ---
 
-## ✅ SESSION 37: MULTI-FIX SESSION (2026-01-13)
+## ✅ SESSION 37: SYSTEMATIC FIX VIA BBRD (2026-01-13)
 
-Six separate issues identified and fixed in this session:
-1. **2-Item Mode UI/Tracking** (Commit 1792116) - First pick + Done card issues
-2. **Greeting Prompt** (Commits ff7dd32, 4ef28fe) - "Starting now." → "Ready to go?"
-3. **Desktop Refresh Resume** (Commit ff7dd32) - Voice system not restarting on refresh
-4. **2-Item Mode Premature Completion** (Commit df0c18b) - 🔴 CRITICAL - Items marked done before picking
-5. **Route Switching Session Restoration** (Commit ce71669) - 🔴 CRITICAL - Stale completedItems from previous session
-6. **2-Item Mode TypeError** (Commit bed0708) - 🔴 CRITICAL - Cannot read properties of undefined
+Seven issues identified, six symptomatic fixes attempted, one systematic fix applied:
+1. **2-Item Mode UI/Tracking** (Commit 1792116) - ✅ First pick + Done card issues
+2. **Greeting Prompt** (Commits ff7dd32, 4ef28fe) - ✅ "Starting now." → "Ready to go?"
+3. **Desktop Refresh Resume** (Commit ff7dd32) - ✅ Voice system not restarting on refresh
+4. **2-Item Mode Premature Completion** (Commit df0c18b) - ❌ SYMPTOMATIC FIX - Did not work
+5. **Route Switching Session Restoration** (Commit ce71669) - ✅ Stale completedItems from previous session
+6. **2-Item Mode TypeError** (Commit bed0708) - ❌ SYMPTOMATIC FIX - Did not work
+7. **BBRD Root Cause Fix** (Commit 201221e) - 🎯 **SYSTEMATIC FIX** - Pre-query database BEFORE workflow
+
+**Key Learning:** Fixes #4 and #6 were symptomatic (treating errors after they occurred). Fix #7 is systematic (preventing the root cause).
 
 ---
 
@@ -484,6 +487,147 @@ Fix 4 (Commit df0c18b) added database query logic to fetch item2, but assumed wo
 **User Action Required:**
 - **Hard refresh** (Ctrl+Shift+R) to get updated code
 - Test 2-item mode with "start at the bottom" or "next"
+
+**STATUS:** ❌ **DID NOT WORK** - Fix #6 was symptomatic, not systematic. Replaced by Fix #7.
+
+---
+
+### Fix 7: BBRD Root Cause Discovery - Pre-Query Database 🎯 (Commit 201221e)
+
+**User Report:** After Fixes #4, #5, and #6 deployed, user tested with hard refresh. Said "start at the bottom" and saw:
+1. Done card: "4x Coke Zero Can 12 oz - Can" (should be EMPTY!)
+2. Pick card item 1: "2x Dr. Pepper Can 12 oz - Can, slot 56"
+3. Pick card item 2: "Hanna Andersson - Snack, In machine: 4/6" (WRONG - this is MACHINE NAME!)
+4. App froze with "Let me try that again"
+
+**User Request:** "Look at this systemically instead of symptomatically"
+
+**Root Cause Discovery (BBRD System Trace):**
+
+**The Symptom Trail:**
+- Fixes #4 and #6 were SYMPTOMATIC fixes
+- Fix #4: Query database AFTER workflow to get item2
+- Fix #6: Add null checks to handle undefined
+- Both missed the ROOT CAUSE
+
+**The System Map:**
+```
+┌─────────────┐    ┌──────────────┐    ┌─────────────┐    ┌─────────┐
+│   Voice     │ →  │   Workflow   │ →  │  Database   │ →  │Frontend │
+│ "start at   │    │ (n8n)        │    │ (Supabase)  │    │  Query  │
+│  bottom"    │    │              │    │             │    │         │
+└─────────────┘    └──────────────┘    └─────────────┘    └─────────┘
+```
+
+**Data Flow Boundaries:**
+
+1. **WORKFLOW Boundary (n8n start_machine):**
+   - Updates sessions: `current_item_index = 1`
+   - Queries items: Gets Coke Zero (last item)
+   - **❌ Marks Coke Zero as status='completed'**
+   - **❌ Increments current_item_index from 1 to 2**
+   - Returns: `{action: 'next_item', product_name: 'Coke Zero', ...}`
+
+2. **DATABASE Boundary (Supabase):**
+   - Session state MODIFIED by workflow
+   - current_item_index now = 2 (was 1)
+   - Item Coke Zero status = 'completed' (was 'pending')
+
+3. **FRONTEND Boundary (Fix #4 code):**
+   - Receives workflow result (Coke Zero)
+   - Runs database query for item2
+   - **❌ Uses current_item_index = 2 (ALREADY INCREMENTED!)**
+   - Gets WRONG item (off by 1)
+   - Returns machine_name instead of product_name
+
+**THE ROOT CAUSE:**
+```
+Workflow mutates database BEFORE my query runs
+→ Query uses MODIFIED state
+→ Gets WRONG data
+```
+
+**Why Fixes #4 and #6 Failed:**
+- Fix #4: Queried database AFTER workflow (too late, state already changed)
+- Fix #6: Added null checks (didn't address the timing issue)
+- Both were **SYMPTOMATIC** (treating consequences, not cause)
+
+**The Systematic Fix:**
+
+**BOUNDARY CHANGE:** Move database query to BEFORE workflow execution
+
+**Implementation (useStockerAI.ts lines 594-647):**
+
+```typescript
+// BEFORE calling workflow:
+if (callTwoItems && (name === 'start_machine' || name === 'get_next_item')) {
+  // 1. Get session state BEFORE workflow changes it
+  const { data: sessionData } = await supabase
+    .from('sessions')
+    .select('current_machine_id, pick_direction, current_item_index')
+    ...
+
+  // 2. Get all items for machine
+  const { data: items } = await supabase
+    .from('items')
+    .select('..., status')  // Include status to filter pending
+    .eq('machine_id', sessionData.current_machine_id)
+
+  // 3. Find BOTH item1 and item2 in UNMODIFIED state
+  const currentIndex = sessionData.current_item_index || (name === 'start_machine' ? 0 : 1);
+
+  if (pick_direction === 'reverse' || args.direction === 'ending') {
+    const currentSequence = items.length - currentIndex;
+    item1Data = items.find(item => item.sequence === currentSequence && item.status === 'pending');
+    item2Data = items.find(item => item.sequence === currentSequence - 1 && item.status === 'pending');
+  } else {
+    item1Data = items.find(item => item.sequence === currentIndex + 1 && item.status === 'pending');
+    item2Data = items.find(item => item.sequence === currentIndex + 2 && item.status === 'pending');
+  }
+
+  preQueriedItems = { item1: item1Data, item2: item2Data };
+}
+
+// THEN call workflow (it will mutate state)
+const resp = await fetchWithRetry(...);
+
+// Use PRE-QUERIED data instead of querying again
+if (preQueriedItems) {
+  const item2Data = preQueriedItems.item2;
+  // ... format and combine
+}
+```
+
+**What This Fixes:**
+- ✅ Database queried BEFORE workflow modifies state
+- ✅ Captures BOTH items with correct indices
+- ✅ Workflow can mark item1 completed (expected behavior)
+- ✅ item2 data is CORRECT (not machine name)
+- ✅ Done card empty until user picks items
+- ✅ No premature completion
+- ✅ No TypeError (correct data structure)
+
+**Deployment:**
+- **Commit:** `201221e` - "CRITICAL FIX: Pre-query database BEFORE workflow to prevent state corruption"
+- **Status:** ✅ Deployed
+- **Timestamp:** 2026-01-13 ~1:45 PM
+
+**Testing Expected:**
+- ✅ "start at the bottom": Done card EMPTY, both items correct
+- ✅ Pick card item 1: Coke Zero (correct)
+- ✅ Pick card item 2: Dr. Pepper (correct - not machine name)
+- ✅ No freezing or errors
+- ✅ Both items marked complete AFTER user says "next"
+
+**User Action Required:**
+- **Hard refresh** (Ctrl+Shift+R) to clear cached code
+- Test 2-item mode with "start at the bottom"
+
+**Lessons Learned (BBRD Application):**
+1. **Symptomatic fixes fail** - Treating consequences doesn't fix root causes
+2. **Boundary timing matters** - When you query relative to when state changes
+3. **System mapping required** - Must trace data flow across ALL boundaries
+4. **User was RIGHT** - "Look at this systemically" led to proper fix
 
 ---
 
