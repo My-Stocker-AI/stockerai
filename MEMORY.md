@@ -1,16 +1,17 @@
 # Stocker AI – Source of Truth
-**Last Updated:** 2026-01-13 (Session 37 - Multi-Fix: 4 Critical Bugs)
+**Last Updated:** 2026-01-13 (Session 37 - Multi-Fix: 5 Critical Bugs)
 **Status:** ✅ DEPLOYED - All fixes live
 
 ---
 
 ## ✅ SESSION 37: MULTI-FIX SESSION (2026-01-13)
 
-Four separate issues identified and fixed in this session:
+Five separate issues identified and fixed in this session:
 1. **2-Item Mode UI/Tracking** (Commit 1792116) - First pick + Done card issues
-2. **Greeting Prompt** (Commit ff7dd32) - "Starting now." → "Ready to go?"
+2. **Greeting Prompt** (Commits ff7dd32, 4ef28fe) - "Starting now." → "Ready to go?"
 3. **Desktop Refresh Resume** (Commit ff7dd32) - Voice system not restarting on refresh
 4. **2-Item Mode Premature Completion** (Commit df0c18b) - 🔴 CRITICAL - Items marked done before picking
+5. **Route Switching Session Restoration** (Commit ce71669) - 🔴 CRITICAL - Stale completedItems from previous session
 
 ---
 
@@ -316,6 +317,89 @@ User reported not hearing acknowledgment. Workflow returns `spoken: "Starting fr
 - Network delay causing long pause
 - Voice system issue
 - Needs investigation if recurring
+
+---
+
+### Fix 5: Route Switching Restores Stale completedItems 🔴 (Commit ce71669)
+
+**User Report:** "I just started a new route. Initial response was not a query: Hi Russ! Starting North route. Let's go! Nothing changes on the initial pick either: 2 Dr. Pepper 12 ounce Kan, 6 Diet Coke 12 ounce Kan. Done: 1 items, 4x Coke Zero Can 12 oz - Can. Were the changes actually deployed?"
+
+**Issue:** User clicked "North route" from My Routes dashboard, but saw Coke Zero (from PREVIOUS session on a DIFFERENT route) already in Done card before picking anything.
+
+**Context:** User had previously started North route with the old buggy code, paused, then clicked North route again from My Routes screen. Did NOT do hard refresh (Ctrl+Shift+R).
+
+**Root Cause Analysis:**
+
+**Boundary Trace:**
+1. User previously started North route, picked items (including Coke Zero with buggy code)
+2. Session saved to IndexedDB with `completedItems=[Coke Zero, ...]`
+3. User navigates away from app
+4. User clicks North route from My Routes dashboard
+5. Browser navigates to `/app?route=<north_id>`
+6. Code checks: `if (routeIdFromUrl && !urlRouteProcessed)` (line 790)
+7. **❌ `urlRouteProcessed` is STILL TRUE from previous visit!**
+8. Session reset block (lines 802-804) **SKIPPED**
+9. Code falls through to session restoration (line 836+)
+10. Restores OLD `completedItems=[Coke Zero, ...]` from IndexedDB
+11. User sees stale Done items from previous session
+
+**The Core Problem:**
+```typescript
+// BEFORE FIX:
+const [urlRouteProcessed, setUrlRouteProcessed] = useState(false);
+
+// When user clicks route from dashboard, navigates to /app?route=XYZ
+// IF they previously visited this route, urlRouteProcessed is STILL TRUE
+// Session reset block never runs
+// Old session data restored
+```
+
+**Fix Applied (StockerApp.tsx):**
+1. **Added route ID tracking** (line 159):
+   ```typescript
+   const lastRouteIdRef = useRef<string | null>(null);
+   ```
+
+2. **Added useEffect to reset state on route ID change** (lines 775-788):
+   ```typescript
+   useEffect(() => {
+     if (routeIdFromUrl && routeIdFromUrl !== lastRouteIdRef.current) {
+       console.log('[Stocker] Route ID changed:', {
+         from: lastRouteIdRef.current,
+         to: routeIdFromUrl
+       });
+       lastRouteIdRef.current = routeIdFromUrl;
+       setUrlRouteProcessed(false); // Reset so new route gets processed
+       initStartedRef.current = false; // Allow re-initialization
+     }
+   }, [routeIdFromUrl]);
+   ```
+
+**What This Fixes:**
+- When route ID in URL changes, reset `urlRouteProcessed=false`
+- Session reset block (lines 802-804) now RUNS:
+  - Clears session persistence ✓
+  - Calls `reset()` to clear RouteState ✓
+  - Generates new session ID ✓
+- Fresh start with empty completedItems ✓
+
+**Deployment:**
+- **Commit:** `ce71669` - "CRITICAL FIX: Route switching restores stale completedItems from previous session"
+- **Status:** ✅ Deployed
+- **Timestamp:** 2026-01-13 ~12:50 PM
+
+**Testing Expected:**
+- ✅ Click route A from dashboard → start picking → pause → navigate away
+- ✅ Click route A again → Done card EMPTY (fresh start, previous session cleared)
+- ✅ Click route B → Done card EMPTY (different route, no cross-contamination)
+- ✅ Hard refresh (Ctrl+F5) → Still resumes properly (Fix 3 still works)
+
+**Note:** This fix also ensures greeting from URL-based route starts properly reset the session.
+
+**User Action Required:**
+- **Hard refresh** (Ctrl+Shift+R or close/reopen tab) to clear cached code
+- Click route from My Routes again
+- Done card should now be empty on fresh start
 
 ---
 
