@@ -590,6 +590,64 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
       try {
         console.log(`[Tools] Calling ${name}:`, { args, endpoint: `${N8N_BASE}${path}` });
 
+        // CRITICAL: Pre-query database for 2-item mode BEFORE workflow mutates state
+        let preQueriedItems: { item1: any; item2: any } | null = null;
+        const callTwoItems = localStorage.getItem('stocker-call-two-items') === 'true';
+
+        if (callTwoItems && (name === 'start_machine' || name === 'get_next_item')) {
+          console.log('[Tools] 2-Pick Mode: Pre-querying database BEFORE workflow runs');
+
+          try {
+            // Get current session state BEFORE workflow changes it
+            const { data: sessionData } = await supabase
+              .from('sessions')
+              .select('current_machine_id, pick_direction, current_item_index')
+              .eq('user_id', userIdRef.current)
+              .eq('status', 'stocking')
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .maybeSingle();
+
+            if (sessionData?.current_machine_id) {
+              // Get all items for this machine
+              const { data: items } = await supabase
+                .from('items')
+                .select('id, product_name, quantity, slot, sequence, inventory_current, inventory_parlevel, status')
+                .eq('machine_id', sessionData.current_machine_id)
+                .order('sequence', { ascending: true });
+
+              if (items && items.length > 0) {
+                // Find BOTH item1 and item2 based on current state
+                let item1Data = null;
+                let item2Data = null;
+                const currentIndex = sessionData.current_item_index || (name === 'start_machine' ? 0 : 1);
+
+                if (sessionData.pick_direction === 'reverse' || args.direction === 'ending') {
+                  // Going from bottom to top
+                  const currentSequence = items.length - currentIndex;
+                  item1Data = items.find(item => item.sequence === currentSequence && item.status === 'pending');
+                  item2Data = items.find(item => item.sequence === currentSequence - 1 && item.status === 'pending');
+                } else {
+                  // Going from top to bottom
+                  item1Data = items.find(item => item.sequence === currentIndex + 1 && item.status === 'pending');
+                  item2Data = items.find(item => item.sequence === currentIndex + 2 && item.status === 'pending');
+                }
+
+                if (item1Data) {
+                  console.log('[Tools] Pre-queried item1:', item1Data.product_name);
+                  console.log('[Tools] Pre-queried item2:', item2Data?.product_name || 'none');
+                  preQueriedItems = {
+                    item1: item1Data,
+                    item2: item2Data
+                  };
+                }
+              }
+            }
+          } catch (e) {
+            console.warn('[Tools] Pre-query failed, proceeding with workflow:', e);
+          }
+        }
+
         // PRIORITY 1.3: Use retry logic for webhook calls
         const resp = await fetchWithRetry(`${N8N_BASE}${path}`, {
           method: 'POST',
@@ -614,51 +672,18 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
         let result = await resp.json();
         console.log(`[Tools] ${name} succeeded:`, result);
 
-        // FEATURE: 2-Pick Mode - Call get_next_item twice when enabled
+        // FEATURE: 2-Pick Mode - Use pre-queried data
         if (name === 'get_next_item') {
           const callTwoItems = localStorage.getItem('stocker-call-two-items') === 'true';
 
-          if (callTwoItems && result.action === 'next_item' && result.spoken) {
-            console.log('[Tools] 2-Pick Mode enabled - fetching second item from database');
+          if (callTwoItems && result.action === 'next_item' && result.spoken && preQueriedItems) {
+            console.log('[Tools] 2-Pick Mode enabled - using pre-queried item2 data');
 
             try {
-              // CRITICAL FIX: Query database directly instead of calling workflow
-              // Calling workflow twice marks both items as completed (bug!)
-              // We only want item1 marked as done, and PEEK at item2
+              // Use pre-queried item2 data (queried BEFORE workflow modified state)
+              const item2Data = preQueriedItems.item2;
 
-              // Get current session
-              const { data: sessionData } = await supabase
-                .from('sessions')
-                .select('current_machine_id, pick_direction, current_item_index')
-                .eq('user_id', userIdRef.current)
-                .eq('status', 'stocking')
-                .order('created_at', { ascending: false })
-                .limit(1)
-                .maybeSingle();
-
-              if (sessionData?.current_machine_id) {
-                // Get all items for this machine
-                const { data: items } = await supabase
-                  .from('items')
-                  .select('id, product_name, quantity, slot, sequence, inventory_current, inventory_parlevel')
-                  .eq('machine_id', sessionData.current_machine_id)
-                  .order('sequence', { ascending: true });
-
-                if (items && items.length > 0) {
-                  // Find item2 based on current position
-                  let item2Data = null;
-                  const currentIndex = sessionData.current_item_index || 1;
-
-                  if (sessionData.pick_direction === 'reverse') {
-                    // Going from bottom to top
-                    const currentSequence = items.length - currentIndex + 1;
-                    item2Data = items.find(item => item.sequence === currentSequence - 1);
-                  } else {
-                    // Going from top to bottom
-                    item2Data = items.find(item => item.sequence === currentIndex + 1);
-                  }
-
-                  if (item2Data && item2Data.product_name) {
+              if (item2Data && item2Data.product_name) {
                     // Parse and format item2 (same logic as workflow)
                     const parseProduct = (productName: string) => {
                       if (!productName) return { name: '', size: '', type: '' };
@@ -742,14 +767,12 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
                         inventory_parlevel: item2Data.inventory_parlevel || 0
                       }
                     };
-                    console.log('[Tools] Combined 2-pick response (DB query):', result.spoken);
-                  } else {
-                    console.log('[Tools] No second item available - using single item');
-                  }
-                }
+                    console.log('[Tools] Combined 2-pick response (pre-queried):', result.spoken);
+              } else {
+                console.log('[Tools] No second item available - using single item');
               }
             } catch (e: any) {
-              console.warn('[Tools] Second item fetch from database failed, using single item:', e);
+              console.warn('[Tools] Failed to use pre-queried item2:', e);
             }
           }
         }
@@ -758,47 +781,14 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
         if (name === 'start_machine') {
           const callTwoItems = localStorage.getItem('stocker-call-two-items') === 'true';
 
-          if (callTwoItems && result.action === 'next_item' && result.spoken) {
-            console.log('[Tools] 2-Pick Mode enabled for start_machine - fetching second item from database');
+          if (callTwoItems && result.action === 'next_item' && result.spoken && preQueriedItems) {
+            console.log('[Tools] 2-Pick Mode enabled for start_machine - using pre-queried item2 data');
 
             try {
-              // CRITICAL FIX: Query database directly instead of calling workflow
-              // Calling the workflow marks item1 as completed (bug!)
-              // We just want to PEEK at item2 without advancing state
+              // Use pre-queried item2 data (queried BEFORE workflow modified state)
+              const item2Data = preQueriedItems.item2;
 
-              // Get current session to know machine_id and direction
-              const { data: sessionData } = await supabase
-                .from('sessions')
-                .select('current_machine_id, pick_direction, current_item_index')
-                .eq('user_id', userIdRef.current)
-                .eq('status', 'stocking')
-                .order('created_at', { ascending: false })
-                .limit(1)
-                .maybeSingle();
-
-              if (sessionData?.current_machine_id) {
-                // Get all items for this machine
-                const { data: items } = await supabase
-                  .from('items')
-                  .select('id, product_name, quantity, slot, sequence, inventory_current, inventory_parlevel')
-                  .eq('machine_id', sessionData.current_machine_id)
-                  .order('sequence', { ascending: true });
-
-                if (items && items.length > 0) {
-                  // Find item2 based on direction
-                  let item2Data = null;
-                  const currentIndex = sessionData.current_item_index || 1;
-
-                  if (sessionData.pick_direction === 'reverse') {
-                    // Going from bottom to top: next item is one position UP (lower sequence)
-                    const currentSequence = items.length - currentIndex + 1;
-                    item2Data = items.find(item => item.sequence === currentSequence - 1);
-                  } else {
-                    // Going from top to bottom: next item is currentIndex + 1
-                    item2Data = items.find(item => item.sequence === currentIndex + 1);
-                  }
-
-                  if (item2Data && item2Data.product_name) {
+              if (item2Data && item2Data.product_name) {
                     // Parse and format item2 (same logic as workflow)
                     const parseProduct = (productName: string) => {
                       if (!productName) return { name: '', size: '', type: '' };
@@ -882,14 +872,12 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
                         inventory_parlevel: item2Data.inventory_parlevel || 0
                       }
                     };
-                    console.log('[Tools] Combined 2-pick response for start_machine (DB query):', result.spoken);
-                  } else {
-                    console.log('[Tools] No second item available - using single item');
-                  }
-                }
+                    console.log('[Tools] Combined 2-pick response for start_machine (pre-queried):', result.spoken);
+              } else {
+                console.log('[Tools] No second item available - using single item');
               }
             } catch (e: any) {
-              console.warn('[Tools] Second item fetch from database failed, using single item:', e);
+              console.warn('[Tools] Failed to use pre-queried item2 for start_machine:', e);
             }
           }
         }
