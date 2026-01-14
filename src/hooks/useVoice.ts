@@ -1102,95 +1102,137 @@ export function useVoice(options: UseVoiceOptions = {}) {
           return;
         }
 
-        // CRITICAL FIX FOR ANDROID: Create FRESH AudioContext for each TTS playback
-        // Android switches audio routing to earpiece after mic becomes active
-        // Reusing same AudioContext inherits the earpiece routing
-        // Creating fresh context forces Android to re-evaluate routing → speakerphone
+        // CRITICAL FIX FOR ANDROID SPEAKERPHONE ROUTING
+        // Web Audio API routes to earpiece when mic is active on Android
+        // HTMLAudioElement routes to speakerphone by default
+        // Use HTMLAudioElement on Android for proper speakerphone routing
 
-        // Close old context if exists
-        if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-          try {
-            await audioContextRef.current.close();
-            console.log('[Voice] Closed old AudioContext');
-          } catch (e) {
-            console.warn('[Voice] Failed to close old AudioContext:', e);
+        const isAndroid = /android/i.test(navigator.userAgent);
+
+        if (isAndroid) {
+          // ANDROID: Use HTMLAudioElement for speakerphone routing
+          console.log('[Voice] Android detected - using HTMLAudioElement for speakerphone routing');
+
+          const audioUrl = URL.createObjectURL(audioBlob);
+          const audio = new Audio(audioUrl);
+
+          // Get user's volume preference (default: 1.5 = 150%)
+          const volumeMultiplier = parseFloat(localStorage.getItem('stocker-tts-volume') || '1.5');
+          audio.volume = Math.min(volumeMultiplier, 1.0); // HTML5 Audio max is 1.0
+
+          console.log('[Voice] HTMLAudioElement volume:', audio.volume);
+
+          // Store reference for cleanup
+          audioRef.current = audio as any;
+
+          await new Promise<void>((resolve, reject) => {
+            if (stoppedRef.current) {
+              URL.revokeObjectURL(audioUrl);
+              resolve();
+              return;
+            }
+
+            audio.onended = () => {
+              URL.revokeObjectURL(audioUrl);
+              audioRef.current = null;
+              resolve();
+            };
+
+            audio.onerror = (err) => {
+              URL.revokeObjectURL(audioUrl);
+              audioRef.current = null;
+              reject(err);
+            };
+
+            // Play immediately (must be synchronous from user gesture)
+            const playPromise = audio.play();
+            if (playPromise) {
+              playPromise
+                .then(() => {
+                  console.log('[Voice] HTMLAudioElement playback started (speakerphone)');
+                })
+                .catch(err => {
+                  console.error('[Voice] HTMLAudioElement playback failed:', err);
+                  URL.revokeObjectURL(audioUrl);
+                  audioRef.current = null;
+                  reject(err);
+                });
+            }
+          });
+
+        } else {
+          // iOS/DESKTOP: Use Web Audio API (better quality, works fine on iOS)
+          console.log('[Voice] iOS/Desktop - using Web Audio API');
+
+          // Close old context if exists
+          if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+            try {
+              await audioContextRef.current.close();
+            } catch (e) {
+              console.warn('[Voice] Failed to close old AudioContext:', e);
+            }
           }
-        }
 
-        // Create FRESH AudioContext for this TTS playback
-        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-        const audioContext = new AudioContextClass({ sampleRate: 44100 });
-        audioContextRef.current = audioContext;
-        console.log('[Voice] Created FRESH AudioContext for TTS - forces speakerphone routing');
+          // Create FRESH AudioContext
+          const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+          const audioContext = new AudioContextClass({ sampleRate: 44100 });
+          audioContextRef.current = audioContext;
 
-        // Use Web Audio API instead of HTMLAudioElement
-        // CRITICAL: This routes audio to SPEAKERPHONE on Android/iOS instead of EARPIECE
-        // When getUserMedia() is active, HTMLAudioElement goes to earpiece (voice call mode)
-        await new Promise<void>((resolve, reject) => {
-          if (stoppedRef.current) {
-            resolve();
-            return;
-          }
-
-          // Decode audio blob using Web Audio API
-          audioBlob.arrayBuffer().then(arrayBuffer => {
+          await new Promise<void>((resolve, reject) => {
             if (stoppedRef.current) {
               resolve();
               return;
             }
 
-            audioContext.decodeAudioData(arrayBuffer).then(audioBuffer => {
+            audioBlob.arrayBuffer().then(arrayBuffer => {
               if (stoppedRef.current) {
                 resolve();
                 return;
               }
 
-              // Create buffer source node
-              const source = audioContext.createBufferSource();
-              source.buffer = audioBuffer;
+              audioContext.decodeAudioData(arrayBuffer).then(audioBuffer => {
+                if (stoppedRef.current) {
+                  resolve();
+                  return;
+                }
 
-              // CRITICAL: Add GainNode for volume control
-              // During mic sessions, Android may use "call volume" which is often too quiet
-              // GainNode allows us to boost volume programmatically
-              const gainNode = audioContext.createGain();
+                const source = audioContext.createBufferSource();
+                source.buffer = audioBuffer;
+                const gainNode = audioContext.createGain();
 
-              // Get user's volume preference (default: 1.5 = 150% = louder than normal)
-              const volumeMultiplier = parseFloat(localStorage.getItem('stocker-tts-volume') || '1.5');
-              gainNode.gain.value = volumeMultiplier;
+                // Get user's volume preference
+                const volumeMultiplier = parseFloat(localStorage.getItem('stocker-tts-volume') || '1.5');
+                gainNode.gain.value = volumeMultiplier;
 
-              console.log('[Voice] TTS volume multiplier:', volumeMultiplier);
+                console.log('[Voice] Web Audio volume:', volumeMultiplier);
 
-              // Connect: source → gain → destination (speaker)
-              source.connect(gainNode);
-              gainNode.connect(audioContext.destination);
+                source.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+                audioRef.current = source as any;
 
-              // Store reference for cleanup
-              audioRef.current = source as any;
+                source.onended = () => {
+                  audioRef.current = null;
+                  resolve();
+                };
 
-              // Handle playback completion
-              source.onended = () => {
-                audioRef.current = null;
-                resolve();
-              };
-
-              // Start playback immediately (no async gap to lose user gesture)
-              try {
-                source.start(0);
-                console.log('[Voice] Web Audio API playback started (routes to speakerphone)');
-              } catch (err: any) {
-                console.error('[Voice] Web Audio playback failed:', err);
-                audioRef.current = null;
+                try {
+                  source.start(0);
+                  console.log('[Voice] Web Audio API playback started');
+                } catch (err: any) {
+                  console.error('[Voice] Web Audio playback failed:', err);
+                  audioRef.current = null;
+                  reject(err);
+                }
+              }).catch(err => {
+                console.error('[Voice] Audio decode failed:', err);
                 reject(err);
-              }
+              });
             }).catch(err => {
-              console.error('[Voice] Audio decode failed:', err);
+              console.error('[Voice] Array buffer conversion failed:', err);
               reject(err);
             });
-          }).catch(err => {
-            console.error('[Voice] Array buffer conversion failed:', err);
-            reject(err);
           });
-        });
+        }
 
       } catch (error) {
         // Fallback to browser TTS
