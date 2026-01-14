@@ -186,33 +186,33 @@ export function SettingsSheet({
               <div className="grid grid-cols-3 gap-2">
                 <button
                   onClick={() => onSetEnvironment?.('quiet')}
-                  className={`p-2 rounded-lg text-xs font-medium transition-colors ${
+                  className={`p-3 rounded-lg text-sm font-bold transition-all ${
                     currentEnvironment === 'quiet'
-                      ? 'bg-green-500/20 text-green-400 border border-green-500'
-                      : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                      ? 'bg-green-500/30 text-green-300 border-2 border-green-400 shadow-[0_0_20px_rgba(34,197,94,0.4)] scale-105'
+                      : 'bg-gray-800 text-gray-400 hover:bg-gray-700 border border-gray-700'
                   }`}
                 >
-                  🏡 Quiet
+                  🏡<br/>Quiet
                 </button>
                 <button
                   onClick={() => onSetEnvironment?.('moderate')}
-                  className={`p-2 rounded-lg text-xs font-medium transition-colors ${
+                  className={`p-3 rounded-lg text-sm font-bold transition-all ${
                     currentEnvironment === 'moderate'
-                      ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500'
-                      : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                      ? 'bg-yellow-500/30 text-yellow-300 border-2 border-yellow-400 shadow-[0_0_20px_rgba(234,179,8,0.4)] scale-105'
+                      : 'bg-gray-800 text-gray-400 hover:bg-gray-700 border border-gray-700'
                   }`}
                 >
-                  🏢 Moderate
+                  🏢<br/>Moderate
                 </button>
                 <button
                   onClick={() => onSetEnvironment?.('loud')}
-                  className={`p-2 rounded-lg text-xs font-medium transition-colors ${
+                  className={`p-3 rounded-lg text-sm font-bold transition-all ${
                     currentEnvironment === 'loud'
-                      ? 'bg-orange-500/20 text-orange-400 border border-orange-500'
-                      : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                      ? 'bg-orange-500/30 text-orange-300 border-2 border-orange-400 shadow-[0_0_20px_rgba(249,115,22,0.4)] scale-105'
+                      : 'bg-gray-800 text-gray-400 hover:bg-gray-700 border border-gray-700'
                   }`}
                 >
-                  🏭 Loud
+                  🏭<br/>Loud
                 </button>
               </div>
             </div>

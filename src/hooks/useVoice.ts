@@ -33,10 +33,11 @@ interface UseVoiceOptions {
   onWakePhrase?: (command: string | null) => void;
   continuous?: boolean;
   keywords?: string[];  // Dynamic keywords for improved recognition (route names, commands)
+  environmentEndpointing?: number;  // Deepgram endpointing from environment detection (ms)
 }
 
 export function useVoice(options: UseVoiceOptions = {}) {
-  const { onTranscript, onError, onWakePhrase, keywords } = options;
+  const { onTranscript, onError, onWakePhrase, keywords, environmentEndpointing } = options;
 
   // Store callbacks in refs to avoid stale closures in WebSocket handlers
   const onTranscriptRef = useRef(onTranscript);
@@ -565,6 +566,10 @@ export function useVoice(options: UseVoiceOptions = {}) {
 
     console.log('[Voice] Deepgram keywords:', { count: allKeywords.length, boost: 1.5 });
 
+    // Use environment-specific endpointing value (from environment detection) or default to 100ms
+    const endpointingMs = environmentEndpointing || 100;
+    console.log('[Voice] Deepgram endpointing:', endpointingMs + 'ms');
+
     const wsUrl = 'wss://api.deepgram.com/v1/listen?' +
       'model=nova-2&' +  // Latest Nova 2 model (nova-3 not yet available)
       'language=en-US&' +
@@ -572,7 +577,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
       'smart_format=true&' +
       'interim_results=true&' +
       'vad_events=true&' +
-      'endpointing=100' +  // Reduced from 200ms for faster response (Performance Priority 2)
+      `endpointing=${endpointingMs}` +  // Environment-adaptive endpointing
       keywordsParam +
       boostParam;
 

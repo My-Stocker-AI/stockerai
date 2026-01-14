@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { HelpSheet } from '@/components/stocker/HelpSheet';
 import { SettingsSheet } from '@/components/stocker/SettingsSheet';
+import { useEnvironmentDetection, EnvironmentType } from '@/hooks/useEnvironmentDetection';
 import { RouteSelectionCard } from '@/components/stocker/RouteSelectionCard';
 import { MachineListPanel } from '@/components/stocker/MachineListPanel';
 import { DiagnosticOverlay } from '@/components/DiagnosticOverlay';
@@ -714,13 +715,39 @@ export default function StockerApp() {
     setError(errorMsg);
   }, []);
 
+  // Environment detection for adaptive voice recognition
+  const {
+    environment,
+    isDetecting: isDetectingEnvironment,
+    detectEnvironment,
+    setEnvironmentManual
+  } = useEnvironmentDetection();
+
   const voice = useVoice({
     onTranscript: handleTranscript,
     onError: handleVoiceError,
     onWakePhrase: handleWakePhrase,
     continuous: true,
-    keywords: [...routeKeywords, ...learnedKeywords]  // Dynamic route names + learned keywords
+    keywords: [...routeKeywords, ...learnedKeywords],  // Dynamic route names + learned keywords
+    environmentEndpointing: environment.endpointing  // Adaptive endpointing based on environment
   });
+
+  // Handle environment auto-detection (requires microphone access)
+  const handleDetectEnvironment = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      });
+      await detectEnvironment(stream);
+    } catch (error: any) {
+      console.error('[StockerApp] Environment detection failed:', error);
+      setError('Microphone access required for environment detection');
+    }
+  }, [detectEnvironment, setError]);
 
   // Store voice in ref for callbacks
   useEffect(() => {
@@ -1564,7 +1591,14 @@ export default function StockerApp() {
       <HelpSheet isOpen={showHelpSheet} onClose={() => setShowHelpSheet(false)} />
 
       {/* Settings Sheet */}
-      <SettingsSheet isOpen={showSettingsSheet} onClose={() => setShowSettingsSheet(false)} />
+      <SettingsSheet
+        isOpen={showSettingsSheet}
+        onClose={() => setShowSettingsSheet(false)}
+        currentEnvironment={environment.type}
+        onDetectEnvironment={handleDetectEnvironment}
+        onSetEnvironment={setEnvironmentManual}
+        isDetecting={isDetectingEnvironment}
+      />
 
       {/* Diagnostic Overlay - Triple-tap to reveal */}
       <DiagnosticOverlay
