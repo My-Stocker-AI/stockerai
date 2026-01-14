@@ -101,6 +101,15 @@ const Team = () => {
   // Invite member mutation - uses Supabase Edge Function
   const inviteMemberMutation = useMutation({
     mutationFn: async () => {
+      console.log('[Team] Sending invite request:', {
+        email: inviteEmail,
+        first_name: inviteFirstName,
+        last_name: inviteLastName,
+        account_id: userRole?.account_id,
+        role: inviteRole,
+        can_view_all_routes: inviteCanViewAll,
+      });
+
       const { data, error } = await supabase.functions.invoke('invite-team-member', {
         body: {
           email: inviteEmail,
@@ -112,24 +121,46 @@ const Team = () => {
         },
       });
 
+      console.log('[Team] Invite response:', { data, error });
+
       if (error) {
+        console.error('[Team] Edge Function error:', error);
         throw new Error(error.message || 'Failed to invite team member');
       }
 
       if (!data.success) {
+        console.error('[Team] Invite failed:', data.error);
         throw new Error(data.error || 'Failed to invite team member');
       }
 
+      console.log('[Team] Invite successful:', data.user);
       return data;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      console.log('[Team] Invalidating team-members query');
       queryClient.invalidateQueries({ queryKey: ['team-members'] });
-      toast({ title: "Team member invited", description: "They will receive an email to set their password." });
+
+      console.log('[Team] Showing success toast');
+      toast({
+        title: "Team member invited",
+        description: `${data.user.first_name} ${data.user.last_name} will receive an email to set their password.`
+      });
+
       setInviteModalOpen(false);
       resetInviteForm();
     },
     onError: (error) => {
-      toast({ title: "Error inviting member", description: error.message, variant: "destructive" });
+      console.error('[Team] Mutation error:', {
+        message: error.message,
+        stack: error.stack,
+        error
+      });
+
+      toast({
+        title: "Error inviting member",
+        description: error.message,
+        variant: "destructive"
+      });
     },
   });
 
@@ -137,7 +168,16 @@ const Team = () => {
   const updateMemberMutation = useMutation({
     mutationFn: async () => {
       if (!selectedMember) throw new Error('No member selected');
-      
+
+      console.log('[Team] Updating member:', {
+        member_id: selectedMember.id,
+        user_id: selectedMember.user_id,
+        old_role: selectedMember.role,
+        new_role: editRole,
+        old_can_view_all: selectedMember.can_view_all_routes,
+        new_can_view_all: editCanViewAll,
+      });
+
       const { error } = await supabase
         .from('account_users')
         .update({
@@ -146,7 +186,12 @@ const Team = () => {
         })
         .eq('id', selectedMember.id);
 
-      if (error) throw error;
+      if (error) {
+        console.error('[Team] Update error:', error);
+        throw error;
+      }
+
+      console.log('[Team] Member updated successfully');
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['team-members'] });
@@ -155,6 +200,7 @@ const Team = () => {
       setSelectedMember(null);
     },
     onError: (error) => {
+      console.error('[Team] Update mutation error:', error);
       toast({ title: "Error updating member", description: error.message, variant: "destructive" });
     },
   });
@@ -163,13 +209,25 @@ const Team = () => {
   const deleteMemberMutation = useMutation({
     mutationFn: async () => {
       if (!selectedMember) throw new Error('No member selected');
-      
+
+      console.log('[Team] Deleting member:', {
+        member_id: selectedMember.id,
+        user_id: selectedMember.user_id,
+        email: selectedMember.profiles?.email,
+        role: selectedMember.role,
+      });
+
       const { error } = await supabase
         .from('account_users')
         .delete()
         .eq('id', selectedMember.id);
 
-      if (error) throw error;
+      if (error) {
+        console.error('[Team] Delete error:', error);
+        throw error;
+      }
+
+      console.log('[Team] Member deleted successfully');
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['team-members'] });
@@ -178,6 +236,7 @@ const Team = () => {
       setSelectedMember(null);
     },
     onError: (error) => {
+      console.error('[Team] Delete mutation error:', error);
       toast({ title: "Error removing member", description: error.message, variant: "destructive" });
     },
   });
