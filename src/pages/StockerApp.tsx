@@ -427,6 +427,28 @@ export default function StockerApp() {
               return;
           }
 
+          // Helper: Build display-friendly text (correct spelling) from tool result
+          const buildDisplayText = (result: any): string => {
+            if (result.action === 'next_item' || result.action === 'item_ready') {
+              const parts: string[] = [];
+
+              // Item 1
+              if (result.product_name && result.quantity) {
+                parts.push(`${result.quantity}× ${result.product_name}`);
+              }
+
+              // Item 2 (if present in 2-item mode)
+              if (result.item2?.product_name && result.item2?.quantity) {
+                parts.push(`${result.item2.quantity}× ${result.item2.product_name}`);
+              }
+
+              return parts.join(', ');
+            }
+
+            // For other actions, use spoken field (it's correct for those)
+            return result.spoken || '';
+          };
+
           // Execute tool calls directly (bypass AI)
           if (toolCalls.length > 0) {
             const toolResults = await executeToolCalls(toolCalls, (name, result) => {
@@ -455,8 +477,8 @@ export default function StockerApp() {
             // Use fast path - speak the workflow's "spoken" field directly
             for (const tr of toolResults) {
               if (tr.result?.spoken) {
-                setAiResponse(tr.result.spoken);
-                await v.speak(tr.result.spoken);
+                setAiResponse(buildDisplayText(tr.result)); // Display uses correct spelling
+                await v.speak(tr.result.spoken); // TTS uses pronunciation-friendly version
                 await keywordLearning.trackKeywords(transcript, true); // Track as success
                 processingRef.current = false;
                 return;
@@ -543,11 +565,33 @@ export default function StockerApp() {
           addMessage({ role: 'tool', tool_call_id: tr.tool_call_id, content: JSON.stringify(tr.result) });
         }
 
+        // Helper: Build display-friendly text (correct spelling) from tool result
+        const buildDisplayText = (result: any): string => {
+          if (result.action === 'next_item' || result.action === 'item_ready') {
+            const parts: string[] = [];
+
+            // Item 1
+            if (result.product_name && result.quantity) {
+              parts.push(`${result.quantity}× ${result.product_name}`);
+            }
+
+            // Item 2 (if present in 2-item mode)
+            if (result.item2?.product_name && result.item2?.quantity) {
+              parts.push(`${result.item2.quantity}× ${result.item2.product_name}`);
+            }
+
+            return parts.join(', ');
+          }
+
+          // For other actions, use spoken field (it's correct for those)
+          return result.spoken || '';
+        };
+
         // Check for fast path - if tool returned 'spoken' field, use it directly
         let usedFastPath = false;
         for (const tr of toolResults) {
           if (tr.result?.spoken) {
-            response = { content: tr.result.spoken };
+            response = { content: buildDisplayText(tr.result) }; // Display uses correct spelling
             usedFastPath = true;
             break;
           }
