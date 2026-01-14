@@ -734,6 +734,12 @@ export default function StockerApp() {
 
   // Handle environment auto-detection (requires microphone access)
   const handleDetectEnvironment = useCallback(async () => {
+    // CRITICAL: Don't auto-detect while voice is active - causes mic conflict on Android
+    if (voice.status === 'listening' || voice.status === 'speaking') {
+      setError('Stop voice session first, then run auto-detect');
+      return;
+    }
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -747,7 +753,7 @@ export default function StockerApp() {
       console.error('[StockerApp] Environment detection failed:', error);
       setError('Microphone access required for environment detection');
     }
-  }, [detectEnvironment, setError]);
+  }, [detectEnvironment, setError, voice.status]);
 
   // Store voice in ref for callbacks
   useEffect(() => {

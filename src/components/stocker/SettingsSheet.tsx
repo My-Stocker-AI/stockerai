@@ -219,7 +219,7 @@ export function SettingsSheet({
 
             {/* Helpful Info */}
             <div className="mt-3 p-2 bg-gray-800/30 rounded text-xs text-gray-500">
-              💡 Tip: Run auto-detect at the start of each session for best results
+              💡 Tip: Run auto-detect BEFORE starting voice session. If voice is active, use manual selection instead.
             </div>
           </div>
         </div>
