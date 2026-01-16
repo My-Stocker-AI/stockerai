@@ -25,22 +25,39 @@
 | **API Contract Changes** | ✅ YES | Updating WEBHOOK_MAP, endpoint changes |
 | **Multi-boundary Fixes** | ✅ YES | Fix that spans frontend + backend + database |
 
-## Quick Reference
+## How to Use: Bash Approach (MCP Broken)
+
+**KNOWN ISSUE:** MCP tools don't expose in conversation ([Claude Code bug](https://github.com/anthropics/claude-code/issues/2682))
+
+**MANDATORY: Create Python script, run via Bash**
 
 ```python
-# Discovery + Execution (verify then fix)
-xpansion(
-    operation="execute",
-    intent="fix workflow activation with contract validation",
-    context={
-        "workflow_id": "...",
-        "webhook_path": "/path",
-        "frontend_webhook_map": {...}
-    }
-)
+#!/usr/bin/env python3
+import sys
+sys.path.insert(0, '/home/visionairy/Xpansion')
+
+from tools.adapters import SystemAdapter  # or IntentAdapter
+
+problem = """
+[Describe the StockerAI issue - workflows, database, API, etc.]
+
+ANALYZE FOR:
+- What can break?
+- What data flows?
+"""
+
+adapter = SystemAdapter()
+result = adapter.discover(problem_text=problem)
+
+# Results auto-print and auto-log to Vib8 Supabase
 ```
 
-**Full Documentation:** See `/home/visionairy/CLAUDE.md` sections 0.0-0.6
+**Run:**
+```bash
+/home/visionairy/Xpansion/.venv/bin/python analyze_issue.py
+```
+
+**Full Documentation:** See `/home/visionairy/CLAUDE.md` Session 39 for complete protocol
 
 ---
 
