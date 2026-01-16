@@ -64,22 +64,35 @@ serve(async (req) => {
     }];
 
     // Extract unique machines from the result
+    // OPTIMIZATION: Only return current + next + skipped machines (not ALL machines)
+    const currentMachineId = data[0].current_machine_id;
+    const currentMachineSeq = data.find((r: any) => r.machine_id === currentMachineId)?.machine_sequence || 0;
+
     const machinesMap = new Map();
     data.forEach((row: any) => {
       if (row.machine_id && !machinesMap.has(row.machine_id)) {
-        machinesMap.set(row.machine_id, {
-          id: row.machine_id,
-          machine_name: row.machine_name,
-          location_name: row.location_name,
-          machine_number: row.machine_number,
-          sequence: row.machine_sequence,
-          status: row.machine_status
-        });
+        // Include machine if:
+        // - It's the current machine, OR
+        // - It's the next machine (sequence + 1), OR
+        // - It has status = 'skipped' (need ALL skipped for workflow logic)
+        const isCurrentMachine = row.machine_id === currentMachineId;
+        const isNextMachine = row.machine_sequence === currentMachineSeq + 1;
+        const isSkippedMachine = row.machine_status === 'skipped';
+
+        if (isCurrentMachine || isNextMachine || isSkippedMachine) {
+          machinesMap.set(row.machine_id, {
+            id: row.machine_id,
+            machine_name: row.machine_name,
+            location_name: row.location_name,
+            machine_number: row.machine_number,
+            sequence: row.machine_sequence,
+            status: row.machine_status
+          });
+        }
       }
     });
 
     // Extract items from the result (for current machine only)
-    const currentMachineId = data[0].current_machine_id;
     const items = data
       .filter((row: any) => row.item_id != null && row.machine_id === currentMachineId)
       .map((row: any) => ({
@@ -93,7 +106,7 @@ serve(async (req) => {
         inventory_parlevel: row.inventory_parlevel
       }));
 
-    logStep("Query successful", {
+    logStep("Query successful (optimized: current + next + skipped only)", {
       session_id: sessionArray[0].id,
       machines_count: machinesMap.size,
       items_count: items.length
