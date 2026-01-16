@@ -76,6 +76,21 @@
 3. If issues: Check n8n execution logs, Supabase Edge Function logs
 4. If successful: Document performance improvement metrics
 
+### CLAUDE.md Memory Bloat Fix
+
+**Problem:** Claude Code warning "Large CLAUDE.md will impact performance (42.0k chars > 40.0k)"
+- Parent `/home/visionairy/CLAUDE.md` had entire "STOCKER AI CANONICAL REFERENCE" section duplicated
+- Both parent + project CLAUDE.md files loaded = 50k chars total
+
+**Solution:** Removed Stocker-specific content from parent file
+- Before: 32,899 chars → After: 22,062 chars (reduction: 10,837 chars)
+- Total context now: ~39k chars (below 40k threshold)
+- Stocker details only in `/home/visionairy/StockerAI/CLAUDE.md`
+
+**Files Updated:**
+- `/home/visionairy/CLAUDE.md` - Removed duplicate Stocker reference
+- Added project directory pointers instead
+
 ---
 
 ## ✅ SESSION 38: OPTION A IMPLEMENTATION (2026-01-13)
