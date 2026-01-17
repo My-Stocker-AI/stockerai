@@ -3371,3 +3371,104 @@ DELETE FROM routes;
 ---
 
 **END OF FILE**
+
+---
+
+## Session 2026-01-17: Reverse Mode Bug Fix Deployment & n8n MCP Tool Status
+
+### Reverse Mode Premature Termination - FIX DEPLOYED ✅
+
+**Problem:**
+- When starting new machine in reverse mode, workflow set `new_item_index: 0`
+- On next "next" command, looked for `sequence = -1` (doesn't exist)
+- System incorrectly marked machine as complete
+
+**Root Cause:**
+- `determine_next_state_FIXED.js` had hardcoded `new_item_index: 0` for all pick directions
+- Should calculate based on `pick_direction`: reverse = items.length, forward = 0
+
+**Solution Implemented:**
+- Updated "Determine Next State" Code node in workflow `iykbFj7f9222PF7r`
+- Lines 103-109 and 143-149 now calculate correct starting index:
+```javascript
+var startingIndex;
+if (pickDirection === 'reverse') {
+  startingIndex = items.length;  // Start at highest sequence
+} else {
+  startingIndex = 0;  // Start at beginning
+}
+```
+
+**Testing Status:**
+- Test script created: `/home/visionairy/StockerAI/test_reverse_fix.js` ✅
+- Test result: Old logic fails, new logic works ✅
+- Code deployed to workflow: YES ✅
+- Production test: PENDING (waiting for next reverse mode execution)
+
+**How to Verify:**
+1. Check execution data for `action: "next_machine"` in reverse mode
+2. Verify `new_item_index: 39` (or items.length) instead of 0
+3. Confirm next "next" command shows item instead of "machine complete"
+
+---
+
+### n8n MCP Partial Update Tool - Status Check (2026-01-17)
+
+**KNOWN ISSUE (2025-12-20):**
+- Using `updateNode` with `updates: {parameters: {...}}` REPLACED entire parameters object
+- Lost URL, Method, Body, Auth fields
+- Recommendation: Don't use API, tell user to copy/paste in UI
+
+**Research Results (2026-01-17):**
+- ❓ **Inconclusive** - No explicit fix documented in czlonkowski/n8n-mcp repo
+- ✅ Documentation now emphasizes **dot notation** for nested updates
+- ✅ Shows examples like `"parameters.url"` instead of `parameters: {url: ...}`
+- ❓ Unclear if this is new functionality or just better documentation
+
+**Current Documentation Pattern:**
+```javascript
+// Use dot notation for nested updates (should merge, not replace)
+n8n_update_partial_workflow({
+  id: "wf_id",
+  operations: [{
+    type: "updateNode",
+    nodeName: "HTTP Request",
+    updates: {"parameters.sendHeaders": true}  // ← Dot notation
+  }]
+})
+```
+
+**Recommendation:**
+- **Test before using on production** - Create test workflow, try dot notation update
+- If dot notation preserves other fields → Tool may be safe now
+- If it still replaces entire object → Stick with copy/paste method
+- **DO NOT assume it's fixed** without explicit confirmation
+
+**Monitoring Protocol:**
+- Last checked: 2026-01-17
+- Next check: 2026-01-19
+- Update CLAUDE.md Section 1.8 when status confirmed
+
+---
+
+### Key Learnings
+
+**Testing Timing:**
+- ❌ Testing execution 26957 (before code update) showed bug
+- ✅ User confirmed code is now correct in the node
+- 💡 **Always verify execution timestamp vs code update timestamp**
+- 🔍 Need NEW execution after code change to validate fix
+
+**StockerAI Workflow Updates:**
+- Workflow: "Stocker Tool: get_next_item (Optimized)" (ID: `iykbFj7f9222PF7r`)
+- Node updated: "Determine Next State" (Code node)
+- Fix also applies to "returning to skipped machine" scenario
+
+**n8n MCP Research Approach:**
+- Searched GitHub repo commits, issues, documentation
+- Found n8n core MCP access scope fix (not related to updateNode)
+- Documentation improvements don't confirm bug fix
+- **Inconclusive = requires direct testing before trusting**
+
+---
+
