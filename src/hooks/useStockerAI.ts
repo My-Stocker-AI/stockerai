@@ -256,6 +256,9 @@ export function useStockerAI() {
       if (currentItem.machine_name) {
         itemContext += `\nMachine: ${currentItem.machine_name}`;
       }
+      if (currentItem.item_index !== undefined && currentItem.items_remaining !== undefined) {
+        itemContext += `\nItem position: item_index=${currentItem.item_index}, items_remaining=${currentItem.items_remaining}`;
+      }
     }
 
     // Add current route status to help AI make decisions
@@ -479,6 +482,19 @@ When user asks about their progress or status, answer using the ROUTE PROGRESS d
 - "How many machines left?" → "[machines remaining] machines left out of [total]."
 - "What's my progress?" → "You're on machine [current] of [total]. [completed items] items completed out of [total items] total."
 - "How many items left?" → Use current machine's remaining items
+
+CRITICAL - Item Number vs Slot vs Remaining (DO NOT CONFUSE):
+When user asks about position or progress, they mean DIFFERENT things:
+- "What item number?" / "What item am I on?" / "Which item?" → Respond with SEQUENCE position using item_index
+  * FORWARD mode: Say "Item [item_index] of [item_index + items_remaining]"
+  * REVERSE mode: Say "Item [item_index]" and "[items_remaining] more to go"
+  * Example: If item_index=25 and items_remaining=24 in forward mode: "Item 25 of 49"
+  * NEVER respond with slot numbers like "58" or "59" unless they specifically ask "what slot?"
+- "What slot?" / "What's the slot?" / "Slot number?" → THEN give the physical slot from currentItem.slot
+  * Example: "Slot 58" or "Slot zero four eight"
+- "How many left?" / "How many more?" / "Items remaining?" → Give items_remaining count
+  * Example: "24 items left on this machine"
+- If user asks generically about "number" without context, assume they mean sequence position (item_index)
 
 CRITICAL - Graceful Handling for Unsupported Requests:
 

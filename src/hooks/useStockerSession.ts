@@ -8,6 +8,8 @@ export interface CurrentItem {
   inventory_current?: number;
   inventory_parlevel?: number;
   machineName?: string;  // Track which machine this item came from
+  items_remaining?: number;  // How many items left on this machine
+  item_index?: number;  // Current item's sequence position
 }
 
 export type MachineStatus = 'pending' | 'in_progress' | 'completed' | 'skipped';
@@ -114,7 +116,9 @@ export function useStockerSession(userId: string | null) {
           slot_spoken: itemData.slot_spoken || itemData.slot || '',
           inventory_current: itemData.inventory_current || result.inventory_current,
           inventory_parlevel: itemData.inventory_parlevel || result.inventory_parlevel,
-          machineName: prev.currentMachineName || ''
+          machineName: prev.currentMachineName || '',
+          items_remaining: result.items_remaining,
+          item_index: result.new_item_index
         };
 
         // 2-pick mode: Set second item if present
@@ -170,7 +174,9 @@ export function useStockerSession(userId: string | null) {
             slot_spoken: itemData.slot_spoken || itemData.slot || '',
             inventory_current: itemData.inventory_current || result.inventory_current,
             inventory_parlevel: itemData.inventory_parlevel || result.inventory_parlevel,
-            machineName: machineName
+            machineName: machineName,
+            items_remaining: result.items_remaining,
+            item_index: result.new_item_index
           };
 
           // 2-pick mode: Set second item if present
