@@ -304,6 +304,33 @@ serve(async (req) => {
       }
     }
 
+    // PHASE GATE 4: Update Stripe subscription quantity (auto-prorates)
+    if (role === 'driver') {
+      try {
+        logStep("Updating Stripe subscription quantity");
+        const authHeaderValue = req.headers.get("Authorization");
+
+        const { data: billingData, error: billingError } = await supabaseClient.functions.invoke(
+          'update-subscription-quantity',
+          {
+            headers: {
+              Authorization: authHeaderValue || ''
+            }
+          }
+        );
+
+        if (billingError) {
+          logStep("Warning: Failed to update subscription quantity", { error: billingError });
+          // Don't fail the whole operation - billing can be corrected manually
+        } else {
+          logStep("Subscription quantity updated", billingData);
+        }
+      } catch (billingErr) {
+        logStep("Warning: Exception updating billing", { error: billingErr });
+        // Don't fail - manual correction possible
+      }
+    }
+
     // Success response
     return new Response(JSON.stringify({
       success: true,
