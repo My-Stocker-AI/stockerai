@@ -84,6 +84,13 @@ serve(async (req) => {
     const driverCount = activeDrivers?.filter(u => u.role === 'driver').length || 0;
     logStep("Active driver count calculated", { driverCount, totalUsers: activeDrivers?.length });
 
+    // Helper function to determine tier price based on driver count
+    const getTierPrice = (count: number): number => {
+      if (count <= 5) return 20;
+      if (count <= 20) return 18;
+      return 15;
+    };
+
     const stripe = new Stripe(stripeKey, { apiVersion: "2025-08-27.basil" });
 
     // Get current subscription
@@ -100,11 +107,13 @@ serve(async (req) => {
     const subscription = subscriptions.data[0];
     const subscriptionItem = subscription.items.data[0];
     const currentQuantity = subscriptionItem.quantity || 0;
+    const currentPricePerDriver = (subscriptionItem.price.unit_amount || 0) / 100; // Convert cents to dollars
 
     logStep("Current subscription", {
       subscriptionId: subscription.id,
       currentQuantity,
-      newQuantity: driverCount
+      newQuantity: driverCount,
+      currentPricePerDriver
     });
 
     // Only update if quantity changed
@@ -135,6 +144,32 @@ serve(async (req) => {
       status: updatedSubscription.status
     });
 
+    // Check if tier should change at renewal
+    const newTierPrice = getTierPrice(driverCount);
+    let tierChangeMessage = "";
+
+    if (newTierPrice !== currentPricePerDriver) {
+      logStep("⚠️ TIER CHANGE NEEDED AT RENEWAL", {
+        accountId: accountUser.account_id,
+        currentDriverCount: currentQuantity,
+        newDriverCount: driverCount,
+        currentPricePerDriver: currentPricePerDriver,
+        newTierPrice: newTierPrice,
+        priceDirection: newTierPrice > currentPricePerDriver ? "INCREASE" : "DECREASE",
+        action_required: "Update Stripe price at next renewal or create webhook handler"
+      });
+
+      tierChangeMessage = ` Tier will change from $${currentPricePerDriver} to $${newTierPrice}/driver at next renewal.`;
+
+      // TODO: Implement automatic tier change at renewal
+      // Options:
+      // 1. Create separate Stripe Price IDs for each tier (price_stocker_tier1_20, price_stocker_tier2_18, price_stocker_tier3_15)
+      // 2. Use Stripe Subscription Schedules to schedule price change
+      // 3. Implement webhook handler for invoice.created to adjust price before invoicing
+      //
+      // For MVP: Log the tier change and handle manually in Stripe dashboard
+    }
+
     // Update accounts table
     const { error: updateError } = await supabaseClient
       .from('accounts')
@@ -149,7 +184,9 @@ serve(async (req) => {
       success: true,
       driver_count: driverCount,
       subscription_id: updatedSubscription.id,
-      message: `Subscription updated to ${driverCount} drivers. Prorated charge applied.`
+      current_price_per_driver: currentPricePerDriver,
+      new_tier_price: newTierPrice !== currentPricePerDriver ? newTierPrice : null,
+      message: `Subscription updated to ${driverCount} drivers. Prorated charge applied at $${currentPricePerDriver}/driver.${tierChangeMessage}`
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 200,
