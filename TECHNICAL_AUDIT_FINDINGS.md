@@ -220,59 +220,90 @@ if (billingError) {
 
 ---
 
-## VOICE RECOGNITION - POTENTIAL BUGS
+## VOICE RECOGNITION - AUDIT COMPLETE
 
-*(Requires deeper analysis of useVoice.ts - deferred to next audit phase)*
+**See:** `/VOICE_SYSTEM_AUDIT.md` for detailed findings
 
-### Areas to Audit:
-- Wake word detection reliability (echo filtering, cooldown logic)
-- Reconnection logic (MAX_RECONNECT_ATTEMPTS, backoff strategy)
-- WebSocket error handling (what if Deepgram connection drops mid-session?)
-- MediaRecorder lifecycle (cleanup on errors, memory leaks?)
-- Wake lock release (battery drain if not released?)
+**Total Bugs Found:** 9
+- 🔴 CRITICAL: 4 (Wake lock leak, audio stream leak, AudioContext leak, speak queue deadlock)
+- 🟡 MEDIUM: 5 (Volume validation, keep-alive leak, silence timer, echo filtering, MediaRecorder state)
+- 🟢 LOW: 1 (Reconnection race)
 
----
-
-## N8N WORKFLOWS - POTENTIAL BUGS
-
-*(Requires workflow JSON analysis - deferred to next audit phase)*
-
-### Areas to Audit:
-- Webhook timeout handling (what if response takes >30s?)
-- State recovery (if workflow fails mid-execution, is state corrupted?)
-- Retry logic (does it exist for external API calls?)
-- Error propagation (are errors surfaced to user or silently fail?)
+**Most Critical Issues:**
+1. Wake lock not released on startListening failure → battery drain
+2. Audio stream not released on connection failure → microphone stays on (privacy issue)
+3. Multiple AudioContexts accumulate on speak() failures → memory leak
+4. Speak queue deadlock when stopAudio called → UI freeze
 
 ---
 
-## DATABASE - POTENTIAL BUGS
+## N8N WORKFLOWS - AUDIT COMPLETE
 
-*(Requires schema + trigger analysis - deferred to next audit phase)*
+**See:** `/N8N_WORKFLOWS_AUDIT.md` for detailed findings
 
-### Areas to Audit:
-- ON DELETE CASCADE completeness (all FKs have CASCADE?)
-- Trigger race conditions (handle_new_user vs Edge Function inserts)
-- RLS policies when re-enabled (what breaks?)
-- Index coverage (slow queries on large datasets?)
-- Seat count consistency (are counts accurate after deletes/updates?)
+**Total Bugs Found:** 7
+- 🔴 CRITICAL: 2 (Debounce false positives, session validation missing)
+- 🟡 MEDIUM: 4 (Success field not validated, getRoutes no retry, error parsing, timeout accumulation)
+- 🟢 LOW: 1 (Error logging)
+
+**Most Critical Issues:**
+1. Debounce blocks legitimate commands with different arguments → user commands ignored
+2. Session ID not validated before tool calls → wrong session data
+3. Workflow errors (success: false) treated as success → user sees wrong data
+4. Timeout accumulates across retries → 127s hangs instead of 30s max
+
+---
+
+## DATABASE - AUDIT COMPLETE
+
+**See:** `/DATABASE_AUDIT.md` for detailed findings
+
+**Total New Bugs Found:** 4 (2 already fixed/documented)
+- 🔴 CRITICAL: 0 (RLS disabled is KNOWN ISSUE from earlier session)
+- 🟡 MEDIUM: 3 (1 FK missing, 1 migration dependency, 1 already fixed)
+- 🟢 LOW: 2 (Multi-account design question, trigger not in migrations)
+
+**Already Documented Issues:**
+1. RLS disabled on account_users + profiles → CRITICAL_RLS_ISSUE.md (BLOCKING production)
+2. handle_new_user trigger incomplete → Fixed in Session 43 ✅
+
+**New Discoveries:**
+3. profiles.id missing FK to auth.users(id) → orphaned records possible
+4. route_assignments references routes(id) before table created → migration dependency
+5. get_user_account_id() only returns first account → multi-account issue
+6. Trigger creation not in migrations → manual setup required
 
 ---
 
 ## SUMMARY
 
-**Total Bugs Found So Far:** 9
-- 🔴 CRITICAL: 1 (Billing not updated for operational admins)
-- 🟡 MEDIUM: 7 (Race conditions, data integrity, edge cases)
-- 🟢 LOW: 1 (Silent billing failure)
+**Total Bugs Found:** 29
+- 🔴 CRITICAL: 7 (1 billing + 4 voice + 2 n8n)
+- 🟡 MEDIUM: 19 (7 teams + 5 voice + 4 n8n + 3 database)
+- 🟢 LOW: 5 (1 billing + 1 voice + 1 n8n + 2 database)
 
-**Audit Coverage:** ~40% (Teams invite flow complete, voice/workflows/database pending)
+**Audit Coverage:** 100% COMPLETE ✅
+- Teams invite flow ✅ (9 bugs found, all fixed and deployed)
+- Voice recognition ✅ (9 bugs found)
+- n8n workflows ✅ (7 bugs found)
+- Database integrity ✅ (4 new bugs + 2 already documented)
+
+**Most Critical Bugs:**
+1. **BILLING** - Operational admins not charged (revenue loss) → FIXED ✅
+2. **VOICE** - Wake lock + audio stream leaks (battery drain, privacy)
+3. **VOICE** - AudioContext accumulation (memory leak)
+4. **VOICE** - Speak queue deadlock (UI freeze)
+5. **N8N** - Debounce blocks legitimate commands (user commands ignored)
+6. **N8N** - Session validation missing (wrong session data)
+7. **DATABASE** - RLS disabled (multi-tenant security BLOCKING production)
 
 **Next Steps:**
-1. Fix CRITICAL billing bug immediately
-2. Fix MEDIUM bugs before next sprint
-3. Complete audit of voice, workflows, database
-4. Create comprehensive test plan for all discovered bugs
+1. Fix CRITICAL voice bugs (wake lock, audio stream, AudioContext leaks)
+2. Fix CRITICAL n8n bugs (debounce, session validation)
+3. Fix MEDIUM bugs before next production deployment
+4. Re-enable RLS with non-recursive policies (BLOCKING customer onboarding)
+5. Create comprehensive test plan for all discovered bugs
 
 ---
 
-**END OF INITIAL AUDIT FINDINGS**
+**END OF TECHNICAL AUDIT - ALL BOUNDARIES COMPLETE**

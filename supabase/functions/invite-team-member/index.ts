@@ -216,15 +216,20 @@ serve(async (req) => {
     logStep("Seat available", seatAvailability);
 
     // PHASE GATE 2: Check if user already exists
-    const { data: existingUsers, error: listError } = await supabaseClient.auth.admin.listUsers();
+    // Query profiles table by email (handles 1000+ users, avoids pagination issues)
+    const { data: existingProfile, error: profileError } = await supabaseClient
+      .from('profiles')
+      .select('id, email')
+      .eq('email', email.trim().toLowerCase()) // Case-insensitive lookup
+      .maybeSingle();
 
-    if (listError) {
-      throw new Error(`Failed to check existing users: ${listError.message}`);
+    if (profileError && profileError.code !== 'PGRST116') { // PGRST116 = not found (OK)
+      throw new Error(`Failed to check existing user: ${profileError.message}`);
     }
 
-    const existingUser = existingUsers.users.find(u => u.email === email);
     let userId: string;
     let isNewUser = false;
+    const existingUser = existingProfile;
 
     if (existingUser) {
       // BRANCH A: Existing user - check if cross-account or same-account
@@ -261,7 +266,7 @@ serve(async (req) => {
           .from('profiles')
           .upsert({
             id: userId,
-            email,
+            email: email.trim().toLowerCase(), // Normalize email
             first_name,
             last_name
           }, {
@@ -276,8 +281,36 @@ serve(async (req) => {
 
       } else {
         // Cross-account invite: User exists in DIFFERENT account
-        // DON'T update metadata - use existing profile
-        logStep("Cross-account invite: Using existing profile", { userId });
+        // Verify profile exists, create if missing
+        const { data: crossAccountProfile, error: checkError } = await supabaseClient
+          .from('profiles')
+          .select('id')
+          .eq('id', userId)
+          .maybeSingle();
+
+        if (checkError && checkError.code !== 'PGRST116') {
+          throw new Error(`Failed to check profile existence: ${checkError.message}`);
+        }
+
+        if (!crossAccountProfile) {
+          // Profile missing - create it
+          logStep("Cross-account user missing profile - creating", { userId });
+          const { error: createProfileError } = await supabaseClient
+            .from('profiles')
+            .insert({
+              id: userId,
+              email: email.trim().toLowerCase(),
+              first_name,
+              last_name
+            });
+
+          if (createProfileError) {
+            throw new Error(`Failed to create profile for cross-account user: ${createProfileError.message}`);
+          }
+          logStep("Profile created for cross-account user");
+        } else {
+          logStep("Cross-account invite: Using existing profile", { userId });
+        }
       }
 
     } else {
@@ -305,20 +338,23 @@ serve(async (req) => {
       userId = newUser.user.id;
       logStep("User created", { userId });
 
-      // Insert profile
+      // Upsert profile (handles race condition with handle_new_user trigger)
       const { error: profileError } = await supabaseClient
         .from('profiles')
-        .insert({
+        .upsert({
           id: userId,
-          email,
+          email: email.trim().toLowerCase(), // Normalize email for case-insensitive lookups
           first_name,
           last_name
+        }, {
+          onConflict: 'id',
+          ignoreDuplicates: false  // Update if trigger already created it
         });
 
       if (profileError) {
-        throw new Error(`Failed to create profile: ${profileError.message}`);
+        throw new Error(`Failed to upsert profile: ${profileError.message}`);
       }
-      logStep("Profile created");
+      logStep("Profile upserted");
     }
 
     // PHASE GATE 3: Check if user is already in account_users
@@ -398,8 +434,22 @@ serve(async (req) => {
           logStep("UNIQUE constraint violated - user already in account", {
             account_id,
             userId,
+            isNewUser,
             error: accountUserError.message
           });
+
+          // Clean up orphaned records if this was a new user creation
+          if (isNewUser) {
+            logStep("Cleaning up orphaned auth.users and profile records", { userId });
+            try {
+              await supabaseClient.auth.admin.deleteUser(userId);
+              await supabaseClient.from('profiles').delete().eq('id', userId);
+              logStep("Orphaned records cleaned up successfully");
+            } catch (cleanupError) {
+              logStep("Warning: Failed to clean up orphaned records", { error: cleanupError });
+              // Continue - admin can clean up manually
+            }
+          }
 
           return new Response(JSON.stringify({
             success: false,
@@ -522,9 +572,14 @@ serve(async (req) => {
     }
 
     // PHASE GATE 4: Update Stripe subscription quantity (auto-prorates)
-    if (role === 'driver') {
+    // Billable users: drivers + operational admins (admins who can upload routes)
+    const isBillableUser = (role === 'driver') || (role === 'primary_admin' && can_upload_routes === true);
+    let billingSyncFailed = false;
+    let billingSyncError = '';
+
+    if (isBillableUser) {
       try {
-        logStep("Updating Stripe subscription quantity");
+        logStep("Updating Stripe subscription quantity", { role, can_upload_routes, isBillableUser });
         const authHeaderValue = req.headers.get("Authorization");
 
         const { data: billingData, error: billingError } = await supabaseClient.functions.invoke(
@@ -537,23 +592,41 @@ serve(async (req) => {
         );
 
         if (billingError) {
-          logStep("Warning: Failed to update subscription quantity", { error: billingError });
+          billingSyncFailed = true;
+          billingSyncError = billingError.message || String(billingError);
+          logStep("CRITICAL: Failed to update subscription quantity - manual correction required", {
+            error: billingError,
+            userId,
+            account_id,
+            role,
+            can_upload_routes
+          });
           // Don't fail the whole operation - billing can be corrected manually
         } else {
           logStep("Subscription quantity updated", billingData);
         }
       } catch (billingErr) {
-        logStep("Warning: Exception updating billing", { error: billingErr });
+        billingSyncFailed = true;
+        billingSyncError = billingErr instanceof Error ? billingErr.message : String(billingErr);
+        logStep("CRITICAL: Exception updating billing - manual correction required", {
+          error: billingErr,
+          userId,
+          account_id,
+          role,
+          can_upload_routes
+        });
         // Don't fail - manual correction possible
       }
+    } else {
+      logStep("Non-billable user - skipping Stripe update", { role, can_upload_routes });
     }
 
     // Success response
-    return new Response(JSON.stringify({
+    const response: any = {
       success: true,
       message: isNewUser ? "Team member invited successfully" : "Team member updated and re-invited",
       emailSent: true,
-      chargeApplied: role === 'driver', // Only drivers are charged
+      chargeApplied: isBillableUser, // Drivers + operational admins are charged
       user: {
         id: userId,
         email,
@@ -564,10 +637,19 @@ serve(async (req) => {
       },
       seat_info: {
         total_seats: seatAvailability.total_seats,
-        used_seats: seatAvailability.used_seats + (isNewUser && role === 'driver' ? 1 : 0),
-        available_seats: seatAvailability.available_seats - (isNewUser && role === 'driver' ? 1 : 0)
+        used_seats: seatAvailability.used_seats + (isNewUser && isBillableUser ? 1 : 0),
+        available_seats: seatAvailability.available_seats - (isNewUser && isBillableUser ? 1 : 0)
       }
-    }), {
+    };
+
+    // Add billing sync status if it failed
+    if (billingSyncFailed) {
+      response.billing_sync_failed = true;
+      response.billing_sync_error = billingSyncError;
+      response.warning = `User added successfully but billing sync failed: ${billingSyncError}. Please contact support or manually adjust Stripe subscription.`;
+    }
+
+    return new Response(JSON.stringify(response), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 200,
     });

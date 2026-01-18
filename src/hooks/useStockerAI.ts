@@ -593,8 +593,8 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
   ) => {
     // BUG-N8N-2 FIX: Validate session exists before executing tools
     if (!sessionIdRef.current || sessionIdRef.current === '') {
-      const error = 'Session not initialized - cannot execute tools';
-      console.error('[Tools] Session validation failed');
+      const error = "Hold on, I'm still getting ready. Give me a second to load your route data.";
+      console.error('[Tools] Session validation failed - session not initialized');
       throw new Error(error);
     }
 
@@ -683,7 +683,7 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
   const getRoutes = useCallback(async (date: string) => {
     // BUG-N8N-2 FIX: Validate session exists before calling workflow
     if (!sessionIdRef.current || sessionIdRef.current === '') {
-      throw new Error('Session not initialized - cannot get routes');
+      throw new Error("Hold on, I'm still getting ready. Give me a second to load your route data.");
     }
 
     const resp = await fetchWithTimeout(`${N8N_BASE}/get-routes`, {
