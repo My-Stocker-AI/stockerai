@@ -35,15 +35,23 @@ FOR SELECT USING (
 
 ```sql
 ALTER TABLE account_users DISABLE ROW LEVEL SECURITY;
+ALTER TABLE profiles DISABLE ROW LEVEL SECURITY;  -- Added 2026-01-18 to fix Teams page
 ```
 
 **Security Impact:**
 - ✅ App functional again
-- ❌ NO RLS protection on account_users table
+- ❌ NO RLS protection on account_users OR profiles tables
 - ❌ Any authenticated user can read/write ANY account's team members
+- ❌ Any authenticated user can read/write ANY user's profile data
 - ❌ Cross-account data access possible
 
 **This is NOT production-safe for multi-tenant environments.**
+
+**Why profiles RLS also disabled:**
+- Teams page query fetches profiles for all team members
+- RLS on profiles only allowed users to see their own profile
+- Result: "Unknown User" for all team members except yourself
+- Disabling RLS allows Teams page to fetch all profiles in the account
 
 ---
 

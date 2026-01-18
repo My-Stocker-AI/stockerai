@@ -17,11 +17,13 @@
 **Temporary Fix:**
 ```sql
 ALTER TABLE account_users DISABLE ROW LEVEL SECURITY;
+ALTER TABLE profiles DISABLE ROW LEVEL SECURITY;  -- Added 2026-01-18 to fix Teams page "Unknown User"
 ```
 
 **Security Impact:**
-- ❌ NO RLS protection on account_users table
+- ❌ NO RLS protection on account_users OR profiles tables
 - ❌ Any authenticated user can read/write ANY account's team members
+- ❌ Any authenticated user can read/write ANY user's profile data
 - ❌ Cross-account data access possible
 - ❌ **NOT production-safe for multi-tenant**
 
@@ -243,8 +245,8 @@ These were identified in the Teams feature analysis but are **NOT CRITICAL**. Pr
 - ✅ Email template with proper admin name fallbacks
 
 ### What's Broken (NEW - 2026-01-18)
-- ❌ **RLS DISABLED on account_users** (security regression)
-- ❌ Cross-account isolation broken (any user can access any account's team data)
+- ❌ **RLS DISABLED on account_users AND profiles** (security regression)
+- ❌ Cross-account isolation broken (any user can access any account's team data + all user profiles)
 - ❌ Temporary fix in place - NOT production-safe for multi-tenant
 
 ### What Needs Attention
