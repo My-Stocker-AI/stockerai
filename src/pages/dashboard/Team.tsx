@@ -74,8 +74,7 @@ const Team = () => {
 
   // Fetch team members
   const { data: teamMembers = [], isLoading } = useQuery({
-    queryKey: ['team-members', userRole?.account_id, 'v2'], // Cache buster - force refetch after profile updates
-    staleTime: 0, // Always refetch
+    queryKey: ['team-members', userRole?.account_id],
     queryFn: async () => {
       if (!userRole?.account_id) return [];
 
@@ -99,41 +98,17 @@ const Team = () => {
 
       if (profilesError) throw profilesError;
 
-      console.log('[Team] Fetched profiles from DB:', profiles);
-      console.log('[Team] Account users:', accountUsers);
-
       // Join manually
-      const joined = accountUsers.map(au => {
-        const profile = profiles?.find(p => p.id === au.user_id) || null;
-        console.log('[Team] Joining account_user', au.user_id, 'with profile', profile);
-        return {
-          ...au,
-          profiles: profile
-        };
-      });
-
-      console.log('[Team] Final joined data:', joined);
-      return joined as unknown as TeamMember[];
+      return accountUsers.map(au => ({
+        ...au,
+        profiles: profiles?.find(p => p.id === au.user_id) || null
+      })) as unknown as TeamMember[];
     },
     enabled: !!userRole?.account_id,
   });
 
   // Count admins
   const adminCount = teamMembers.filter(m => m.role === 'primary_admin').length;
-
-  // Debug logging
-  console.log('[Team] Current state:', {
-    currentUserId: user?.id,
-    adminCount,
-    totalMembers: teamMembers.length,
-    members: teamMembers.map(m => ({
-      id: m.id,
-      user_id: m.user_id,
-      role: m.role,
-      name: `${m.profiles?.first_name || ''} ${m.profiles?.last_name || ''}`.trim() || m.profiles?.email || 'Unknown',
-      isCurrentUser: m.user_id === user?.id
-    }))
-  });
 
   // Invite member mutation - uses Supabase Edge Function
   const inviteMemberMutation = useMutation({
@@ -339,23 +314,10 @@ const Team = () => {
   };
 
   const canDeleteMember = (member: TeamMember) => {
-    const isSelf = member.user_id === user?.id;
-    const isOnlyAdmin = member.role === 'primary_admin' && adminCount <= 1;
-
-    console.log('[Team] canDeleteMember check:', {
-      member_user_id: member.user_id,
-      current_user_id: user?.id,
-      member_role: member.role,
-      adminCount,
-      isSelf,
-      isOnlyAdmin,
-      canDelete: !isSelf && !isOnlyAdmin
-    });
-
     // Can't delete yourself
-    if (isSelf) return false;
+    if (member.user_id === user?.id) return false;
     // Can't delete the only admin
-    if (isOnlyAdmin) return false;
+    if (member.role === 'primary_admin' && adminCount <= 1) return false;
     return true;
   };
 
