@@ -98,11 +98,21 @@ const Team = () => {
 
       if (profilesError) throw profilesError;
 
+      console.log('[Team] Fetched profiles from DB:', profiles);
+      console.log('[Team] Account users:', accountUsers);
+
       // Join manually
-      return accountUsers.map(au => ({
-        ...au,
-        profiles: profiles?.find(p => p.id === au.user_id) || null
-      })) as unknown as TeamMember[];
+      const joined = accountUsers.map(au => {
+        const profile = profiles?.find(p => p.id === au.user_id) || null;
+        console.log('[Team] Joining account_user', au.user_id, 'with profile', profile);
+        return {
+          ...au,
+          profiles: profile
+        };
+      });
+
+      console.log('[Team] Final joined data:', joined);
+      return joined as unknown as TeamMember[];
     },
     enabled: !!userRole?.account_id,
   });
