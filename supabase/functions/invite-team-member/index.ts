@@ -52,6 +52,7 @@ interface InviteRequest {
   account_id: string;
   role: 'driver' | 'primary_admin';
   can_view_all_routes?: boolean;
+  can_upload_routes?: boolean;
 }
 
 serve(async (req) => {
@@ -110,12 +111,34 @@ serve(async (req) => {
 
     // Parse request body FIRST (need account_id for validation)
     const body: InviteRequest = await req.json();
-    const { email, first_name, last_name, account_id, role, can_view_all_routes = false } = body;
+    const {
+      email,
+      first_name,
+      last_name,
+      account_id,
+      role,
+      can_view_all_routes = false,
+      can_upload_routes = (role === 'driver' ? true : false)  // Drivers default TRUE (need to pick routes), admins default FALSE (billing/mgmt only)
+    } = body;
 
     // Validate required fields
     if (!email || !first_name || !last_name || !account_id || !role) {
       throw new Error("Missing required fields: email, first_name, last_name, account_id, role");
     }
+
+    // VALIDATION: Email format (prevent "user@" or "user@com")
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email.trim())) {
+      logStep("Invalid email format", { email });
+      throw new Error("Invalid email format. Please provide a valid email address (e.g., user@example.com)");
+    }
+
+    // VALIDATION: Names cannot be empty strings or whitespace only
+    if (!first_name.trim() || !last_name.trim()) {
+      logStep("Invalid names - empty or whitespace only", { first_name, last_name });
+      throw new Error("First name and last name cannot be empty");
+    }
+
     logStep("Request validated", { email, role, account_id });
 
     // SECURITY: Verify requesting user is admin OF THIS SPECIFIC ACCOUNT
@@ -143,7 +166,8 @@ serve(async (req) => {
     const { data: seatCheck, error: seatError } = await supabaseClient
       .rpc('check_seat_availability', {
         p_account_id: account_id,
-        p_role: role
+        p_role: role,
+        p_can_upload_routes: can_upload_routes
       });
 
     if (seatError) {
@@ -182,43 +206,58 @@ serve(async (req) => {
     let isNewUser = false;
 
     if (existingUser) {
-      // BRANCH A: Update existing user
-      logStep("User exists, updating metadata", { userId: existingUser.id });
+      // BRANCH A: Existing user - check if cross-account or same-account
       userId = existingUser.id;
 
-      // Update user_metadata
-      const { error: updateError } = await supabaseClient.auth.admin.updateUserById(
-        userId,
-        {
-          user_metadata: {
+      // Check if user is already in THIS account
+      const { data: existingAccountUser } = await supabaseClient
+        .from('account_users')
+        .select('id, role')
+        .eq('account_id', account_id)
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (existingAccountUser) {
+        // Same-account re-invite: Update metadata
+        logStep("User exists in THIS account, updating metadata", { userId, accountUserId: existingAccountUser.id });
+
+        const { error: updateError } = await supabaseClient.auth.admin.updateUserById(
+          userId,
+          {
+            user_metadata: {
+              first_name,
+              last_name
+            }
+          }
+        );
+
+        if (updateError) {
+          throw new Error(`Failed to update user metadata: ${updateError.message}`);
+        }
+
+        // Upsert profile
+        const { error: profileError } = await supabaseClient
+          .from('profiles')
+          .upsert({
+            id: userId,
+            email,
             first_name,
             last_name
-          }
+          }, {
+            onConflict: 'id',
+            ignoreDuplicates: false
+          });
+
+        if (profileError) {
+          throw new Error(`Failed to upsert profile: ${profileError.message}`);
         }
-      );
+        logStep("Profile upserted");
 
-      if (updateError) {
-        throw new Error(`Failed to update user metadata: ${updateError.message}`);
+      } else {
+        // Cross-account invite: User exists in DIFFERENT account
+        // DON'T update metadata - use existing profile
+        logStep("Cross-account invite: Using existing profile", { userId });
       }
-      logStep("User metadata updated");
-
-      // Upsert profile
-      const { error: profileError } = await supabaseClient
-        .from('profiles')
-        .upsert({
-          id: userId,
-          email,
-          first_name,
-          last_name
-        }, {
-          onConflict: 'id',
-          ignoreDuplicates: false
-        });
-
-      if (profileError) {
-        throw new Error(`Failed to upsert profile: ${profileError.message}`);
-      }
-      logStep("Profile upserted");
 
     } else {
       // BRANCH B: Create new user
@@ -273,11 +312,45 @@ serve(async (req) => {
       // Update existing account_users entry
       logStep("User already in account, updating role", { existingRole: existingAccountUser.role, newRole: role });
 
+      // SECURITY: Prevent last admin from being demoted (account lockout protection)
+      // Bug #4.2 Fix - Layer 1: Application-level validation
+      if (existingAccountUser.role === 'primary_admin' && role !== 'primary_admin') {
+        // Admin is being demoted - check if this is the last admin
+        const { data: adminCount, error: countError } = await supabaseClient
+          .from('account_users')
+          .select('id')
+          .eq('account_id', account_id)
+          .eq('role', 'primary_admin');
+
+        if (countError) {
+          logStep("Warning: Failed to count admins", { error: countError.message });
+        }
+
+        if (adminCount && adminCount.length === 1) {
+          // This is the last admin
+          logStep("SECURITY: Last admin demotion prevented", {
+            account_id,
+            userId,
+            adminCount: adminCount.length
+          });
+
+          throw new Error(
+            "Cannot change role: You are the last admin for this account. " +
+            "Promote another user to admin before changing your own role."
+          );
+        }
+
+        logStep("Admin demotion allowed", {
+          remainingAdmins: adminCount ? adminCount.length - 1 : 0
+        });
+      }
+
       const { error: updateRoleError } = await supabaseClient
         .from('account_users')
         .update({
           role,
-          can_view_all_routes
+          can_view_all_routes,
+          can_upload_routes
         })
         .eq('id', existingAccountUser.id);
 
@@ -294,10 +367,29 @@ serve(async (req) => {
           account_id,
           user_id: userId,
           role,
-          can_view_all_routes
+          can_view_all_routes,
+          can_upload_routes
         });
 
       if (accountUserError) {
+        // Check if error is UNIQUE constraint violation (user already in account)
+        if (accountUserError.message && (accountUserError.message.includes('duplicate key') || accountUserError.message.includes('unique constraint'))) {
+          logStep("UNIQUE constraint violated - user already in account", {
+            account_id,
+            userId,
+            error: accountUserError.message
+          });
+
+          return new Response(JSON.stringify({
+            success: false,
+            error: "This user is already a member of this account.",
+            duplicate_user: true
+          }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+            status: 400,
+          });
+        }
+
         // Check if error is seat limit constraint violation (Layer 2 defense triggered)
         if (accountUserError.message && accountUserError.message.includes('check_driver_seat_limit')) {
           logStep("CRITICAL: Seat limit constraint violated - race condition detected and prevented", {

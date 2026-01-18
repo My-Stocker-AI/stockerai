@@ -41,6 +41,7 @@ interface TeamMember {
   user_id: string;
   role: 'primary_admin' | 'driver';
   can_view_all_routes: boolean | null;
+  can_upload_routes: boolean | null;
   profiles: {
     first_name: string | null;
     last_name: string | null;
@@ -64,10 +65,12 @@ const Team = () => {
   const [inviteLastName, setInviteLastName] = useState("");
   const [inviteRole, setInviteRole] = useState<'driver' | 'primary_admin'>('driver');
   const [inviteCanViewAll, setInviteCanViewAll] = useState(false);
+  const [inviteCanUploadRoutes, setInviteCanUploadRoutes] = useState(false);
 
   // Edit form state
   const [editRole, setEditRole] = useState<'driver' | 'primary_admin'>('driver');
   const [editCanViewAll, setEditCanViewAll] = useState(false);
+  const [editCanUploadRoutes, setEditCanUploadRoutes] = useState(false);
 
   // Fetch team members
   const { data: teamMembers = [], isLoading } = useQuery({
@@ -81,6 +84,7 @@ const Team = () => {
           user_id,
           role,
           can_view_all_routes,
+          can_upload_routes,
           profiles:user_id (
             first_name,
             last_name,
@@ -88,7 +92,7 @@ const Team = () => {
           )
         `)
         .eq('account_id', userRole.account_id);
-      
+
       if (error) throw error;
       return data as unknown as TeamMember[];
     },
@@ -108,6 +112,7 @@ const Team = () => {
         account_id: userRole?.account_id,
         role: inviteRole,
         can_view_all_routes: inviteCanViewAll,
+        can_upload_routes: inviteCanUploadRoutes,
       });
 
       const { data, error } = await supabase.functions.invoke('invite-team-member', {
@@ -118,6 +123,7 @@ const Team = () => {
           account_id: userRole?.account_id,
           role: inviteRole,
           can_view_all_routes: inviteCanViewAll,
+          can_upload_routes: inviteCanUploadRoutes,
         },
       });
 
@@ -176,6 +182,8 @@ const Team = () => {
         new_role: editRole,
         old_can_view_all: selectedMember.can_view_all_routes,
         new_can_view_all: editCanViewAll,
+        old_can_upload_routes: selectedMember.can_upload_routes,
+        new_can_upload_routes: editCanUploadRoutes,
       });
 
       const { error } = await supabase
@@ -183,6 +191,7 @@ const Team = () => {
         .update({
           role: editRole,
           can_view_all_routes: editCanViewAll,
+          can_upload_routes: editCanUploadRoutes,
         })
         .eq('id', selectedMember.id);
 
@@ -247,12 +256,47 @@ const Team = () => {
     setInviteLastName("");
     setInviteRole('driver');
     setInviteCanViewAll(false);
+    setInviteCanUploadRoutes(false);
   };
 
-  const openEditModal = (member: TeamMember) => {
-    setSelectedMember(member);
-    setEditRole(member.role);
-    setEditCanViewAll(member.can_view_all_routes || false);
+  const handleInviteModalChange = (open: boolean) => {
+    setInviteModalOpen(open);
+    // Clear form when modal is closed (user canceled or clicked outside)
+    if (!open) {
+      resetInviteForm();
+    }
+  };
+
+  const openEditModal = async (member: TeamMember) => {
+    // Refetch fresh data from database to avoid stale state
+    const { data: freshMember, error } = await supabase
+      .from('account_users')
+      .select(`
+        id,
+        user_id,
+        role,
+        can_view_all_routes,
+        can_upload_routes,
+        profiles:user_id (
+          first_name,
+          last_name,
+          email
+        )
+      `)
+      .eq('id', member.id)
+      .single();
+
+    if (error) {
+      console.error('[Team] Error fetching fresh member data:', error);
+      toast({ title: "Error loading member data", description: error.message, variant: "destructive" });
+      return;
+    }
+
+    const memberData = freshMember as unknown as TeamMember;
+    setSelectedMember(memberData);
+    setEditRole(memberData.role);
+    setEditCanViewAll(memberData.can_view_all_routes || false);
+    setEditCanUploadRoutes(memberData.can_upload_routes || false);
     setEditModalOpen(true);
   };
 
@@ -394,7 +438,7 @@ const Team = () => {
       </div>
 
       {/* Invite Modal */}
-      <Dialog open={inviteModalOpen} onOpenChange={setInviteModalOpen}>
+      <Dialog open={inviteModalOpen} onOpenChange={handleInviteModalChange}>
         <DialogContent className="bg-dashboard-card border-dashboard-border">
           <DialogHeader>
             <DialogTitle className="text-primary">Add Team Member</DialogTitle>
@@ -451,6 +495,23 @@ const Team = () => {
                 onCheckedChange={setInviteCanViewAll}
               />
             </div>
+            {inviteRole === 'primary_admin' && (
+              <div className="space-y-2 p-3 bg-blue-50 border border-blue-200 rounded-md">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1">
+                    <Label htmlFor="canUploadRoutes" className="text-primary font-medium">Can upload routes</Label>
+                    <p className="text-xs text-gray-600 mt-1">
+                      Admins with this permission count as billable seats. Without it, they can only manage billing and team members.
+                    </p>
+                  </div>
+                  <Switch
+                    id="canUploadRoutes"
+                    checked={inviteCanUploadRoutes}
+                    onCheckedChange={setInviteCanUploadRoutes}
+                  />
+                </div>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button
@@ -507,6 +568,23 @@ const Team = () => {
                 onCheckedChange={setEditCanViewAll}
               />
             </div>
+            {editRole === 'primary_admin' && (
+              <div className="space-y-2 p-3 bg-blue-50 border border-blue-200 rounded-md">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1">
+                    <Label htmlFor="editCanUploadRoutes" className="text-primary font-medium">Can upload routes</Label>
+                    <p className="text-xs text-gray-600 mt-1">
+                      Admins with this permission count as billable seats. Without it, they can only manage billing and team members.
+                    </p>
+                  </div>
+                  <Switch
+                    id="editCanUploadRoutes"
+                    checked={editCanUploadRoutes}
+                    onCheckedChange={setEditCanUploadRoutes}
+                  />
+                </div>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button
