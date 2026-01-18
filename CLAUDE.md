@@ -506,4 +506,261 @@ All tests in `/tests/` directory:
 
 ---
 
+# 8. DEPLOYMENT & INFRASTRUCTURE
+
+## 8.1 Deployment Process
+
+**Automated (Frontend):**
+- GitHub push to `main` branch → Auto-deploys to Cloudflare Pages
+- URL: https://stocker-ai.pages.dev
+- Typically completes within 2-3 minutes
+
+**Manual Steps Required:**
+1. **SQL Migrations**: Must be run manually in Supabase SQL Editor
+   - Location: `supabase/migrations/*.sql`
+   - Process: Copy SQL → Paste in Supabase Dashboard → Execute
+
+2. **n8n Workflow Updates**: Must be updated manually in n8n UI
+   - Location: `workflows/*.js` (code to paste into Code nodes)
+   - Process: Copy JS → Open workflow → Find Code node → Paste → Save
+
+**Testing Deployment:**
+- Check Cloudflare Pages dashboard for build status
+- Verify: https://stocker-ai.pages.dev loads correctly
+- Test affected functionality in production
+
+---
+
+# 9. CRITICAL BUGS FIXED
+
+## 9.1 Session 42 Fixes (2026-01-17)
+
+**Commit:** c29f9f8
+**Status:** ✅ Deployed and awaiting user testing
+
+### Bug 1: Progress Not Saving When App Closes
+
+**Symptom:** User completes items, app crashes/closes, progress lost when reopened
+
+**Root Cause:** `saveSessionState()` called asynchronously but doesn't complete before app terminates
+
+**Solution (Two-Layer Fix):**
+
+1. **beforeunload Listener** (`StockerApp.tsx:796-815`)
+   - Forces save to complete before browser closes
+   - Catches: crashes, tab close, browser close, navigation
+
+2. **Retry Logic** (`useSessionPersistence.ts:saveLocal()` lines 55-83)
+   - 3 retry attempts with exponential backoff (100ms, 200ms, 300ms)
+   - Alerts user if all retries fail
+
+**Files Modified:**
+- `src/pages/StockerApp.tsx`
+- `src/hooks/useSessionPersistence.ts`
+
+**Test:**
+1. Complete several items
+2. Close browser tab immediately
+3. Reopen app
+4. ✓ Progress should be preserved
+
+---
+
+### Bug 2: Duplicate "Next" Command → Route Completes Prematurely
+
+**Symptom:** User says "next", thinks app didn't hear, says "next" again (~1-2 seconds apart). Route ends unexpectedly.
+
+**Root Cause:** Race condition - both commands read same `current_item_index` from DB, both increment, second thinks route is complete.
+
+**Race Condition Timeline:**
+```
+Time    Request 1              Request 2
+0ms     Read index=57
+1000ms  Increment to 58        Read index=57 (stale!)
+1100ms  Find item 58           Increment to 58
+1200ms  Update DB to 58        Find no item (thinks route done)
+1300ms                          Return "route complete" ❌
+```
+
+**Solution (Two-Layer Fix):**
+
+1. **Frontend Debouncing** (`useStockerAI.ts:229-231, 609-621`)
+   - Ignores duplicate commands within 1.5 seconds
+   - Prevents double-submission at source
+
+2. **Database Optimistic Locking** (`supabase/migrations/20260117_concurrent_session_update.sql`)
+   - SQL function `update_session_with_lock()`
+   - Checks `current_item_index` matches expected value before updating
+   - Rejects update if index changed (concurrent modification detected)
+
+**Files Modified:**
+- `src/hooks/useStockerAI.ts`
+- `supabase/migrations/20260117_concurrent_session_update.sql` (manual SQL)
+- `workflows/determine_next_state_CONCURRENT_FIX.js` (manual n8n update)
+
+**Test:**
+1. Say "next"
+2. Immediately say "next" again (within 1 second)
+3. ✓ Second command ignored with console message
+4. ✓ Route does NOT complete prematurely
+
+---
+
+### Bug 3: Voice Not Restarting After Stop Button
+
+**Symptom:** User clicks Stop → Voice stops. User clicks Continue OR says "Hey Stocker" → Nothing happens. Voice dead until page refresh.
+
+**Root Cause:** Incomplete state cleanup in `stopListening()` and incomplete reset in `startListening()`
+- `reconnectTimeoutRef` not cleared → pending reconnect interferes
+- `reconnectAttemptsRef` not reset → thinks it's in retry backoff
+- `isConnectedRef` not properly reset
+
+**Solution:**
+
+**Enhanced stopListening() cleanup:** (`useVoice.ts:793-845`)
+- Clear `reconnectTimeoutRef`
+- Reset `reconnectAttemptsRef` to 0
+- Reset `isConnectedRef` and `setIsDeepgramConnected(false)`
+- Detailed console logging for debugging
+
+**Robust startListening() reset:** (`useVoice.ts:730-741`)
+- Explicitly reset ALL state flags at start
+- Clear any pending reconnect timeouts
+- Reset connection attempts
+- Set `setIsDeepgramConnected(true)` on success
+
+**Files Modified:**
+- `src/hooks/useVoice.ts`
+
+**Test:**
+1. Start voice session (should see "Wake lock acquired")
+2. Click Stop button (should see cleanup logs)
+3. Click Continue OR say "Hey Stocker continue"
+4. ✓ Voice should restart with detailed connection logs
+
+---
+
+## 9.2 Console Logging for Production Debugging
+
+All bug fixes include detailed console logging:
+
+**Bug 1 logs:**
+- `[Stocker] Progress saved before close`
+- `[Stocker] Failed to save before close: [error]`
+- `[Session] Local save successful (attempt N)`
+- `[Session] Local save failed (attempt N/3): [error]`
+
+**Bug 2 logs:**
+- `[Tools] Ignoring duplicate [command] command (Xms since last)`
+
+**Bug 3 logs:**
+- `[Voice] startListening called`
+- `[Voice] Audio stream obtained: N tracks`
+- `[Voice] Deepgram connected successfully`
+- `[Voice] startListening complete - voice active`
+- `[Voice] stopListening called - cleaning up resources`
+- `[Voice] MediaRecorder stopped`
+- `[Voice] WebSocket closed`
+- `[Voice] Audio track stopped: audio`
+- `[Voice] Wake lock released`
+- `[Voice] stopListening complete - status set to idle`
+
+---
+
+## 9.3 Race Condition Pattern (Reusable)
+
+**Pattern Identified:** Concurrent updates to shared database state
+
+**Generic Solution:**
+1. **Frontend debouncing** - Prevent rapid duplicate requests
+2. **Optimistic locking** - Database verifies expected state before update
+
+**SQL Pattern:**
+```sql
+CREATE FUNCTION update_with_lock(
+  expected_value TYPE,
+  new_value TYPE
+) RETURNS TABLE(success BOOLEAN, message TEXT)
+AS $$
+DECLARE current_value TYPE;
+BEGIN
+  SELECT value INTO current_value FROM table WHERE id = target;
+
+  IF current_value != expected_value THEN
+    RETURN QUERY SELECT FALSE, 'Concurrent update detected';
+    RETURN;
+  END IF;
+
+  UPDATE table SET value = new_value
+  WHERE id = target AND value = expected_value;
+
+  RETURN QUERY SELECT TRUE, 'Success';
+END;
+$$;
+```
+
+**Frontend Pattern:**
+```typescript
+const lastCommandRef = useRef<{ name: string; timestamp: number } | null>(null);
+const DEBOUNCE_MS = 1500;
+
+// In command handler:
+const now = Date.now();
+if (lastCommandRef.current?.name === commandName &&
+    now - lastCommandRef.current.timestamp < DEBOUNCE_MS) {
+  console.warn(`Ignoring duplicate ${commandName}`);
+  return;
+}
+lastCommandRef.current = { name: commandName, timestamp: now };
+```
+
+**When to Use:**
+- Any command that can be triggered multiple times rapidly
+- Database updates based on previous state reads
+- Multi-step operations where state can change between steps
+
+---
+
+# 10. PENDING SECURITY & PERFORMANCE ISSUES
+
+**Status:** Discovered in Session 42 Phase 1 verification, deferred for future implementation
+
+## 10.1 CRITICAL: No Row Level Security (RLS)
+
+**Severity:** CRITICAL (Priority 10)
+**Impact:** Any authenticated user can read/modify other users' data
+
+**Affected Tables:**
+- `routes`
+- `machines`
+- `items`
+- `sessions`
+
+**Required Fix:** Implement RLS policies for user isolation
+**Reference:** See `PHASE_1_VERIFICATION_FINDINGS.md` for policy templates
+
+---
+
+## 10.2 No Rate Limiting
+
+**Severity:** HIGH (Priority 8)
+**Impact:** API endpoints vulnerable to abuse, DoS
+
+**Affected:**
+- Edge Functions
+- n8n webhooks
+
+**Required Fix:** Implement rate limiting at Edge Function level
+
+---
+
+## 10.3 Voice Recognition Tuning
+
+**Severity:** MEDIUM (Priority 12)
+**Impact:** Occasional misrecognition of commands
+
+**Required Fix:** Command-specific tuning, phonetic aliases
+
+---
+
 **END OF FILE**
