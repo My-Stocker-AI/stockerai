@@ -61,7 +61,533 @@ result = adapter.discover(problem_text=problem)
 
 ---
 
-# 0.2 Trusted vs Untrusted Sources
+# 0.2 MANDATORY SYSTEM IMPACT AUDIT PROTOCOL
+
+**Status:** ACTIVE (2026-01-18)
+**Purpose:** Prevent breaking changes from affecting production systems
+**Enforcement:** ZERO TOLERANCE - Session terminates on violation
+
+## THE RULE
+
+**BEFORE making ANY change to:**
+- Code (frontend, backend, Edge Functions)
+- Database schema (tables, columns, constraints, RLS, triggers)
+- n8n workflows (nodes, connections, webhooks)
+- API contracts (endpoints, request/response formats)
+- Shared types (TypeScript interfaces used across boundaries)
+- Environment variables
+- External integrations (Stripe, Deepgram, OpenAI, etc.)
+
+**YOU MUST perform a System Impact Audit to discover:**
+1. What will break upstream (dependencies, callers, data sources)
+2. What will break downstream (consumers, integrations, side effects)
+3. What additional changes are required to facilitate the intended change
+4. What tests are needed to verify no negative impact
+
+**NO EXCEPTIONS. Zero tolerance.**
+
+---
+
+## SCOPE: What Requires an Audit
+
+| Change Type | Requires Audit | Example |
+|-------------|----------------|---------|
+| **Edge Function** | ✅ YES | Adding parameter to invite-team-member |
+| **Database Schema** | ✅ YES | Adding column, changing type, RLS policy |
+| **n8n Workflow** | ✅ YES | Adding node, changing webhook path, modifying code |
+| **API Contract** | ✅ YES | Changing WEBHOOK_MAP, adding field to response |
+| **Frontend State** | ✅ YES | Changing Redux/Context structure, localStorage schema |
+| **Shared Types** | ✅ YES | Modifying TypeScript interface used by >1 file |
+| **Environment Variable** | ✅ YES | Adding, removing, or renaming env vars |
+
+**IF you're unsure whether a change requires audit:** It does. Run the audit.
+
+---
+
+## AUDIT EXECUTION PROTOCOL
+
+### Step 1: Ask the 6 Questions
+
+For EVERY change, answer ALL 6 questions:
+
+#### 1. DATA FLOW
+- **Question:** What data enters this component? What data exits?
+- **Discover:**
+  - Input schema (fields, types, required vs optional)
+  - Output schema (what consumers expect)
+  - Format changes (JSON → array, snake_case → camelCase, etc.)
+
+#### 2. CALLERS (Upstream)
+- **Question:** Who calls this? What do they expect?
+- **Discover:**
+  - Frontend components making API calls
+  - Other Edge Functions invoking this one
+  - n8n workflows triggering this webhook
+  - Cron jobs or scheduled tasks
+  - External services (Stripe webhooks, etc.)
+
+#### 3. CALLEES (Downstream)
+- **Question:** What does this component call? What does it need from them?
+- **Discover:**
+  - Database queries (what tables, what fields)
+  - External APIs (Stripe, OpenAI, Deepgram)
+  - Other Edge Functions
+  - n8n workflows
+  - File storage (Supabase Storage)
+
+#### 4. SIDE EFFECTS
+- **Question:** What non-return-value actions does this take?
+- **Discover:**
+  - Database writes (INSERT, UPDATE, DELETE)
+  - Email sends (Supabase Auth invites)
+  - External API calls with side effects (Stripe charges)
+  - Cache invalidations
+  - Event triggers
+
+#### 5. STATE DEPENDENCIES
+- **Question:** What shared state does this rely on or modify?
+- **Discover:**
+  - Database tables (race conditions if concurrent access)
+  - Redis/cache (stale data issues)
+  - Frontend global state (Redux, Context, localStorage)
+  - Session state (Supabase Auth)
+  - File locks or mutexes
+
+#### 6. ERROR PROPAGATION
+- **Question:** When this fails, what happens?
+- **Discover:**
+  - Does caller handle errors gracefully?
+  - Are partial states possible? (user created but email fails)
+  - Can this leave inconsistent data?
+  - Is rollback needed?
+
+---
+
+### Step 2: Document Findings
+
+Create audit document: `/docs/audits/AUDIT_[DATE]_[CHANGE_NAME].md`
+
+**Template:**
+```markdown
+# System Impact Audit: [Change Description]
+
+**Date:** YYYY-MM-DD
+**Author:** [Your identifier]
+**Scope:** [Edge Function | Database | Workflow | API | etc.]
+
+---
+
+## Proposed Change
+
+[Describe what you want to change and why]
+
+---
+
+## Boundary Analysis
+
+### UPSTREAM (Callers)
+
+**Component A:**
+- Current expectation: [what it expects now]
+- Impact: ✅ Unaffected | ⚠️ Needs update | ❌ Will break
+- Required change: [if impact is not green]
+
+**Component B:**
+- [repeat for each caller]
+
+### DOWNSTREAM (Called by this)
+
+**Service A:**
+- Current contract: [what this provides now]
+- Impact: ✅ Unaffected | ⚠️ Needs update | ❌ Will break
+- Required change: [if impact is not green]
+
+### SIDE EFFECTS
+
+**Database:**
+- Tables affected: [list]
+- Write operations: [INSERT/UPDATE/DELETE]
+- Triggers affected: [if any]
+
+**Email:**
+- Templates affected: [if any]
+- Recipient logic: [if changed]
+
+**Billing:**
+- Stripe operations: [if any]
+- Proration handling: [if relevant]
+
+### STATE DEPENDENCIES
+
+**Concurrency risks:**
+- [race conditions identified]
+- Mitigation: [locks, transactions, optimistic locking]
+
+**Cache invalidation:**
+- [what caches need clearing]
+
+### DATA CONTRACTS
+
+**Input Schema (Before):**
+```json
+{
+  "field1": "type",
+  "field2": "type"
+}
+```
+
+**Input Schema (After):**
+```json
+{
+  "field1": "type",
+  "field2": "type",  // ← unchanged
+  "field3": "type"   // ← NEW (optional? required?)
+}
+```
+
+**Output Schema (Before):**
+[same format]
+
+**Output Schema (After):**
+[same format]
+
+**Breaking changes:**
+- [list any backwards-incompatible changes]
+
+---
+
+## Required Additional Changes
+
+1. **File A:** [what needs to change]
+   - Location: [file path]
+   - Change: [specific modification]
+   - Reason: [why this is needed]
+
+2. **File B:** [repeat]
+
+---
+
+## Testing Plan
+
+1. **Unit Tests:**
+   - Test A: [what it validates]
+   - Test B: [what it validates]
+
+2. **Integration Tests:**
+   - Test C: [end-to-end scenario]
+
+3. **Manual Testing:**
+   - Step 1: [user action]
+   - Expected: [what should happen]
+
+---
+
+## Rollback Plan
+
+**If this change breaks production:**
+
+1. Revert commit: `git revert [hash]`
+2. Redeploy: [specific deployment steps]
+3. Database rollback: [if schema changed]
+4. Cache clear: [if needed]
+
+**Data Recovery:**
+- [how to restore data if corruption occurs]
+
+---
+
+## Risk Assessment
+
+**Severity:** LOW | MEDIUM | HIGH | CRITICAL
+**Likelihood:** LOW | MEDIUM | HIGH
+
+**Justification:**
+[Why you rated it this way]
+
+**Mitigation:**
+[Steps taken to reduce risk]
+
+---
+
+## Approval
+
+- [ ] All 6 audit questions answered
+- [ ] All callers identified and impact assessed
+- [ ] All callees identified and dependencies verified
+- [ ] Side effects documented
+- [ ] State dependencies analyzed
+- [ ] Error propagation mapped
+- [ ] Testing plan created
+- [ ] Rollback plan documented
+
+**Audit Complete:** YYYY-MM-DD
+**Proceed with implementation:** YES | NO
+```
+
+---
+
+### Step 3: Get Approval
+
+Before making ANY code changes:
+
+1. Save audit document to `/docs/audits/`
+2. Present to user:
+   - "System Impact Audit complete for [change]"
+   - "Identified [N] upstream callers, [M] downstream dependencies"
+   - "Required additional changes: [list]"
+   - "Risk assessment: [severity/likelihood]"
+   - "Proceed? YES/NO"
+3. Wait for explicit user approval
+
+---
+
+### Step 4: Implement with Traceability
+
+When implementing the change:
+
+**Git commit message format:**
+```
+[Component] Brief change description
+
+System Impact Audit: /docs/audits/AUDIT_YYYY-MM-DD_[name].md
+
+Changes:
+- Primary change: [what you intended]
+- Dependency fix: [what else you had to change]
+- Test addition: [what tests you added]
+
+Affected boundaries:
+- Upstream: [list]
+- Downstream: [list]
+- Side effects: [list]
+
+Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>
+```
+
+---
+
+## XF-ASSISTED AUDIT (Recommended for Complex Changes)
+
+For changes affecting 3+ boundaries, use Xpansion Framework to automate discovery:
+
+```python
+#!/usr/bin/env python3
+"""
+System Impact Audit: [Change Description]
+"""
+import sys
+sys.path.insert(0, '/home/visionairy/Xpansion')
+
+from tools.adapters import SystemAdapter
+
+problem = """
+StockerAI change: [Describe what you want to change]
+
+Current system:
+- [Describe current implementation]
+
+Proposed change:
+- [Describe new implementation]
+
+ANALYZE FOR IMPACT:
+- What components call this?
+- What does this call?
+- What data contracts exist?
+- What can break?
+- What side effects exist?
+"""
+
+adapter = SystemAdapter()
+result = adapter.discover(problem_text=problem)
+
+# Print results
+print("=" * 80)
+print("SYSTEM IMPACT AUDIT - XF DISCOVERY")
+print("=" * 80)
+print()
+for boundary_name, boundary in result.boundaries.items():
+    print(f"### {boundary_name}")
+    print(f"Question: {boundary.question}")
+    print(f"Elements: {len(boundary.elements)}")
+    for elem in boundary.elements:
+        print(f"  - {elem.name}: {elem.description}")
+    print()
+
+print(f"Iterations: {result.metadata.total_iterations}")
+print(f"MECE Validation: {result.validation.passed}")
+print(f"Discovery ID: {result.metadata.discovery_id}")
+```
+
+Run:
+```bash
+/home/visionairy/Xpansion/.venv/bin/python /tmp/audit_[change_name].py
+```
+
+XF will discover:
+- DATA boundary (input/output schemas)
+- NODES boundary (callers and callees)
+- FLOW boundary (execution paths)
+- ERRORS boundary (failure modes)
+
+Use XF output to populate audit document.
+
+---
+
+## VIOLATION CONSEQUENCES
+
+**If you make a change WITHOUT completing the audit:**
+
+1. **Session Terminates Immediately**
+   - No further work allowed
+   - User must restart session
+
+2. **Rollback Required**
+   - Revert all changes
+   - Restore previous state
+   - Document what was attempted
+
+3. **Incident Report Required**
+   - What change was attempted
+   - Why audit was skipped
+   - What broke (if deployed)
+   - How it was fixed
+
+4. **Post-Mortem**
+   - Add to "Never Do This Again" section
+   - Update audit protocol if gap found
+   - Share learning in Xpansion database
+
+---
+
+## EXAMPLES
+
+### ✅ CORRECT: Adding Phone Number Field to Profiles
+
+**Audit Questions:**
+
+1. **DATA FLOW:**
+   - Input: Add optional `phone_number: string | null` to profiles insert/update
+   - Output: Include in profile queries
+   - Format: E.164 format (e.g., "+12025551234")
+
+2. **CALLERS (Upstream):**
+   - `/src/pages/dashboard/Team.tsx` - Add phone input to invite form
+   - `/supabase/functions/invite-team-member/index.ts` - Accept phone_number param
+   - Edge Function: No existing callers affected (new optional field)
+
+3. **CALLEES (Downstream):**
+   - Database: Add `phone_number TEXT NULL` column to profiles table
+   - No external APIs affected
+
+4. **SIDE EFFECTS:**
+   - Database migration required
+   - No email template changes
+   - No billing impact
+
+5. **STATE DEPENDENCIES:**
+   - No race conditions (column nullable)
+   - No cache invalidation needed
+
+6. **ERROR PROPAGATION:**
+   - Invalid format: Frontend validation + database constraint
+   - Null handling: Existing null checks sufficient
+
+**Required Additional Changes:**
+1. Database migration: `ALTER TABLE profiles ADD COLUMN phone_number TEXT NULL;`
+2. Frontend form: Add phone input with E.164 validation
+3. Edge Function: Add phone_number to insert/upsert
+4. TypeScript type: Update Profile interface
+
+**Risk:** LOW - Optional field, backwards compatible
+
+**Approved:** Proceed
+
+---
+
+### ❌ WRONG: Changing driver_count from integer to text
+
+**What was attempted:**
+"Let's change accounts.driver_count to TEXT so we can store '5 drivers' instead of just 5"
+
+**Why this violates the protocol:**
+
+**Missing Audit Questions:**
+
+1. **CALLERS:** Who reads driver_count?
+   - ❌ MISSED: Billing.tsx does math: `count * getPricePerDriver(count)`
+   - ❌ MISSED: update-subscription-quantity counts with `.filter().length` (returns number)
+   - ❌ MISSED: Stripe API expects `quantity: number`
+
+2. **DOWNSTREAM:** What breaks?
+   - ❌ MISSED: Stripe subscription update will fail (expects integer)
+   - ❌ MISSED: Price calculation will fail (can't multiply string)
+   - ❌ MISSED: Comparison operators (`count <= 5`) will break
+
+3. **SIDE EFFECTS:**
+   - ❌ MISSED: All existing subscriptions have integer quantities
+   - ❌ MISSED: Data migration needed for existing accounts
+   - ❌ MISSED: Stripe webhooks send integers, will fail validation
+
+**Impact if deployed:**
+- All billing operations break
+- Existing customers can't add/remove drivers
+- Stripe webhook processing fails
+- Data inconsistency between Stripe and database
+
+**Correct approach:**
+1. Run audit FIRST
+2. Discover all callers expect integer
+3. Realize display formatting should be frontend-only
+4. Keep database as integer, format in UI: `{count} driver${count !== 1 ? 's' : ''}`
+
+---
+
+## GIT INTEGRATION
+
+**Before committing any code:**
+
+1. Audit document must exist in `/docs/audits/`
+2. Commit message must reference audit
+3. All required additional changes must be included in same commit/PR
+
+**Pre-commit hook** (recommended):
+```bash
+#!/bin/bash
+# .git/hooks/pre-commit
+
+# Check if audit reference exists in commit message
+if ! git log -1 --pretty=%B | grep -q "System Impact Audit:"; then
+  echo "ERROR: Commit message must reference System Impact Audit"
+  echo "Format: System Impact Audit: /docs/audits/AUDIT_YYYY-MM-DD_[name].md"
+  exit 1
+fi
+```
+
+---
+
+## WHEN IN DOUBT
+
+**If you're unsure whether a change needs an audit:**
+
+- It does. Run the audit.
+- Better to over-audit than under-audit.
+- 10 minutes of prevention > 10 hours of production debugging.
+
+**If audit reveals too many dependencies:**
+
+- Good. You discovered complexity before breaking things.
+- Propose simpler approach.
+- Or accept that comprehensive change is needed.
+
+**If user pushes back on audit requirement:**
+
+- Explain what could break.
+- Show examples from history.
+- Offer to run XF-assisted audit to speed it up.
+
+---
+
+# 0.3 Trusted vs Untrusted Sources
 
 **BBRD VIOLATION:** Trusting static documentation when live data is authoritative.
 
