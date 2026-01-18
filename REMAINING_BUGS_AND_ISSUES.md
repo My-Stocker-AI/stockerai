@@ -1,11 +1,44 @@
 # Remaining Bugs and Issues - Status Report
 
 **Date:** 2026-01-18
-**Last Updated:** After completing all 4 CRITICAL Teams bugs
+**Last Updated:** After billing model deployment - RLS REGRESSION DISCOVERED
 
 ---
 
-## ✅ CRITICAL Bugs - ALL FIXED
+## 🚨 NEW CRITICAL BUG - INTRODUCED BY DEPLOYMENT
+
+### **CRITICAL: RLS Infinite Recursion (Introduced 2026-01-18)**
+
+**Status:** ⚠️ TEMPORARY FIX ACTIVE - RLS DISABLED (SECURITY BYPASS)
+**Severity:** CRITICAL (Security vulnerability - cross-account access possible)
+**Introduced By:** Adding `can_upload_routes` column triggered existing RLS policy bug
+**Root Cause:** RLS policies on `account_users` query `account_users` within policy checks = infinite loop
+
+**Temporary Fix:**
+```sql
+ALTER TABLE account_users DISABLE ROW LEVEL SECURITY;
+```
+
+**Security Impact:**
+- ❌ NO RLS protection on account_users table
+- ❌ Any authenticated user can read/write ANY account's team members
+- ❌ Cross-account data access possible
+- ❌ **NOT production-safe for multi-tenant**
+
+**Why This Wasn't Caught:**
+- ✅ Checked triggers (found & fixed `enforce_driver_seat_limit`)
+- ❌ Did NOT check RLS policies for self-referential queries
+- ❌ Did NOT test with authenticated users (only tested via service role)
+- ❌ Did NOT run integration tests before deployment
+
+**Proper Fix Required:**
+- See `/CRITICAL_RLS_ISSUE.md` for full analysis and 3 solution options
+- **BLOCKING for multi-tenant production deployment**
+- **Current risk:** LOW (single tenant), HIGH if customers added
+
+---
+
+## ✅ CRITICAL Bugs - Previously Fixed
 
 ### Teams Feature (Fixed Today - 2026-01-18)
 1. ✅ **Bug #1:** Email fails but user created - FIXED & DEPLOYED
@@ -134,6 +167,11 @@ These were identified in the Teams feature analysis but are **NOT CRITICAL**. Pr
 
 ## 📊 SUMMARY BY STATUS
 
+### 🚨 NEW CRITICAL Bug (Regression from Deployment)
+- 1 CRITICAL bug introduced by billing model deployment
+- **Status:** Temporary fix active (RLS disabled - security bypass)
+- **Blocker:** Multi-tenant production deployment
+
 ### ✅ Fixed & Deployed (7 bugs)
 - 4 CRITICAL Teams bugs (today)
 - 3 Operational bugs (Jan 17)
@@ -147,17 +185,24 @@ These were identified in the Teams feature analysis but are **NOT CRITICAL**. Pr
 - 5 MEDIUM priority (UX/validation)
 - 4 LOW priority (cosmetic)
 
-### Total Bugs Identified: 28
-### Total Bugs Fixed: 7 (25%)
-### CRITICAL Bugs Fixed: 7/7 (100%) ✅
+### Total Bugs Identified: 29 (28 original + 1 regression)
+### Total Bugs Fixed: 7 (24%)
+### CRITICAL Bugs Status: 7/8 (87.5%) - 1 NEW regression ⚠️
 
 ---
 
 ## 🎯 RECOMMENDED NEXT STEPS
 
+### 🚨 CRITICAL (BLOCKING Multi-Tenant Production)
+1. **FIX RLS INFINITE RECURSION** - Re-enable RLS with proper policy design
+   - See `/CRITICAL_RLS_ISSUE.md` for solution options
+   - Choose: Helper table, cached function, or JWT claims pattern
+   - Test with authenticated users (NOT service role)
+   - **MUST complete before onboarding customers**
+
 ### Immediate (Required for Full Functionality)
-1. ⏳ **Deploy SQL migration** - Fix duplicate "next" command issue
-2. ⏳ **Update n8n workflow** - Use optimistic locking
+2. ⏳ **Deploy SQL migration** - Fix duplicate "next" command issue
+3. ⏳ **Update n8n workflow** - Use optimistic locking
 
 ### Short Term (Next Sprint)
 3. 🔍 **Fix HIGH priority bugs** (4 bugs)
@@ -184,26 +229,33 @@ These were identified in the Teams feature analysis but are **NOT CRITICAL**. Pr
 ### What's Working
 - ✅ Teams invite flow (email, roles, permissions)
 - ✅ Seat limit enforcement (both layers)
-- ✅ Cross-account security (CVSS 9.1 vulnerability eliminated)
+- ✅ Flexible billing model (`can_upload_routes` permission)
 - ✅ Last admin protection (account lockout prevention)
 - ✅ Progress saving (app close protection)
 - ✅ Voice functionality (restart after stop)
 - ✅ Duplicate command prevention (debouncing)
 
+### What's Broken (NEW - 2026-01-18)
+- ❌ **RLS DISABLED on account_users** (security regression)
+- ❌ Cross-account isolation broken (any user can access any account's team data)
+- ❌ Temporary fix in place - NOT production-safe for multi-tenant
+
 ### What Needs Attention
+- 🚨 **CRITICAL:** Fix RLS infinite recursion (blocking multi-tenant)
 - ⏳ Backend deployment for duplicate command fix (SQL + n8n)
 - 🔍 13 non-critical bugs (data integrity, UX, validation)
 
 ### Overall Health
-**Production Ready:** YES ✅
-- All CRITICAL bugs fixed
-- Security vulnerabilities eliminated
-- Core functionality working
+**Production Ready:** ⚠️ PARTIAL
+- ✅ Single-tenant (current): SAFE (only your account exists)
+- ❌ Multi-tenant: NOT SAFE (RLS disabled = security breach)
+- ❌ **BLOCKING for customer onboarding**
 
-**Polish Needed:** 13 non-critical bugs remain
-- None are blockers
-- Mostly edge cases and UX improvements
-- Can be addressed incrementally
+**What Changed:**
+- Billing model deployment introduced RLS regression
+- System impact analysis failed to catch self-referential policy issue
+- Temporary fix applied (RLS disabled) to restore functionality
+- Proper fix required before adding customers
 
 ---
 
