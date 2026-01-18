@@ -793,6 +793,27 @@ export default function StockerApp() {
 
   // CRITICAL: Clean up voice session on unmount (navigation away from this page)
   // This prevents mic from staying open when user navigates to other pages
+  // CRITICAL: Save progress before app closes (prevents data loss on crash/close)
+  useEffect(() => {
+    const handleBeforeUnload = async (e: BeforeUnloadEvent) => {
+      // Force synchronous save before close
+      if (routeState.routeName && userId) {
+        try {
+          await saveSessionState();
+          console.log('[Stocker] Progress saved before close');
+        } catch (error) {
+          console.error('[Stocker] Failed to save before close:', error);
+        }
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [routeState.routeName, userId, saveSessionState]);
+
   useEffect(() => {
     return () => {
       console.log('[StockerApp] Unmounting - stopping voice session');

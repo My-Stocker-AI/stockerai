@@ -226,6 +226,10 @@ export function useStockerAI() {
   const sessionIdRef = useRef<string>('');
   const userIdRef = useRef<string | null>(null);
 
+  // CONCURRENT FIX: Debounce rapid duplicate commands (prevents double-tap race condition)
+  const lastCommandRef = useRef<{ name: string; timestamp: number } | null>(null);
+  const DEBOUNCE_MS = 1500; // Ignore duplicate commands within 1.5 seconds
+
   const setSession = useCallback((sessionId: string, userId: string | null) => {
     sessionIdRef.current = sessionId;
     userIdRef.current = userId;
@@ -601,6 +605,20 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
         results.push({ tool_call_id: tc.id, result: { error: 'Unknown tool' } });
         continue;
       }
+
+      // CONCURRENT FIX: Debounce duplicate commands
+      const now = Date.now();
+      if (lastCommandRef.current &&
+          lastCommandRef.current.name === name &&
+          now - lastCommandRef.current.timestamp < DEBOUNCE_MS) {
+        console.warn(`[Tools] Ignoring duplicate ${name} command (${now - lastCommandRef.current.timestamp}ms since last)`);
+        results.push({
+          tool_call_id: tc.id,
+          result: { success: false, message: 'Duplicate command ignored (too fast)' }
+        });
+        continue;
+      }
+      lastCommandRef.current = { name, timestamp: now };
 
       try {
         console.log(`[Tools] Calling ${name}:`, { args, endpoint: `${N8N_BASE}${path}` });

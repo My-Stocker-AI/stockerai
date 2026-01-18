@@ -725,8 +725,20 @@ export function useVoice(options: UseVoiceOptions = {}) {
   }, []);
 
   const startListening = useCallback(async () => {
-    // Reset stopped flag when starting new session
+    console.log('[Voice] startListening called');
+
+    // STOP FIX: Reset all state flags to clean state
     stoppedRef.current = false;
+    shouldReconnectRef.current = true;
+    isConnectedRef.current = false;
+    reconnectAttemptsRef.current = 0;
+    accumulatedTranscriptRef.current = '';
+
+    // STOP FIX: Clear any pending reconnect timeouts
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
 
     // CRITICAL: Request wake lock to prevent screen timeout during voice session
     // Hands-free operation requires screen to stay awake for continuous picking
@@ -752,13 +764,20 @@ export function useVoice(options: UseVoiceOptions = {}) {
 
     try {
       // Get or reuse existing stream (Safari multiple stream bug fix)
-      await getOrCreateAudioStream();
+      const stream = await getOrCreateAudioStream();
+      console.log('[Voice] Audio stream obtained:', stream.getTracks().length, 'tracks');
 
-      shouldReconnectRef.current = true;
       await connectDeepgram();
+      console.log('[Voice] Deepgram connected successfully');
+
       setStatus('listening');
+      setIsDeepgramConnected(true);
+
+      console.log('[Voice] startListening complete - voice active');
       return true;
     } catch (error: any) {
+      console.error('[Voice] startListening failed:', error);
+
       // Handle specific microphone errors
       if (error.name === 'NotAllowedError') {
         console.error('[Voice] Microphone permission denied');
@@ -779,6 +798,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
   }, [connectDeepgram, setStatus, unlockAudio, getOrCreateAudioStream]); // Using ref for onError
 
   const stopListening = useCallback(() => {
+    console.log('[Voice] stopListening called - cleaning up resources');
     shouldReconnectRef.current = false;
     stopKeepAlive();
 
@@ -789,10 +809,20 @@ export function useVoice(options: UseVoiceOptions = {}) {
     }
     accumulatedTranscriptRef.current = '';
 
+    // STOP FIX: Clear reconnect timeout to prevent interference
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+    reconnectAttemptsRef.current = 0;
+
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       try {
         mediaRecorderRef.current.stop();
-      } catch (e) {}
+        console.log('[Voice] MediaRecorder stopped');
+      } catch (e) {
+        console.warn('[Voice] MediaRecorder stop error:', e);
+      }
     }
     mediaRecorderRef.current = null;
     isRecordingRef.current = false;
@@ -803,10 +833,14 @@ export function useVoice(options: UseVoiceOptions = {}) {
       }
       socketRef.current.close();
       socketRef.current = null;
+      console.log('[Voice] WebSocket closed');
     }
 
     if (audioStreamRef.current) {
-      audioStreamRef.current.getTracks().forEach(track => track.stop());
+      audioStreamRef.current.getTracks().forEach(track => {
+        track.stop();
+        console.log('[Voice] Audio track stopped:', track.kind);
+      });
       audioStreamRef.current = null;
     }
 
@@ -821,8 +855,12 @@ export function useVoice(options: UseVoiceOptions = {}) {
       }
     }
 
+    // STOP FIX: Reset connection state flags
     isConnectedRef.current = false;
+    setIsDeepgramConnected(false);
+
     setStatus('idle');
+    console.log('[Voice] stopListening complete - status set to idle');
   }, [stopKeepAlive, setStatus]);
 
   const pauseListening = useCallback(() => {

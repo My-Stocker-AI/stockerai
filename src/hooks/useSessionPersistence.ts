@@ -53,19 +53,33 @@ export function useSessionPersistence() {
   }, []);
 
   const saveLocal = useCallback(async (data: SessionData): Promise<void> => {
-    try {
-      const db = await openDB();
-      return new Promise((resolve, reject) => {
-        const tx = db.transaction(STORE_NAME, 'readwrite');
-        const store = tx.objectStore(STORE_NAME);
-        const record = { ...data, id: 'current', savedAt: Date.now() };
-        store.put(record);
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
-      });
-    } catch (e) {
-      console.error('[Session] Local save error:', e);
+    const maxRetries = 3;
+    let lastError: any = null;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const db = await openDB();
+        await new Promise((resolve, reject) => {
+          const tx = db.transaction(STORE_NAME, 'readwrite');
+          const store = tx.objectStore(STORE_NAME);
+          const record = { ...data, id: 'current', savedAt: Date.now() };
+          store.put(record);
+          tx.oncomplete = () => resolve(undefined);
+          tx.onerror = () => reject(tx.error);
+        });
+        console.log(`[Session] Local save successful (attempt ${attempt})`);
+        return; // Success - exit retry loop
+      } catch (e) {
+        lastError = e;
+        console.warn(`[Session] Local save failed (attempt ${attempt}/${maxRetries}):`, e);
+        if (attempt < maxRetries) {
+          await new Promise(resolve => setTimeout(resolve, 100 * attempt)); // Exponential backoff
+        }
+      }
     }
+
+    // All retries failed - throw error to alert user
+    throw new Error(`Failed to save session after ${maxRetries} attempts: ${lastError}`);
   }, [openDB]);
 
   const loadLocal = useCallback(async (): Promise<SessionData | null> => {
