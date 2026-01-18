@@ -74,7 +74,8 @@ const Team = () => {
 
   // Fetch team members
   const { data: teamMembers = [], isLoading } = useQuery({
-    queryKey: ['team-members', userRole?.account_id],
+    queryKey: ['team-members', userRole?.account_id, 'v2'], // Cache buster - force refetch after profile updates
+    staleTime: 0, // Always refetch
     queryFn: async () => {
       if (!userRole?.account_id) return [];
 
