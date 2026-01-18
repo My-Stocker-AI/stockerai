@@ -593,7 +593,7 @@ const UploadRoutes = () => {
         <AlertDialogContent className="bg-dashboard-bg border-dashboard-border">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-dashboard-text">Delete Route</AlertDialogTitle>
-            <AlertDialogDescription className="text-dashboard-text-secondary">
+            <AlertDialogDescription className="text-teal">
               Are you sure you want to delete "{selectedRoute?.route_name}"? This will also delete all machines and items in this route. This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
