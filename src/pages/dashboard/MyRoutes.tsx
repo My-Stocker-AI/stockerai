@@ -382,13 +382,13 @@ const MyRoutes = () => {
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent className="bg-dashboard-card border-dashboard-border">
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-teal">Delete Route</AlertDialogTitle>
-            <AlertDialogDescription className="text-teal">
+            <AlertDialogTitle className="!text-teal">Delete Route</AlertDialogTitle>
+            <AlertDialogDescription className="!text-teal">
               Are you sure you want to delete "<span className="text-primary font-medium">{routeToDelete?.route_name}</span>"? This will permanently remove the route and all its associated machines and items. This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="bg-dashboard-bg border-dashboard-border text-teal hover:bg-dashboard-card">
+            <AlertDialogCancel className="bg-dashboard-bg border-dashboard-border !text-teal hover:bg-dashboard-card">
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction
