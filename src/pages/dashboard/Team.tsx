@@ -77,24 +77,32 @@ const Team = () => {
     queryKey: ['team-members', userRole?.account_id],
     queryFn: async () => {
       if (!userRole?.account_id) return [];
-      const { data, error } = await supabase
+
+      // Fetch account_users
+      const { data: accountUsers, error: accountUsersError } = await supabase
         .from('account_users')
-        .select(`
-          id,
-          user_id,
-          role,
-          can_view_all_routes,
-          can_upload_routes,
-          profiles:user_id (
-            first_name,
-            last_name,
-            email
-          )
-        `)
+        .select('id, user_id, role, can_view_all_routes, can_upload_routes')
         .eq('account_id', userRole.account_id);
 
-      if (error) throw error;
-      return data as unknown as TeamMember[];
+      if (accountUsersError) throw accountUsersError;
+      if (!accountUsers || accountUsers.length === 0) return [];
+
+      // Get all user_ids
+      const userIds = accountUsers.map(au => au.user_id);
+
+      // Fetch profiles for these users
+      const { data: profiles, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, first_name, last_name, email')
+        .in('id', userIds);
+
+      if (profilesError) throw profilesError;
+
+      // Join manually
+      return accountUsers.map(au => ({
+        ...au,
+        profiles: profiles?.find(p => p.id === au.user_id) || null
+      })) as unknown as TeamMember[];
     },
     enabled: !!userRole?.account_id,
   });
