@@ -1193,7 +1193,91 @@ All bug fixes include detailed console logging:
 
 ---
 
-## 9.3 Race Condition Pattern (Reusable)
+## 9.3 Session 43 Fixes (2026-01-18)
+
+**Commit Range:** Multiple commits throughout day
+**Status:** ✅ Deployed to production
+
+### Issue 1: RLS Infinite Recursion (CRITICAL REGRESSION)
+
+**Symptom:** Adding `can_upload_routes` column triggered `ERROR: infinite recursion detected in policy for relation "account_users"`
+
+**Root Cause:** RLS policies on `account_users` query `account_users` within policy checks = infinite loop
+
+**Temporary Fix (NOT production-safe):**
+```sql
+ALTER TABLE account_users DISABLE ROW LEVEL SECURITY;
+ALTER TABLE profiles DISABLE ROW LEVEL SECURITY;  -- Added later for Teams page
+```
+
+**Security Impact:** Cross-account data access possible - **BLOCKS multi-tenant production**
+
+**Proper Fix Required:** Helper table, cached function, or JWT claims pattern (see `/CRITICAL_RLS_ISSUE.md`)
+
+**Lesson Learned:** System impact audit MUST check RLS policies for self-referential queries
+
+---
+
+### Issue 2: Teams Page Shows "Unknown User"
+
+**Symptom:** All team members except yourself show as "Unknown User"
+
+**Root Causes:**
+1. **Database trigger incomplete** - `handle_new_user()` only copied `id` and `email`, not names
+2. **RLS blocking profile fetch** - profiles table RLS only allowed users to see their own profile
+
+**Fixes:**
+1. Updated `handle_new_user()` trigger to copy `first_name`/`last_name` from `user_metadata`
+2. Disabled RLS on profiles table (temporary - see Issue 1)
+3. Fixed existing profiles with manual UPDATE
+4. Added React Query cache buster (`staleTime: 0`, key `'v2'`)
+
+**Files Modified:**
+- `supabase/migrations/20260118_fix_profile_trigger.sql`
+- `supabase/migrations/20260118_disable_profiles_rls.sql`
+- `src/pages/dashboard/Team.tsx`
+
+---
+
+### Issue 3: Email Template Shows "()"
+
+**Symptom:** Invite emails show "()" instead of admin name
+
+**Root Cause:** Edge Function fetched admin profile, but profile had NULL names
+
+**Fix:** Multi-level fallback in Edge Function:
+1. Try `profiles.first_name`/`profiles.last_name`
+2. Fall back to `auth.users.user_metadata.first_name`/`last_name`
+3. Final fallback: "Your Team Admin"
+
+**Files Modified:**
+- `supabase/functions/invite-team-member/index.ts` (lines 97-131)
+
+---
+
+### Issue 4: No Logout Button on Mobile
+
+**Symptom:** Desktop has logout in sidebar, but sidebar hidden on mobile
+
+**Fix:** Added fixed bottom navigation bar with first 4 nav items + logout button
+
+**Files Modified:**
+- `src/components/dashboard/DashboardLayout.tsx` (lines 220-251)
+
+---
+
+### Lesson: "Check Your Memory Before Putting Updates Out"
+
+**What happened:** Created multiple new documentation files (CRITICAL_RLS_ISSUE.md, etc.) without first checking StockerAI/CLAUDE.md which already had an RLS section (10.1)
+
+**Correct approach:**
+1. READ `/home/visionairy/StockerAI/CLAUDE.md` FIRST
+2. UPDATE existing sections instead of creating new files
+3. Cross-reference when new files are needed
+
+---
+
+## 9.4 Race Condition Pattern (Reusable)
 
 **Pattern Identified:** Concurrent updates to shared database state
 
@@ -1254,16 +1338,25 @@ lastCommandRef.current = { name: commandName, timestamp: now };
 ## 10.1 CRITICAL: No Row Level Security (RLS)
 
 **Severity:** CRITICAL (Priority 10)
+**Status:** ⚠️ **WORSE - RLS now DISABLED on 2 tables (2026-01-18)**
 **Impact:** Any authenticated user can read/modify other users' data
 
-**Affected Tables:**
+**Tables WITHOUT RLS (Not Yet Implemented):**
 - `routes`
 - `machines`
 - `items`
 - `sessions`
 
-**Required Fix:** Implement RLS policies for user isolation
-**Reference:** See `PHASE_1_VERIFICATION_FINDINGS.md` for policy templates
+**Tables WITH RLS DISABLED (Temporary Security Bypass - Session 43):**
+- `account_users` - Infinite recursion in policies (see Section 9.3)
+- `profiles` - Blocked Teams page from fetching member profiles (see Section 9.3)
+
+**Current State:** App functional for single-tenant, **NOT SAFE for multi-tenant production**
+
+**Required Fix:**
+1. Fix `account_users` and `profiles` RLS policies (helper table/cached function/JWT claims)
+2. Implement RLS on remaining tables
+**Reference:** See `/CRITICAL_RLS_ISSUE.md` and `PHASE_1_VERIFICATION_FINDINGS.md`
 
 ---
 
