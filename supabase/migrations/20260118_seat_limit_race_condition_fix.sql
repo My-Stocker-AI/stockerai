@@ -1,10 +1,12 @@
--- Migration: Add seat management RPC function
--- Date: 2026-01-10
--- Purpose: Check seat availability before inviting team members
--- Decision: Admins unlimited, only drivers count against seat limit
+-- Migration: Fix seat limit race condition
+-- Date: 2026-01-18
+-- Purpose: Prevent concurrent invites from bypassing seat limits
+-- System Impact Audit: /docs/audits/AUDIT_2026-01-18_seat_limit_race_condition.md
 
--- Function: check_seat_availability
--- Returns seat usage information for an account
+-- Layer 1 Defense: Update check_seat_availability to use SELECT FOR UPDATE
+-- This locks the accounts row during seat check, preventing concurrent reads
+DROP FUNCTION IF EXISTS check_seat_availability(UUID, TEXT);
+
 CREATE OR REPLACE FUNCTION check_seat_availability(p_account_id UUID, p_role TEXT DEFAULT 'driver')
 RETURNS TABLE (
   total_seats INTEGER,
@@ -75,5 +77,20 @@ $$;
 -- Grant execute permission to authenticated users
 GRANT EXECUTE ON FUNCTION check_seat_availability(UUID, TEXT) TO authenticated;
 
--- Comments for documentation
-COMMENT ON FUNCTION check_seat_availability IS 'Check if account can add more team members based on seat limits. Admins are unlimited, drivers are limited by driver_count.';
+-- Comment for documentation
+COMMENT ON FUNCTION check_seat_availability IS 'Check if account can add more team members based on seat limits. Uses SELECT FOR UPDATE to prevent race conditions. Admins are unlimited, drivers are limited by driver_count.';
+
+-- Layer 2 Defense: Database-level constraint (final safety net)
+-- Ensures driver count NEVER exceeds driver_count limit, regardless of application code bugs
+ALTER TABLE accounts
+ADD CONSTRAINT IF NOT EXISTS check_driver_seat_limit
+CHECK (
+  (SELECT COUNT(*)
+   FROM account_users
+   WHERE account_users.account_id = accounts.id
+     AND account_users.role = 'driver') <= driver_count
+);
+
+-- Comment for documentation
+COMMENT ON CONSTRAINT check_driver_seat_limit ON accounts IS
+  'Ensures driver count never exceeds driver_count limit. Enforced at database level to prevent race conditions. If violated, indicates concurrent invite race condition was caught.';

@@ -289,6 +289,29 @@ serve(async (req) => {
         });
 
       if (accountUserError) {
+        // Check if error is seat limit constraint violation (Layer 2 defense triggered)
+        if (accountUserError.message && accountUserError.message.includes('check_driver_seat_limit')) {
+          logStep("CRITICAL: Seat limit constraint violated - race condition detected and prevented", {
+            account_id,
+            role,
+            userId,
+            error: accountUserError.message,
+            layer_triggered: "Layer 2 (CHECK constraint)"
+          });
+
+          return new Response(JSON.stringify({
+            success: false,
+            error: "Driver seat limit reached. Please upgrade your plan to add more drivers.",
+            seat_limit_exceeded: true,
+            race_condition_detected: true,
+            layer_triggered: "database_constraint"
+          }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+            status: 400
+          });
+        }
+
+        // Other database errors
         throw new Error(`Failed to add user to account: ${accountUserError.message}`);
       }
       logStep("User added to account");
