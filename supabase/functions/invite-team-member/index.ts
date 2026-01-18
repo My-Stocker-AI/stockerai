@@ -101,13 +101,34 @@ serve(async (req) => {
       .eq('id', requestingUser.id)
       .single();
 
-    if (adminProfileError || !adminProfile) {
-      throw new Error("Failed to fetch admin profile");
-    }
+    // Build admin name with fallbacks
+    let adminName = 'Your Team Admin';
+    let adminEmail = requestingUser.email || '';
 
-    const adminName = `${adminProfile.first_name || ''} ${adminProfile.last_name || ''}`.trim() || 'Your Team Admin';
-    const adminEmail = adminProfile.email;
-    logStep("Admin profile fetched", { adminName, adminEmail });
+    if (adminProfile && !adminProfileError) {
+      // Profile exists - use its data with fallbacks
+      const profileFirstName = adminProfile.first_name?.trim() || '';
+      const profileLastName = adminProfile.last_name?.trim() || '';
+      const profileEmail = adminProfile.email?.trim() || '';
+
+      adminName = `${profileFirstName} ${profileLastName}`.trim() || 'Your Team Admin';
+      adminEmail = profileEmail || requestingUser.email || '';
+
+      logStep("Admin profile fetched", { adminName, adminEmail, source: 'profile' });
+    } else {
+      // Profile missing or incomplete - fall back to auth user data
+      const userFirstName = requestingUser.user_metadata?.first_name?.trim() || '';
+      const userLastName = requestingUser.user_metadata?.last_name?.trim() || '';
+
+      adminName = `${userFirstName} ${userLastName}`.trim() || 'Your Team Admin';
+
+      logStep("Admin profile missing - using auth user data", {
+        adminName,
+        adminEmail,
+        source: 'auth_user',
+        profileError: adminProfileError?.message
+      });
+    }
 
     // Parse request body FIRST (need account_id for validation)
     const body: InviteRequest = await req.json();
