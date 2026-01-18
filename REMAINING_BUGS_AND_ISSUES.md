@@ -51,6 +51,10 @@ ALTER TABLE account_users DISABLE ROW LEVEL SECURITY;
 2. ✅ **Duplicate "next" command** - Fixed with debounce + optimistic locking
 3. ✅ **Voice not restarting** - Fixed with state reset
 
+### UI/UX Bugs (Fixed 2026-01-18)
+1. ✅ **Mobile logout missing** - Added bottom navigation bar with logout button
+2. ✅ **Email shows "()" instead of admin name** - Added fallback to auth.users data when profile incomplete
+
 ---
 
 ## ⏳ PENDING DEPLOYMENTS (from Jan 17 fixes)
@@ -172,9 +176,10 @@ These were identified in the Teams feature analysis but are **NOT CRITICAL**. Pr
 - **Status:** Temporary fix active (RLS disabled - security bypass)
 - **Blocker:** Multi-tenant production deployment
 
-### ✅ Fixed & Deployed (7 bugs)
-- 4 CRITICAL Teams bugs (today)
-- 3 Operational bugs (Jan 17)
+### ✅ Fixed & Deployed (9 bugs)
+- 4 CRITICAL Teams bugs (2026-01-18)
+- 3 Operational bugs (2026-01-17)
+- 2 UI/UX bugs (2026-01-18)
 
 ### ⏳ Fixed, Pending Deployment (2 items)
 - SQL migration for optimistic locking
@@ -186,7 +191,7 @@ These were identified in the Teams feature analysis but are **NOT CRITICAL**. Pr
 - 4 LOW priority (cosmetic)
 
 ### Total Bugs Identified: 29 (28 original + 1 regression)
-### Total Bugs Fixed: 7 (24%)
+### Total Bugs Fixed: 9 (31%)
 ### CRITICAL Bugs Status: 7/8 (87.5%) - 1 NEW regression ⚠️
 
 ---
@@ -234,6 +239,8 @@ These were identified in the Teams feature analysis but are **NOT CRITICAL**. Pr
 - ✅ Progress saving (app close protection)
 - ✅ Voice functionality (restart after stop)
 - ✅ Duplicate command prevention (debouncing)
+- ✅ Mobile logout button (bottom navigation bar)
+- ✅ Email template with proper admin name fallbacks
 
 ### What's Broken (NEW - 2026-01-18)
 - ❌ **RLS DISABLED on account_users** (security regression)
