@@ -110,6 +110,20 @@ const Team = () => {
   // Count admins
   const adminCount = teamMembers.filter(m => m.role === 'primary_admin').length;
 
+  // Debug logging
+  console.log('[Team] Current state:', {
+    currentUserId: user?.id,
+    adminCount,
+    totalMembers: teamMembers.length,
+    members: teamMembers.map(m => ({
+      id: m.id,
+      user_id: m.user_id,
+      role: m.role,
+      name: `${m.profiles?.first_name || ''} ${m.profiles?.last_name || ''}`.trim() || m.profiles?.email || 'Unknown',
+      isCurrentUser: m.user_id === user?.id
+    }))
+  });
+
   // Invite member mutation - uses Supabase Edge Function
   const inviteMemberMutation = useMutation({
     mutationFn: async () => {
@@ -314,10 +328,23 @@ const Team = () => {
   };
 
   const canDeleteMember = (member: TeamMember) => {
+    const isSelf = member.user_id === user?.id;
+    const isOnlyAdmin = member.role === 'primary_admin' && adminCount <= 1;
+
+    console.log('[Team] canDeleteMember check:', {
+      member_user_id: member.user_id,
+      current_user_id: user?.id,
+      member_role: member.role,
+      adminCount,
+      isSelf,
+      isOnlyAdmin,
+      canDelete: !isSelf && !isOnlyAdmin
+    });
+
     // Can't delete yourself
-    if (member.user_id === user?.id) return false;
+    if (isSelf) return false;
     // Can't delete the only admin
-    if (member.role === 'primary_admin' && adminCount <= 1) return false;
+    if (isOnlyAdmin) return false;
     return true;
   };
 
