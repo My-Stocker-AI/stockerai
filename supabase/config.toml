@@ -11,3 +11,9 @@ verify_jwt = false
 
 [functions.calculate-usage]
 verify_jwt = false
+
+[functions.invite-team-member]
+verify_jwt = false
+
+[functions.update-subscription-quantity]
+verify_jwt = false
