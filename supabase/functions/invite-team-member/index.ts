@@ -108,19 +108,7 @@ serve(async (req) => {
     const adminEmail = adminProfile.email;
     logStep("Admin profile fetched", { adminName, adminEmail });
 
-    // Verify requesting user is an admin
-    const { data: requestingUserRole, error: roleError } = await supabaseClient
-      .from('account_users')
-      .select('role')
-      .eq('user_id', requestingUser.id)
-      .single();
-
-    if (roleError || requestingUserRole?.role !== 'primary_admin') {
-      throw new Error("Only admins can invite team members");
-    }
-    logStep("Admin permission verified");
-
-    // Parse request body
+    // Parse request body FIRST (need account_id for validation)
     const body: InviteRequest = await req.json();
     const { email, first_name, last_name, account_id, role, can_view_all_routes = false } = body;
 
@@ -128,7 +116,28 @@ serve(async (req) => {
     if (!email || !first_name || !last_name || !account_id || !role) {
       throw new Error("Missing required fields: email, first_name, last_name, account_id, role");
     }
-    logStep("Request validated", { email, role });
+    logStep("Request validated", { email, role, account_id });
+
+    // SECURITY: Verify requesting user is admin OF THIS SPECIFIC ACCOUNT
+    // CRITICAL: Must validate account_id ownership to prevent cross-account privilege escalation
+    const { data: requestingUserRole, error: roleError } = await supabaseClient
+      .from('account_users')
+      .select('role, account_id')
+      .eq('user_id', requestingUser.id)
+      .eq('account_id', account_id)  // ← CRITICAL: Validates admin of THIS account, not just any account
+      .single();
+
+    if (roleError || requestingUserRole?.role !== 'primary_admin') {
+      // Log unauthorized access attempt for security audit
+      logStep("SECURITY: Unauthorized account access attempt blocked", {
+        requestingUserId: requestingUser.id,
+        requestedAccountId: account_id,
+        hasAdminRole: requestingUserRole?.role === 'primary_admin',
+        error: roleError?.message || 'User is not admin of requested account'
+      });
+      throw new Error("Unauthorized: You can only invite members to your own account");
+    }
+    logStep("Admin permission verified for account", { account_id });
 
     // PHASE GATE 1: Check seat availability
     const { data: seatCheck, error: seatError } = await supabaseClient
