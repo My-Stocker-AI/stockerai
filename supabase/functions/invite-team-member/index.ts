@@ -11,6 +11,40 @@ const logStep = (step: string, details?: any) => {
   console.log(`[INVITE-TEAM-MEMBER] ${step}${detailsStr}`);
 };
 
+// Retry helper for email send (handles transient failures)
+async function sendInviteWithRetry(
+  supabaseClient: any,
+  email: string,
+  inviteData: any,
+  maxRetries = 3
+): Promise<{ success: boolean; error?: any }> {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    logStep(`Email send attempt ${attempt}/${maxRetries}`, { email });
+
+    const { error } = await supabaseClient.auth.admin.inviteUserByEmail(email, inviteData);
+
+    if (!error) {
+      logStep(`Email sent successfully on attempt ${attempt}`, { email });
+      return { success: true };
+    }
+
+    logStep(`Email send failed on attempt ${attempt}`, { error: error.message });
+
+    // If not last attempt, wait before retry (exponential backoff)
+    if (attempt < maxRetries) {
+      const delayMs = 1000 * Math.pow(2, attempt - 1); // 1s, 2s, 4s
+      logStep(`Waiting ${delayMs}ms before retry ${attempt + 1}`);
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    } else {
+      // All retries exhausted
+      logStep(`All ${maxRetries} email attempts failed`, { finalError: error.message });
+      return { success: false, error };
+    }
+  }
+
+  return { success: false, error: new Error("Max retries reached") };
+}
+
 interface InviteRequest {
   email: string;
   first_name: string;
@@ -260,48 +294,86 @@ serve(async (req) => {
       logStep("User added to account");
     }
 
-    // Re-send invite email with template data
-    if (!isNewUser) {
-      const { error: inviteError } = await supabaseClient.auth.admin.inviteUserByEmail(email, {
-        data: {
-          admin_name: adminName,
-          admin_email: adminEmail,
-          first_name,
-          last_name,
-          role
-        },
-        redirectTo: `${Deno.env.get("SITE_URL") || "https://my-stocker-ai.com"}/auth/callback?type=invite`
-      });
+    // PHASE GATE 3.5: Send invite email with retry logic
+    const inviteData = {
+      data: {
+        admin_name: adminName,
+        admin_email: adminEmail,
+        first_name,
+        last_name,
+        role
+      },
+      redirectTo: `${Deno.env.get("SITE_URL") || "https://my-stocker-ai.com"}/auth/callback?type=invite`
+    };
 
-      if (inviteError) {
-        logStep("Warning: Failed to send invite email", { error: inviteError.message });
-        // Don't fail the whole operation if email fails
-      } else {
-        logStep("Invite email sent with admin info", { adminName });
+    if (!isNewUser) {
+      // Re-send invite email for existing user
+      logStep("Sending invite email to existing user with admin info", { adminName });
+
+      const retryResult = await sendInviteWithRetry(supabaseClient, email, inviteData);
+
+      if (!retryResult.success) {
+        // CRITICAL: Email failed after 3 retries - exit BEFORE billing update
+        logStep("CRITICAL: Failed to send invite email after retries - NO CHARGE APPLIED", {
+          error: retryResult.error?.message,
+          userId,
+          email
+        });
+
+        return new Response(JSON.stringify({
+          success: true, // User operation succeeded
+          warning: `User role updated but invite email failed: ${retryResult.error?.message || 'Unknown error'}. User was NOT charged.`,
+          userId,
+          isNewUser: false,
+          emailFailed: true,
+          chargeApplied: false,
+          action_required: "Resend invite email from Teams page to complete onboarding and apply billing."
+        }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 200 // 200 because user operation succeeded, email is secondary
+        });
       }
+
+      logStep("Invite email sent successfully to existing user", { adminName });
+
     } else {
       // For new users, update the user to trigger invite with proper data
       const { error: updateError } = await supabaseClient.auth.admin.updateUserById(userId, {
         email_confirm: false // Ensure they need to confirm via invite
       });
 
-      // Now send invite with template data
-      const { error: inviteError } = await supabaseClient.auth.admin.inviteUserByEmail(email, {
-        data: {
-          admin_name: adminName,
-          admin_email: adminEmail,
-          first_name,
-          last_name,
-          role
-        },
-        redirectTo: `${Deno.env.get("SITE_URL") || "https://my-stocker-ai.com"}/auth/callback?type=invite`
-      });
-
-      if (inviteError) {
-        logStep("Warning: Failed to send invite email", { error: inviteError.message });
-      } else {
-        logStep("Invite email sent for new user with admin info", { adminName });
+      if (updateError) {
+        logStep("Warning: Failed to update user before invite", { error: updateError.message });
       }
+
+      // Now send invite with template data
+      logStep("Sending invite email to new user with admin info", { adminName });
+
+      const retryResult = await sendInviteWithRetry(supabaseClient, email, inviteData);
+
+      if (!retryResult.success) {
+        // CRITICAL: Email failed after 3 retries - exit BEFORE billing update
+        logStep("CRITICAL: Failed to send invite email after retries - NO CHARGE APPLIED", {
+          error: retryResult.error?.message,
+          userId,
+          email
+        });
+
+        return new Response(JSON.stringify({
+          success: true, // User was created successfully
+          warning: `User created but invite email failed: ${retryResult.error?.message || 'Unknown error'}. User was NOT charged.`,
+          userId,
+          isNewUser: true,
+          emailFailed: true,
+          chargeApplied: false,
+          action_required: "User exists but cannot login. Resend invite from Teams page to complete onboarding and apply billing."
+        }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 200
+        });
+      }
+
+      logStep("Invite email sent successfully to new user", { adminName });
     }
 
     // PHASE GATE 4: Update Stripe subscription quantity (auto-prorates)
@@ -335,6 +407,8 @@ serve(async (req) => {
     return new Response(JSON.stringify({
       success: true,
       message: isNewUser ? "Team member invited successfully" : "Team member updated and re-invited",
+      emailSent: true,
+      chargeApplied: role === 'driver', // Only drivers are charged
       user: {
         id: userId,
         email,
