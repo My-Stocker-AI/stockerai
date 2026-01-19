@@ -1658,11 +1658,12 @@ export default function StockerApp() {
 
           {/* Current Machine Item Progress */}
           {(() => {
-            const currentMachine = routeState.machines.find(m => m.id === routeState.currentMachineId);
-            if (!currentMachine || currentMachine.totalItems === 0) return null;
+            const itemsTotal = routeState.currentMachineTotalItems;
+            const itemsRemaining = routeState.currentMachineItemsRemaining;
 
-            const itemsCompleted = currentMachine.completedItems;
-            const itemsTotal = currentMachine.totalItems;
+            if (itemsTotal === 0) return null;
+
+            const itemsCompleted = itemsTotal - itemsRemaining;
             const itemPercent = Math.max(5, (itemsCompleted / itemsTotal) * 100);
 
             return (

@@ -33,6 +33,8 @@ export interface RouteState {
   currentMachineIndex: number;
   currentMachineName: string | null;
   currentMachineId: string | null;
+  currentMachineTotalItems: number;  // Total items on current machine (from DB)
+  currentMachineItemsRemaining: number;  // Remaining items (from workflow)
   currentItem: CurrentItem | null;
   currentItem2: CurrentItem | null;  // Second item in 2-pick mode
   completedItems: CurrentItem[];
@@ -48,12 +50,41 @@ const INITIAL_STATE: RouteState = {
   currentMachineIndex: 0,
   currentMachineName: null,
   currentMachineId: null,
+  currentMachineTotalItems: 0,
+  currentMachineItemsRemaining: 0,
   currentItem: null,
   currentItem2: null,
   completedItems: [],
   machines: [],
   completed: false
 };
+
+// Helper: Fetch machine's total_items from database
+async function fetchMachineTotalItems(machineId: string): Promise<number> {
+  try {
+    const { createClient } = await import('@supabase/supabase-js');
+    const supabase = createClient(
+      import.meta.env.VITE_SUPABASE_URL,
+      import.meta.env.VITE_SUPABASE_ANON_KEY
+    );
+
+    const { data, error } = await supabase
+      .from('machines')
+      .select('total_items')
+      .eq('id', machineId)
+      .single();
+
+    if (error) {
+      console.error('[Session] Failed to fetch machine total_items:', error);
+      return 0;
+    }
+
+    return data?.total_items || 0;
+  } catch (err) {
+    console.error('[Session] Error fetching machine total_items:', err);
+    return 0;
+  }
+}
 
 export function useStockerSession(userId: string | null) {
   const [routeState, setRouteState] = useState<RouteState>(INITIAL_STATE);
@@ -89,8 +120,16 @@ export function useStockerSession(userId: string | null) {
     return itemData.product || itemData.product_name || '';
   };
 
-  const updateFromTool = useCallback((toolName: string, result: any) => {
+  const updateFromTool = useCallback(async (toolName: string, result: any) => {
     if (!result || result.error) return;
+
+    // Fetch machine total_items when starting or switching machines
+    let machineTotalItems = 0;
+    if (toolName === 'start_machine' && result.machine_id) {
+      machineTotalItems = await fetchMachineTotalItems(result.machine_id);
+    } else if (toolName === 'get_next_item' && result.action === 'next_machine' && result.next_machine_id) {
+      machineTotalItems = await fetchMachineTotalItems(result.next_machine_id);
+    }
 
     setRouteState(prev => {
       const next = { ...prev };
@@ -121,6 +160,10 @@ export function useStockerSession(userId: string | null) {
       }
 
       if (toolName === 'start_machine') {
+        // Set machine item counts
+        next.currentMachineTotalItems = machineTotalItems;
+        next.currentMachineItemsRemaining = result.items_remaining || 0;
+
         // Handle 2-pick mode: item1 and optionally item2
         const itemData = result.item1 || result;
         next.currentItem = {
@@ -178,6 +221,9 @@ export function useStockerSession(userId: string | null) {
         }
 
         if (action === 'next_item') {
+          // Update items remaining
+          next.currentMachineItemsRemaining = result.items_remaining || 0;
+
           const machineName = result.machine_name || prev.currentMachineName || '';
           // Handle 2-pick mode: item1 and optionally item2
           const itemData = result.item1 || result;
@@ -219,6 +265,11 @@ export function useStockerSession(userId: string | null) {
                 : m
             );
           }
+
+          // Set new machine's item counts
+          next.currentMachineTotalItems = machineTotalItems;
+          next.currentMachineItemsRemaining = machineTotalItems; // Start fresh at full count
+
           next.currentMachineIndex = (prev.currentMachineIndex || 0) + 1;
           next.currentMachineName = result.next_machine || '';
           next.currentMachineId = result.next_machine_id || null;
