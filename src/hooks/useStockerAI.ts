@@ -265,6 +265,18 @@ export function useStockerAI() {
       }
     }
 
+    // Add item2 context for 2-pick mode
+    const currentItem2 = routeContext?.currentItem2;
+    if (currentItem2) {
+      itemContext += `\nSecond item: ${currentItem2.quantity}x ${currentItem2.product}`;
+      if (currentItem2.slot) {
+        itemContext += `\nSlot: ${currentItem2.slot_spoken || currentItem2.slot} (only mention if user asks)`;
+      }
+      if (currentItem2.inventory_current !== undefined && currentItem2.inventory_parlevel !== undefined) {
+        itemContext += `\nInventory (item 2): ${currentItem2.inventory_current} of ${currentItem2.inventory_parlevel} (only mention if user asks)`;
+      }
+    }
+
     // Add current route status to help AI make decisions
     let currentRouteStatus = '';
     if (routeContext?.currentRouteName) {

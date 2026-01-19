@@ -1765,6 +1765,11 @@ export default function StockerApp() {
                 <span className="text-4xl font-bold text-emerald-400">X {routeState.currentItem.quantity}</span>
               </div>
               <div className="text-lg text-gray-300 mt-2">{routeState.currentItem.slot_spoken || routeState.currentItem.slot}</div>
+              {routeState.currentItem.inventory_current !== undefined && (
+                <div className="text-xs text-gray-500 mt-1">
+                  In machine: {routeState.currentItem.inventory_current}/{routeState.currentItem.inventory_parlevel}
+                </div>
+              )}
 
               {/* Second Item (2-Pick Mode) */}
               {routeState.currentItem2 && (
@@ -1774,15 +1779,15 @@ export default function StockerApp() {
                     <span className="text-4xl font-bold text-emerald-400">X {routeState.currentItem2.quantity}</span>
                   </div>
                   <div className="text-lg text-gray-300 mt-2">{routeState.currentItem2.slot_spoken || routeState.currentItem2.slot}</div>
+                  {routeState.currentItem2.inventory_current !== undefined && (
+                    <div className="text-xs text-gray-500 mt-1">
+                      In machine: {routeState.currentItem2.inventory_current}/{routeState.currentItem2.inventory_parlevel}
+                    </div>
+                  )}
                 </div>
               )}
 
               <div className="text-sm text-gray-500 mt-3">{routeState.currentMachineName}</div>
-              {routeState.currentItem.inventory_current !== undefined && (
-                <div className="text-xs text-gray-500 mt-1">
-                  In machine: {routeState.currentItem.inventory_current}/{routeState.currentItem.inventory_parlevel}
-                </div>
-              )}
             </div>
           ) : routeState.completed ? (
             <div className="mt-4 text-center text-emerald-400">
