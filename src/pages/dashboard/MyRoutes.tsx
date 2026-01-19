@@ -57,7 +57,7 @@ const MyRoutes = () => {
         // Admin or user with can_view_all_routes - fetch all routes for the user
         const { data, error } = await supabase
           .from('routes')
-          .select('*, profiles:user_id(first_name, last_name)')
+          .select('*, profiles(first_name, last_name)')
           .eq('user_id', user.id)
           .order('delivery_date', { ascending: true });
 
@@ -77,7 +77,7 @@ const MyRoutes = () => {
         const routeIds = assignments.map(a => a.route_id);
         const { data, error } = await supabase
           .from('routes')
-          .select('*, profiles:user_id(first_name, last_name)')
+          .select('*, profiles(first_name, last_name)')
           .in('id', routeIds)
           .order('delivery_date', { ascending: true });
 

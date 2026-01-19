@@ -187,7 +187,7 @@ const Usage = () => {
         .from('account_users')
         .select(`
           user_id,
-          profiles:user_id (
+          profiles (
             first_name,
             last_name
           )

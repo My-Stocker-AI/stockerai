@@ -48,7 +48,7 @@ export function UploadTab() {
         .select(`
           user_id,
           role,
-          profiles:user_id (
+          profiles (
             first_name,
             last_name,
             email

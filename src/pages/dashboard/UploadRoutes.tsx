@@ -95,7 +95,7 @@ const UploadRoutes = () => {
       if (!user) return [];
       const { data, error } = await supabase
         .from('routes')
-        .select('*, profiles:user_id(first_name, last_name)')
+        .select('*, profiles(first_name, last_name)')
         .eq('user_id', user.id)
         .order('delivery_date', { ascending: false });
 
@@ -116,7 +116,7 @@ const UploadRoutes = () => {
           id,
           user_id,
           role,
-          profiles:user_id (
+          profiles (
             first_name,
             last_name,
             email

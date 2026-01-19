@@ -277,30 +277,38 @@ const Team = () => {
 
   const openEditModal = async (member: TeamMember) => {
     // Refetch fresh data from database to avoid stale state
-    const { data: freshMember, error } = await supabase
+    // Using separate queries to avoid PostgREST foreign key cache issues
+    const { data: accountUserData, error: auError } = await supabase
       .from('account_users')
-      .select(`
-        id,
-        user_id,
-        role,
-        can_view_all_routes,
-        can_upload_routes,
-        profiles:user_id (
-          first_name,
-          last_name,
-          email
-        )
-      `)
+      .select('id, user_id, role, can_view_all_routes, can_upload_routes')
       .eq('id', member.id)
       .single();
 
-    if (error) {
-      console.error('[Team] Error fetching fresh member data:', error);
-      toast({ title: "Error loading member data", description: error.message, variant: "destructive" });
+    if (auError) {
+      console.error('[Team] Error fetching account_user data:', auError);
+      toast({ title: "Error loading member data", description: auError.message, variant: "destructive" });
       return;
     }
 
-    const memberData = freshMember as unknown as TeamMember;
+    // Fetch profile separately
+    const { data: profileData, error: profileError } = await supabase
+      .from('profiles')
+      .select('first_name, last_name, email')
+      .eq('id', accountUserData.user_id)
+      .single();
+
+    if (profileError) {
+      console.error('[Team] Error fetching profile data:', profileError);
+      toast({ title: "Error loading profile data", description: profileError.message, variant: "destructive" });
+      return;
+    }
+
+    // Combine the data
+    const memberData: TeamMember = {
+      ...accountUserData,
+      profiles: profileData
+    };
+
     setSelectedMember(memberData);
     setEditRole(memberData.role);
     setEditCanViewAll(memberData.can_view_all_routes || false);

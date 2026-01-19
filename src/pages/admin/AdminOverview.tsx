@@ -98,7 +98,7 @@ const AdminOverview = () => {
           id,
           created_at,
           status,
-          profiles:user_id (first_name, last_name, email)
+          profiles (first_name, last_name, email)
         `)
         .order('created_at', { ascending: false })
         .limit(5);

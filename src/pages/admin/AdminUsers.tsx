@@ -53,7 +53,7 @@ const AdminUsers = () => {
             .select(`
               user_id,
               role,
-              profiles:user_id (
+              profiles (
                 id,
                 email,
                 first_name,
