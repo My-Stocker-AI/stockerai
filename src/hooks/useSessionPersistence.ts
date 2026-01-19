@@ -253,7 +253,7 @@ export function useSessionPersistence() {
   const clear = useCallback(async (userId: string | null): Promise<void> => {
     await clearLocal();
     if (userId) {
-      clearServer(userId);
+      await clearServer(userId);
     }
   }, [clearLocal, clearServer]);
 
