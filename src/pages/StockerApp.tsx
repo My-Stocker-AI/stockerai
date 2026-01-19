@@ -915,7 +915,8 @@ export default function StockerApp() {
           // Clear any existing session and start fresh with this route
           await sessionPersistence.clear(userId);
           reset();
-          generateNewSessionId();
+          const newSessionId = generateNewSessionId();
+          setSession(newSessionId, userId); // Set session immediately to avoid race condition
           setInitialized(true);
 
           // Start listening (safe now - audio is unlocked)
@@ -1057,8 +1058,10 @@ export default function StockerApp() {
     // Restore saved session ID, or generate new one if missing
     if (savedSession.sessionId) {
       setSessionId(savedSession.sessionId);
+      setSession(savedSession.sessionId, userId); // Set session immediately
     } else {
-      generateNewSessionId();
+      const newSessionId = generateNewSessionId();
+      setSession(newSessionId, userId); // Set session immediately to avoid race condition
     }
     setMessages(sanitizeConversationHistory(savedSession.conversationHistory || []));
 
@@ -1109,7 +1112,8 @@ export default function StockerApp() {
       await sessionPersistence.clear(userId);
     }
     reset();
-    generateNewSessionId(); // Generate new session ID for fresh start
+    const newSessionId = generateNewSessionId(); // Generate new session ID for fresh start
+    setSession(newSessionId, userId); // Set session immediately to avoid race condition with getRoutes
     setShowResumeDialog(false);
     setInitialized(true);
 
