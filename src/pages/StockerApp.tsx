@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, CheckCircle, Mic, MicOff, Pause, Play, Square, AlertTriangle, Settings, RefreshCw, HelpCircle, Zap, MapPin, Package, Truck } from 'lucide-react';
+import { ArrowLeft, CheckCircle, Mic, MicOff, Pause, Play, Square, AlertTriangle, Settings, RefreshCw, HelpCircle, Zap, MapPin, Package, Truck, RotateCcw } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useVoice } from '@/hooks/useVoice';
 import { useStockerAI } from '@/hooks/useStockerAI';
@@ -138,6 +138,7 @@ export default function StockerApp() {
   const [initialized, setInitialized] = useState(false);
   const [showResumeDialog, setShowResumeDialog] = useState(false);
   const [showStopConfirm, setShowStopConfirm] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showMicHelp, setShowMicHelp] = useState(false);
   const [showHelpSheet, setShowHelpSheet] = useState(false);
   const [showSettingsSheet, setShowSettingsSheet] = useState(false);
@@ -1339,6 +1340,57 @@ export default function StockerApp() {
     setShowStopConfirm(false);
   };
 
+  // Reset Route - Clear all progress and start fresh
+  const handleResetClick = () => {
+    setShowResetConfirm(true);
+  };
+
+  const confirmReset = async () => {
+    try {
+      console.log('[Reset] Clearing route progress...');
+
+      // Stop voice
+      voice.stopAudio();
+      voice.stopListening();
+
+      // Clear local session
+      await sessionPersistence.clear();
+
+      // Reset route state to initial
+      setRouteState({
+        routeId: null,
+        routeName: null,
+        routeDate: null,
+        totalMachines: 0,
+        currentMachineIndex: 0,
+        currentMachineName: null,
+        currentMachineId: null,
+        currentMachineTotalItems: 0,
+        currentMachineItemsRemaining: 0,
+        currentItem: null,
+        currentItem2: null,
+        completedItems: [],
+        machines: [],
+        completed: false
+      });
+
+      // Clear messages
+      setMessages([]);
+
+      setShowResetConfirm(false);
+      setAiResponse('Route reset. Choose a new route to begin.');
+
+      console.log('[Reset] Route reset complete');
+    } catch (error) {
+      console.error('[Reset] Failed to reset route:', error);
+      setError('Failed to reset route. Please refresh the page.');
+    }
+  };
+
+  const cancelReset = () => {
+    setShowResetConfirm(false);
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-[#0d1117] flex items-center justify-center">
@@ -1552,6 +1604,42 @@ export default function StockerApp() {
               </Button>
               <Button
                 onClick={cancelStop}
+                variant="outline"
+                className="flex-1"
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reset Route Confirmation Modal */}
+      {showResetConfirm && (
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+          <div className="bg-[#161b22] rounded-xl border border-orange-800 p-6 max-w-sm w-full">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="p-2 bg-orange-500/20 rounded-lg">
+                <AlertTriangle className="h-6 w-6 text-orange-400" />
+              </div>
+              <h2 className="text-xl font-semibold text-white">Reset Route?</h2>
+            </div>
+            <p className="text-gray-400 mb-2">This will:</p>
+            <ul className="text-gray-400 text-sm space-y-1 mb-4 list-disc list-inside">
+              <li>Clear all picked items</li>
+              <li>Reset to route selection</li>
+              <li>Delete session progress</li>
+            </ul>
+            <p className="text-orange-400 text-sm mb-4">You'll need to choose the route again to continue.</p>
+            <div className="flex gap-3">
+              <Button
+                onClick={confirmReset}
+                className="flex-1 bg-orange-600 hover:bg-orange-700"
+              >
+                Reset Route
+              </Button>
+              <Button
+                onClick={cancelReset}
                 variant="outline"
                 className="flex-1"
               >
@@ -1946,6 +2034,18 @@ export default function StockerApp() {
               )}
             </Button>
           </div>
+
+          {/* Reset Route Button - Only show when route is active */}
+          {routeState.routeName && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleResetClick}
+              className="w-full mt-2 text-orange-400 border-orange-600 hover:bg-orange-900/30 hover:text-orange-300"
+            >
+              <RotateCcw className="h-4 w-4 mr-2" /> Reset Route
+            </Button>
+          )}
 
           {(voice.status === 'paused' || voice.status === 'muted') && (
             <p className="text-xs text-gray-500 mt-2 text-center">
