@@ -430,6 +430,13 @@ export default function StockerApp() {
 
           // Helper: Build display-friendly text (correct spelling) from tool result
           const buildDisplayText = (result: any): string => {
+            // OPTION B: Use display_text field if available (new format)
+            if (result.display_text) {
+              console.log('[Display] Using display_text:', result.display_text);
+              return result.display_text;
+            }
+
+            // Backwards compatibility: Build from product_name/quantity (old format)
             if (result.action === 'next_item' || result.action === 'item_ready') {
               const parts: string[] = [];
 
@@ -458,15 +465,18 @@ export default function StockerApp() {
 
               // Performance Priority 5: Prefetch TTS in parallel
               // Start TTS fetch immediately when result arrives (before speak() is called)
-              if (result.spoken) {
-                v.prefetchTTS(result.spoken);
+              // OPTION B: Use voice_text if available, fallback to spoken
+              const textForTTS = result.voice_text || result.spoken;
+              if (textForTTS) {
+                v.prefetchTTS(textForTTS);
               }
 
               // Store last item pair for repeat functionality
               if (name === 'get_next_item' || name === 'start_machine') {
-                if (result.spoken) {
+                const spokenText = result.voice_text || result.spoken;
+                if (spokenText) {
                   const newItemPair = {
-                    spokenText: result.spoken,
+                    spokenText,
                     item1: result.item1 || { product: result.product_name, quantity: result.quantity, slot: result.slot },
                     item2: result.item2 || null
                   };
@@ -475,11 +485,13 @@ export default function StockerApp() {
               }
             });
 
-            // Use fast path - speak the workflow's "spoken" field directly
+            // Use fast path - speak the workflow's voice_text or spoken field directly
             for (const tr of toolResults) {
-              if (tr.result?.spoken) {
-                setAiResponse(buildDisplayText(tr.result)); // Display uses correct spelling
-                await v.speak(tr.result.spoken); // TTS uses pronunciation-friendly version
+              const voiceText = tr.result?.voice_text || tr.result?.spoken;
+              if (voiceText) {
+                console.log('[Voice] Using voice_text:', tr.result?.voice_text ? 'new format' : 'backwards compat', voiceText);
+                setAiResponse(buildDisplayText(tr.result)); // Display uses display_text
+                await v.speak(voiceText); // TTS uses voice_text (pronunciation-friendly)
                 await keywordLearning.trackKeywords(transcript, true); // Track as success
                 processingRef.current = false;
                 return;
@@ -532,6 +544,7 @@ export default function StockerApp() {
       } : undefined);
 
       let response = await sendToAI(allMessages, userName, routeState.currentItem, routeContext);
+      let fastPathVoiceText: string | null = null; // Track voice text separately from display text
 
       // CRITICAL: Loop while there are tool_calls (matches original PWA behavior)
       // OpenAI can return BOTH content AND tool_calls - we must process all tool_calls first
@@ -545,15 +558,18 @@ export default function StockerApp() {
 
           // Performance Priority 5: Prefetch TTS in parallel
           // Start TTS fetch immediately when result arrives (before speak() is called)
-          if (result.spoken) {
-            v.prefetchTTS(result.spoken);
+          // OPTION B: Use voice_text if available, fallback to spoken
+          const textForTTS = result.voice_text || result.spoken;
+          if (textForTTS) {
+            v.prefetchTTS(textForTTS);
           }
 
           // Store last item pair for repeat functionality (2-item mode support)
           if (name === 'get_next_item' || name === 'start_machine') {
-            if (result.spoken) {
+            const spokenText = result.voice_text || result.spoken;
+            if (spokenText) {
               const newItemPair = {
-                spokenText: result.spoken,
+                spokenText,
                 item1: result.item1 || { product: result.product_name, quantity: result.quantity, slot: result.slot },
                 item2: result.item2 || null
               };
@@ -568,6 +584,13 @@ export default function StockerApp() {
 
         // Helper: Build display-friendly text (correct spelling) from tool result
         const buildDisplayText = (result: any): string => {
+          // OPTION B: Use display_text field if available (new format)
+          if (result.display_text) {
+            console.log('[Display] Using display_text:', result.display_text);
+            return result.display_text;
+          }
+
+          // Backwards compatibility: Build from product_name/quantity (old format)
           if (result.action === 'next_item' || result.action === 'item_ready') {
             const parts: string[] = [];
 
@@ -588,11 +611,14 @@ export default function StockerApp() {
           return result.spoken || '';
         };
 
-        // Check for fast path - if tool returned 'spoken' field, use it directly
+        // Check for fast path - if tool returned voice_text/spoken field, use it directly
         let usedFastPath = false;
         for (const tr of toolResults) {
-          if (tr.result?.spoken) {
-            response = { content: buildDisplayText(tr.result) }; // Display uses correct spelling
+          const voiceText = tr.result?.voice_text || tr.result?.spoken;
+          if (voiceText) {
+            console.log('[Voice] AI path using voice_text:', tr.result?.voice_text ? 'new format' : 'backwards compat', voiceText);
+            response = { content: buildDisplayText(tr.result) }; // Display uses display_text
+            fastPathVoiceText = voiceText; // Store voice text separately
             usedFastPath = true;
             break;
           }
@@ -609,7 +635,10 @@ export default function StockerApp() {
       if (response.content) {
         setAiResponse(response.content);
         addMessage({ role: 'assistant', content: response.content });
-        await v.speak(response.content);
+        // OPTION B: Speak voice_text if available (fast path), otherwise speak content
+        const textToSpeak = fastPathVoiceText || response.content;
+        console.log('[Voice] Speaking:', fastPathVoiceText ? 'voice_text' : 'content', textToSpeak);
+        await v.speak(textToSpeak);
         // Track successful AI response (user was understood)
         await keywordLearning.trackKeywords(transcript, true);
       }
