@@ -253,7 +253,7 @@ export default function StockerApp() {
     // CRITICAL FIX: Ignore all transcripts while TTS is speaking
     // Prevents items from being skipped if user interrupts before TTS completes
     // Bug: Session updates before TTS plays, so interrupting skips items
-    if (voice.status === 'speaking') {
+    if (voiceRef.current?.status === 'speaking') {
       console.log('[Voice] Ignoring transcript while speaking:', transcript);
       return;
     }
@@ -701,7 +701,7 @@ export default function StockerApp() {
     } finally {
       processingRef.current = false;
     }
-  }, [userName, routeState, addMessage, sendToAI, executeToolCalls, updateFromTool, undoLastItem, retryCount, messagesRef, showRouteSelection, availableRoutes, selectRoute, voice.status]);
+  }, [userName, routeState, addMessage, sendToAI, executeToolCalls, updateFromTool, undoLastItem, retryCount, messagesRef, showRouteSelection, availableRoutes, selectRoute]);
 
   const handleWakePhrase = useCallback(async (command: string | null) => {
     const v = voiceRef.current;
