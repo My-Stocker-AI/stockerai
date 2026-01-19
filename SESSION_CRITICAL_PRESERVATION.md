@@ -204,15 +204,18 @@ const buildDisplayText = (result: any): string => {
 
 ## IMMEDIATE NEXT STEPS
 
-1. Create CORRECT Format Output code with:
+1. ✅ Create CORRECT Format Output code with:
    - display_text/voice_text generation (count at end)
    - Nested item2 structure (frontend compatibility)
+   - **FILE: `/home/visionairy/StockerAI/CORRECT_FORMAT_OUTPUT.js`**
 
-2. Test with 1-item and 2-item mode
+2. **NEXT:** Paste CORRECT_FORMAT_OUTPUT.js into n8n Format Output node
 
-3. User hard refresh browser
+3. User hard refresh browser (Ctrl+Shift+R)
 
-4. Add confidence filtering for voice
+4. Test with 1-item and 2-item mode
+
+5. Add confidence filtering for voice (prevent TV triggering)
 
 ---
 
