@@ -1458,13 +1458,15 @@ export function useVoice(options: UseVoiceOptions = {}) {
       stopEverything();
     };
 
-    // Handle tab visibility change (pause when hidden, optionally resume when visible)
-    const handleVisibilityChange = () => {
-      if (document.hidden) {
-        console.log('[Voice] Tab hidden - stopping audio');
-        stopEverything();
-      }
-    };
+    // REMOVED: handleVisibilityChange - was causing false positives during active picking
+    // Browser was falsely detecting tab as hidden after ~3.5 minutes of activity
+    // Wake lock prevents screen timeout, beforeunload/pagehide handle actual navigation
+    // const handleVisibilityChange = () => {
+    //   if (document.hidden) {
+    //     console.log('[Voice] Tab hidden - stopping audio');
+    //     stopEverything();
+    //   }
+    // };
 
     // Handle page navigation (pagehide is more reliable than beforeunload on mobile)
     const handlePageHide = () => {
@@ -1474,13 +1476,15 @@ export function useVoice(options: UseVoiceOptions = {}) {
     // Add event listeners
     window.addEventListener('beforeunload', handleBeforeUnload);
     window.addEventListener('pagehide', handlePageHide);
-    document.addEventListener('visibilitychange', handleVisibilityChange);
+    // REMOVED: visibilitychange listener - was stopping voice during active picking
+    // document.addEventListener('visibilitychange', handleVisibilityChange);
 
     // Cleanup on unmount
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
       window.removeEventListener('pagehide', handlePageHide);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      // REMOVED: visibilitychange cleanup (listener no longer added)
+      // document.removeEventListener('visibilitychange', handleVisibilityChange);
       // Clear reconnection timeout
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
