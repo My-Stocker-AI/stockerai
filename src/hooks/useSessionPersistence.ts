@@ -16,6 +16,8 @@ interface SessionData {
   currentMachineIndex: number;
   currentMachineId: string | null;
   currentMachineName: string | null;
+  currentMachineTotalItems?: number;  // Total items on current machine (from DB)
+  currentMachineItemsRemaining?: number;  // Remaining items (from workflow)
   currentItem: any;
   currentItem2?: any;  // Second item in 2-pick mode
   completedItems: any[];
