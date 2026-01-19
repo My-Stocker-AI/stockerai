@@ -1667,10 +1667,16 @@ export default function StockerApp() {
             const itemsTotal = routeState.currentMachineTotalItems;
             const itemsRemaining = routeState.currentMachineItemsRemaining;
 
-            if (itemsTotal === 0) return null;
+            // Don't show if no data available yet
+            if (!itemsTotal || itemsTotal === 0 || itemsRemaining === undefined || itemsRemaining === null) {
+              console.log('[Progress] Missing data - Total:', itemsTotal, 'Remaining:', itemsRemaining);
+              return null;
+            }
 
             const itemsCompleted = itemsTotal - itemsRemaining;
-            const itemPercent = Math.max(5, (itemsCompleted / itemsTotal) * 100);
+            const itemPercent = Math.max(5, Math.min(100, (itemsCompleted / itemsTotal) * 100));
+
+            console.log('[Progress] Total:', itemsTotal, 'Remaining:', itemsRemaining, 'Completed:', itemsCompleted, 'Percent:', itemPercent);
 
             return (
               <div>

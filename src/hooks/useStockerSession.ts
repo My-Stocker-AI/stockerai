@@ -163,6 +163,7 @@ export function useStockerSession(userId: string | null) {
         // Set machine item counts
         next.currentMachineTotalItems = machineTotalItems;
         next.currentMachineItemsRemaining = result.items_remaining || 0;
+        console.log('[Session] start_machine - Total:', machineTotalItems, 'Remaining:', result.items_remaining);
 
         // Handle 2-pick mode: item1 and optionally item2
         const itemData = result.item1 || result;
@@ -223,6 +224,7 @@ export function useStockerSession(userId: string | null) {
         if (action === 'next_item') {
           // Update items remaining
           next.currentMachineItemsRemaining = result.items_remaining || 0;
+          console.log('[Session] next_item - Remaining:', result.items_remaining);
 
           const machineName = result.machine_name || prev.currentMachineName || '';
           // Handle 2-pick mode: item1 and optionally item2
@@ -269,6 +271,7 @@ export function useStockerSession(userId: string | null) {
           // Set new machine's item counts
           next.currentMachineTotalItems = machineTotalItems;
           next.currentMachineItemsRemaining = machineTotalItems; // Start fresh at full count
+          console.log('[Session] next_machine - Total:', machineTotalItems, 'Remaining:', machineTotalItems);
 
           next.currentMachineIndex = (prev.currentMachineIndex || 0) + 1;
           next.currentMachineName = result.next_machine || '';
