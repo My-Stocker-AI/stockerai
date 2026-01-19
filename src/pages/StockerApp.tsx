@@ -1349,38 +1349,13 @@ export default function StockerApp() {
     try {
       console.log('[Reset] Clearing route progress...');
 
-      // Stop voice
-      voice.stopAudio();
-      voice.stopListening();
-
       // Clear local session
       await sessionPersistence.clear();
 
-      // Reset route state to initial
-      setRouteState({
-        routeId: null,
-        routeName: null,
-        routeDate: null,
-        totalMachines: 0,
-        currentMachineIndex: 0,
-        currentMachineName: null,
-        currentMachineId: null,
-        currentMachineTotalItems: 0,
-        currentMachineItemsRemaining: 0,
-        currentItem: null,
-        currentItem2: null,
-        completedItems: [],
-        machines: [],
-        completed: false
-      });
+      console.log('[Reset] Session cleared, reloading page...');
 
-      // Clear messages
-      setMessages([]);
-
-      setShowResetConfirm(false);
-      setAiResponse('Route reset. Choose a new route to begin.');
-
-      console.log('[Reset] Route reset complete');
+      // Reload page to get clean state (avoids Deepgram reconnection issues)
+      window.location.reload();
     } catch (error) {
       console.error('[Reset] Failed to reset route:', error);
       setError('Failed to reset route. Please refresh the page.');
