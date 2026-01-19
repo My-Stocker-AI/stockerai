@@ -1761,8 +1761,8 @@ export default function StockerApp() {
             <div className="mt-2">
               {/* First Item */}
               <div className="flex items-baseline gap-2">
-                <span className="text-4xl font-bold text-emerald-400">{routeState.currentItem.quantity}x</span>
                 <span className="text-2xl">{routeState.currentItem.product}</span>
+                <span className="text-4xl font-bold text-emerald-400">X {routeState.currentItem.quantity}</span>
               </div>
               <div className="text-lg text-gray-300 mt-2">{routeState.currentItem.slot_spoken || routeState.currentItem.slot}</div>
 
@@ -1770,8 +1770,8 @@ export default function StockerApp() {
               {routeState.currentItem2 && (
                 <div className="mt-4 pt-4 border-t border-gray-700">
                   <div className="flex items-baseline gap-2">
-                    <span className="text-4xl font-bold text-emerald-400">{routeState.currentItem2.quantity}x</span>
                     <span className="text-2xl">{routeState.currentItem2.product}</span>
+                    <span className="text-4xl font-bold text-emerald-400">X {routeState.currentItem2.quantity}</span>
                   </div>
                   <div className="text-lg text-gray-300 mt-2">{routeState.currentItem2.slot_spoken || routeState.currentItem2.slot}</div>
                 </div>

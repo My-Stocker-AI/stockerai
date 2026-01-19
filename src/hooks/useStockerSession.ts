@@ -75,6 +75,20 @@ export function useStockerSession(userId: string | null) {
     messagesRef.current = messages;
   }, [messages]);
 
+  // Helper to format product display from parsed data
+  const formatProductDisplay = (itemData: any): string => {
+    // If product_parsed exists, use formatted version
+    if (itemData.product_parsed?.name) {
+      const parts = [itemData.product_parsed.name];
+      if (itemData.product_parsed.size) {
+        parts.push(`(${itemData.product_parsed.size})`);
+      }
+      return parts.join(' ');
+    }
+    // Fallback to raw product_name
+    return itemData.product || itemData.product_name || '';
+  };
+
   const updateFromTool = useCallback((toolName: string, result: any) => {
     if (!result || result.error) return;
 
@@ -110,7 +124,7 @@ export function useStockerSession(userId: string | null) {
         // Handle 2-pick mode: item1 and optionally item2
         const itemData = result.item1 || result;
         next.currentItem = {
-          product: itemData.product || itemData.product_name || '',
+          product: formatProductDisplay(itemData),
           quantity: itemData.quantity || 0,
           slot: itemData.slot || '',
           slot_spoken: itemData.slot_spoken || itemData.slot || '',
@@ -124,7 +138,7 @@ export function useStockerSession(userId: string | null) {
         // 2-pick mode: Set second item if present
         if (result.item2) {
           next.currentItem2 = {
-            product: result.item2.product || result.item2.product_name || '',
+            product: formatProductDisplay(result.item2),
             quantity: result.item2.quantity || 0,
             slot: result.item2.slot || '',
             slot_spoken: result.item2.slot_spoken || result.item2.slot || '',
@@ -168,7 +182,7 @@ export function useStockerSession(userId: string | null) {
           // Handle 2-pick mode: item1 and optionally item2
           const itemData = result.item1 || result;
           next.currentItem = {
-            product: itemData.product || itemData.product_name || '',
+            product: formatProductDisplay(itemData),
             quantity: itemData.quantity || 0,
             slot: itemData.slot || '',
             slot_spoken: itemData.slot_spoken || itemData.slot || '',
@@ -182,7 +196,7 @@ export function useStockerSession(userId: string | null) {
           // 2-pick mode: Set second item if present
           if (result.item2) {
             next.currentItem2 = {
-              product: result.item2.product || result.item2.product_name || '',
+              product: formatProductDisplay(result.item2),
               quantity: result.item2.quantity || 0,
               slot: result.item2.slot || '',
               slot_spoken: result.item2.slot_spoken || result.item2.slot || '',
