@@ -212,18 +212,17 @@ export function useSessionPersistence() {
 
   const clearServer = useCallback(async (userId: string): Promise<void> => {
     try {
-      // Mark all in-progress sessions as completed
-      await supabase
+      // DELETE all sessions for this user (don't just mark completed)
+      const { error } = await supabase
         .from('sessions')
-        .update({
-          status: 'completed',
-          completed_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        })
-        .eq('user_id', userId)
-        .eq('status', 'stocking');
-        
-      console.log('[Session] Cleared server sessions');
+        .delete()
+        .eq('user_id', userId);
+
+      if (error) {
+        console.error('[Session] Failed to delete server sessions:', error);
+      } else {
+        console.log('[Session] Deleted all server sessions');
+      }
     } catch (e) {
       console.error('[Session] Server clear error:', e);
     }
