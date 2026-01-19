@@ -1349,8 +1349,8 @@ export default function StockerApp() {
     try {
       console.log('[Reset] Clearing route progress...');
 
-      // Clear local session
-      await sessionPersistence.clear();
+      // Clear both local (IndexedDB) and server (Supabase) sessions
+      await sessionPersistence.clear(userId);
 
       console.log('[Reset] Session cleared, reloading page...');
 
