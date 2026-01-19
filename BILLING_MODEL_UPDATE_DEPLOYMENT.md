@@ -138,8 +138,10 @@ npx supabase functions deploy invite-team-member
 
 ```bash
 # Build and deploy frontend
-npm run build
-# Deploy to your hosting (Netlify/Vercel/etc)
+git add -A
+git commit -m "Deploy billing model update"
+git push origin main
+# Cloudflare Pages will automatically build and deploy
 ```
 
 **Verify:**

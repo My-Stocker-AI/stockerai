@@ -1,73 +1,81 @@
-# Welcome to your Lovable project
+# Stocker AI
 
-## Project info
+Voice-first inventory management system for vending machine route drivers.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+## Project Info
 
-## How can I edit this code?
+**Production URL**: https://my-stocker-ai.com
+**Repository**: https://github.com/VisionAIrySE/stockerai
 
-There are several ways of editing your application.
+## Tech Stack
 
-**Use Lovable**
+- **Frontend**: React + TypeScript + Vite
+- **UI**: shadcn-ui + Tailwind CSS
+- **Backend**: Supabase (PostgreSQL + Edge Functions)
+- **Deployment**: GitHub → Cloudflare Pages
+- **Voice**: Deepgram WebSocket API
+- **Workflows**: n8n (visionairy.app.n8n.cloud)
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
-
-Changes made via Lovable will be committed automatically to this repo.
-
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
+## Local Development
 
 ```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+# Clone the repository
+git clone https://github.com/VisionAIrySE/stockerai.git
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+# Navigate to the project directory
+cd stockerai
 
-# Step 3: Install the necessary dependencies.
-npm i
+# Install dependencies
+npm install
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
+# Start development server
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+## Deployment
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+Code is automatically deployed to Cloudflare Pages on push to `main` branch.
 
-**Use GitHub Codespaces**
+**Deployment Pipeline:**
+1. Push to GitHub main branch
+2. Cloudflare Pages detects change
+3. Runs build: `npm run build`
+4. Deploys to production
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+**Manual Deployment:**
+```sh
+# Build production bundle
+npm run build
 
-## What technologies are used for this project?
+# Deploy manually via Cloudflare dashboard if needed
+```
 
-This project is built with:
+## Environment Variables
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+Required environment variables (configured in Cloudflare Pages):
 
-## How can I deploy this project?
+- `VITE_SUPABASE_URL` - Supabase project URL
+- `VITE_SUPABASE_ANON_KEY` - Supabase anonymous key
+- `VITE_N8N_BASE_URL` - n8n webhook base URL
 
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
+## Documentation
 
-## Can I connect a custom domain to my Lovable project?
+- `/CLAUDE.md` - Complete project reference for AI assistants
+- `/FUNCTIONALITY_TEST_CHECKLIST.md` - Testing protocol
+- `/supabase/migrations/` - Database schema history
 
-Yes, you can!
+## Architecture
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+**Voice Flow:**
+```
+User Speech → Deepgram WebSocket → React Hook → n8n Workflow → Supabase → TTS Response
+```
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+**Data Flow:**
+```
+PDF Upload → n8n Processing → Supabase Storage + Database → Voice Navigation
+```
+
+## Support
+
+For issues or questions, see documentation in `/CLAUDE.md` or check git history.
