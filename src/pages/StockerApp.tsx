@@ -1638,20 +1638,48 @@ export default function StockerApp() {
 
       {/* Progress Bar - Only show when route is active */}
       {routeState.routeName && routeState.totalMachines > 0 && (
-        <div className="px-4 py-2 bg-[#0d1117]">
-          <div className="flex items-center justify-between text-xs text-gray-400 mb-1">
-            <span className="flex items-center gap-1">
-              <Zap className="h-3 w-3 text-emerald-400" />
-              {routeState.completedItems.length} items picked
-            </span>
-            <span>Machine {routeState.currentMachineIndex} of {routeState.totalMachines}</span>
+        <div className="px-4 py-2 bg-[#0d1117] space-y-3">
+          {/* Machine Progress */}
+          <div>
+            <div className="flex items-center justify-between text-xs text-gray-400 mb-1">
+              <span className="flex items-center gap-1">
+                <Zap className="h-3 w-3 text-emerald-400" />
+                {routeState.completedItems.length} items picked
+              </span>
+              <span>Machine {routeState.currentMachineIndex} of {routeState.totalMachines}</span>
+            </div>
+            <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full transition-all duration-500"
+                style={{ width: `${Math.max(5, (routeState.currentMachineIndex / routeState.totalMachines) * 100)}%` }}
+              />
+            </div>
           </div>
-          <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full transition-all duration-500"
-              style={{ width: `${Math.max(5, (routeState.currentMachineIndex / routeState.totalMachines) * 100)}%` }}
-            />
-          </div>
+
+          {/* Current Machine Item Progress */}
+          {(() => {
+            const currentMachine = routeState.machines.find(m => m.id === routeState.currentMachineId);
+            if (!currentMachine || currentMachine.totalItems === 0) return null;
+
+            const itemsCompleted = currentMachine.completedItems;
+            const itemsTotal = currentMachine.totalItems;
+            const itemPercent = Math.max(5, (itemsCompleted / itemsTotal) * 100);
+
+            return (
+              <div>
+                <div className="flex items-center justify-between text-xs text-gray-400 mb-1">
+                  <span className="text-gray-500">Current Machine</span>
+                  <span>{itemsCompleted} of {itemsTotal} items</span>
+                </div>
+                <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-blue-500 to-cyan-400 rounded-full transition-all duration-500"
+                    style={{ width: `${itemPercent}%` }}
+                  />
+                </div>
+              </div>
+            );
+          })()}
         </div>
       )}
 
