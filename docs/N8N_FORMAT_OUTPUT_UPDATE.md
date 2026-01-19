@@ -72,11 +72,14 @@ function generateVoiceText(action, data, parsed) {
       parts.push(fixPronunciation(parsed.size));
     }
 
-    // Fix type duplication (don't say "candy candy")
+    // Fix type duplication (don't say "pack" if it's already in name OR size)
     if (parsed.type) {
       var typeLower = parsed.type.toLowerCase();
       var nameLower = parsed.name ? parsed.name.toLowerCase() : '';
-      if (nameLower.indexOf(typeLower) === -1) {
+      var sizeLower = parsed.size ? parsed.size.toLowerCase() : '';
+
+      // Only add type if it's not already in name OR size
+      if (nameLower.indexOf(typeLower) === -1 && sizeLower.indexOf(typeLower) === -1) {
         parts.push(fixPronunciation(parsed.type));
       }
     }
