@@ -124,8 +124,8 @@ function generateVoiceText(action, data, parsed, parsed2) {
           parts.push(fixPronunciation(parsed.type));
         }
       }
-      // ADD PAUSE: Use period before count to create natural TTS pause
-      parts.push('. ' + data.quantity + ' count');
+      // ADD PAUSE: Use multiple periods before count to create longer TTS pause
+      parts.push('... ' + data.quantity + ' count');
       items.push(parts.join(' '));
     }
 
@@ -146,8 +146,8 @@ function generateVoiceText(action, data, parsed, parsed2) {
           parts2.push(fixPronunciation(parsed2.type));
         }
       }
-      // ADD PAUSE: Use period before count to create natural TTS pause
-      parts2.push('. ' + data.quantity2 + ' count');
+      // ADD PAUSE: Use multiple periods before count to create longer TTS pause
+      parts2.push('... ' + data.quantity2 + ' count');
       items.push(parts2.join(' '));
     }
 
