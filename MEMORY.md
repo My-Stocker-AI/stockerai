@@ -1,6 +1,130 @@
 # Stocker AI – Source of Truth
-**Last Updated:** 2026-01-16 (Session 40 - Performance Optimizations Deployed)
-**Status:** ✅ ALL OPTIMIZATIONS DEPLOYED - Ready for production testing
+**Last Updated:** 2026-01-19 (Session 44 - Progress Bar & Reset Route Issues)
+**Status:** ⚠️ PARTIAL - Progress bar implemented, Reset Route broken, TTS pause fixed
+
+---
+
+## ⚠️ SESSION 44: PROGRESS BAR + RESET ROUTE (2026-01-19)
+
+**Context:** User requested progress bar for current machine items and Reset Route button for testing.
+
+### Features Implemented
+
+**1. Item Progress Bar** ✅ CODE COMPLETE, ❌ NOT VISIBLE
+- **Files Modified:**
+  - `src/hooks/useStockerSession.ts` - Added `currentMachineTotalItems`, `currentMachineItemsRemaining` fields
+  - `src/pages/StockerApp.tsx` - Added blue progress bar UI component
+  - `src/hooks/useSessionPersistence.ts` - Added new fields to SessionData interface
+- **What it does:**
+  - Queries database for machine's total_items on start_machine/next_machine
+  - Displays "X of Y items" with blue gradient progress bar
+  - Shows under green machine progress bar
+- **Status:** Code deployed but NOT VISIBLE
+- **Root Cause:** User resuming OLD session saved before new fields existed
+  - Console shows: `[Progress] Missing data - Total: 0 Remaining: 21`
+  - Old session has `Remaining` (from workflow) but not `Total` (new database field)
+- **Commits:** f8206cd, 4e02f05
+
+**2. Reset Route Button** ❌ BROKEN
+- **Files Modified:**
+  - `src/pages/StockerApp.tsx` - Added Reset Route button + confirmation dialog
+  - `src/hooks/useSessionPersistence.ts` - Modified clearServer() function
+- **What it should do:**
+  - Clear IndexedDB local session
+  - Delete Supabase server sessions
+  - Reload page with fresh state
+- **Status:** BROKEN - keeps restoring old session
+- **Attempts to Fix:**
+  1. Added `await` to clearServer() call (commit d382d89)
+  2. Changed clearServer() from UPDATE to DELETE (commit ca4abb1)
+  3. Both failed - session still restores after reload
+- **Root Cause:** Unknown - sessions not actually being deleted OR auto-save writing new session before reload
+- **Commits:** 06abe6b, 8cca202, 9b9ecab, d382d89, ca4abb1
+
+**3. TTS Pause Increase** ✅ DEPLOYED TO WORKFLOWS
+- **Files Modified:**
+  - `workflows/FORMAT_OUTPUT_WITH_TTS_PAUSE.js` - Changed `. ` to `... ` (single to triple periods)
+- **What it does:**
+  - Creates longer pause between product name and count in TTS voice
+  - Example: "Doritos... 5 count" (was "Doritos. 5 count")
+- **Status:** ✅ User manually updated both workflows:
+  - `start_machine` workflow - Format Output node
+  - `get_next_item (Optimized)` workflow - Format Output node
+- **Commit:** 022c85f
+
+### Issues Discovered
+
+**1. Session Persistence Race Condition**
+- Auto-save runs every few seconds
+- Reset Route clears session, but auto-save may write new session before reload
+- Session restored from Supabase on page load
+- **Need to Fix:** Prevent auto-save during reset, OR ensure delete happens after all saves complete
+
+**2. Old Session Compatibility**
+- Users resuming old sessions don't have new `currentMachineTotalItems` field
+- Progress bar shows `Total: 0` and hides itself
+- **Need to Fix:** Either migrate old sessions OR force users to reset when new fields added
+
+**3. Deepgram Reconnection Issues**
+- First Reset Route attempt stopped voice gracefully → Deepgram couldn't reconnect
+- All 5 retry attempts failed with WebSocket errors
+- **Temporary Fix:** Reset Route now reloads page instead of graceful cleanup (commit 8cca202)
+
+### Pending Work (Tomorrow)
+
+**Priority 1: Fix Reset Route**
+1. Add detailed logging to see WHERE session is coming from
+2. Verify Supabase DELETE actually executes
+3. Check for other session sources (cookies, localStorage, etc.)
+4. Ensure session clear completes BEFORE page reload
+5. Prevent auto-save from running during reset
+
+**Priority 2: Test Progress Bar**
+1. Once Reset Route works, user can start fresh session
+2. Fresh session will have new fields populated
+3. Progress bar should appear and work correctly
+
+**Priority 3: Session Migration Strategy**
+- Decide: Force reset for users with old sessions OR auto-migrate
+- If auto-migrate: Add migration code to detect missing fields and populate from database
+
+### Files Changed This Session
+
+**Frontend:**
+- `src/pages/StockerApp.tsx` - Progress bar UI, Reset Route button, confirmation dialog
+- `src/hooks/useStockerSession.ts` - Database query for machine total_items, new state fields
+- `src/hooks/useSessionPersistence.ts` - SessionData interface, clearServer() logic
+
+**Workflows:**
+- `workflows/FORMAT_OUTPUT_WITH_TTS_PAUSE.js` - TTS pause increase
+- `workflows/RESET_ROUTE.md` - Documentation (not implemented as workflow)
+
+**Commits:**
+- f8206cd - Resume session preserves progress bar data
+- 4e02f05 - Progress bar NaN fix with null handling
+- 06abe6b - Add Reset Route button
+- 8cca202 - Reset Route reloads page (Deepgram fix)
+- 9b9ecab - Pass userId to clearServer
+- d382d89 - Await clearServer call
+- ca4abb1 - DELETE sessions instead of UPDATE
+- 022c85f - Increase TTS pause
+
+### Lessons Learned
+
+**1. "Stop Guessing" - User's Feedback**
+- When providing deployment instructions, ALWAYS find exact workflow and node names
+- Never say "look for the Format Output node" - say "open workflow X, node Y"
+- User is not a developer - be precise
+
+**2. Session Clearing Complexity**
+- Clearing sessions across IndexedDB + Supabase + in-memory state is complex
+- Race conditions between auto-save and manual clear
+- Need better session lifecycle management
+
+**3. Backwards Compatibility**
+- Adding new required fields breaks old sessions
+- Need migration strategy for schema changes
+- Consider version numbers for SessionData
 
 ---
 
