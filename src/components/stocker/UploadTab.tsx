@@ -237,7 +237,16 @@ export function UploadTab() {
                 Myself
               </SelectItem>
               {teamMembers
-                .filter(m => m.user_id !== user?.id)
+                .filter(m => {
+                  console.log('[UploadTab] Filter check:', {
+                    member_email: m.profiles?.email,
+                    member_user_id: m.user_id,
+                    current_user_id: user?.id,
+                    matches: m.user_id === user?.id,
+                    will_show: m.user_id !== user?.id
+                  });
+                  return m.user_id !== user?.id;
+                })
                 .map((member) => (
                   <SelectItem
                     key={member.user_id}
