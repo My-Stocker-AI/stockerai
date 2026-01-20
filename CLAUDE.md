@@ -28,24 +28,43 @@
 | **API Contract Changes** | ✅ YES | Updating WEBHOOK_MAP, endpoint changes |
 | **Multi-boundary Fixes** | ✅ YES | Fix that spans frontend + backend + database |
 
-## How to Use: Bash Approach
+## How to Use: Python Script Approach (NO MCP - Claude Code MCP broken)
 
-**MANDATORY: Create Python script, run via Bash**
+**METHOD 1: Use xf-run helper (EASIEST)**
+
+```bash
+# Quick one-liner
+xf-run -c "from adapters import SystemAdapter; result = SystemAdapter().discover(problem_text='your problem'); print(result)"
+
+# OR: Run example script
+xf-run xf_debug_example.py
+```
+
+**METHOD 2: Direct Python execution**
 
 ```python
 #!/usr/bin/env python3
 import sys
-sys.path.insert(0, '/home/visionairy/Xpansion')
-from tools.adapters import SystemAdapter
+sys.path.insert(0, '/home/visionairy/Xpansion/tools')
+from adapters import SystemAdapter
 
 problem = """[Describe StockerAI issue - workflows, database, API]
 ANALYZE FOR: What can break? What data flows?"""
 
 adapter = SystemAdapter()
 result = adapter.discover(problem_text=problem)
+print(result)
 ```
 
 Run: `/home/visionairy/Xpansion/.venv/bin/python analyze_issue.py`
+
+**CRITICAL:** This is AUTONOMOUS - NO human input needed during discovery
+- LLM analyzes problem text to answer own questions
+- Code enforces MECE validation (can't bypass)
+- Returns complete DATA/NODES/FLOW/ERRORS boundaries
+- 3-15 iterations minimum (code-enforced)
+
+**Example script:** See `xf_debug_example.py` in this directory
 
 **Full Protocol:** `/home/visionairy/CLAUDE.md` System Impact Audit section
 
