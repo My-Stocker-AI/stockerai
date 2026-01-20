@@ -139,6 +139,7 @@ export default function StockerApp() {
   const [showResumeDialog, setShowResumeDialog] = useState(false);
   const [showStopConfirm, setShowStopConfirm] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
   const [showMicHelp, setShowMicHelp] = useState(false);
   const [showHelpSheet, setShowHelpSheet] = useState(false);
   const [showSettingsSheet, setShowSettingsSheet] = useState(false);
@@ -180,6 +181,12 @@ export default function StockerApp() {
 
   // Save session state whenever route changes
   const saveSessionState = useCallback(async () => {
+    // FIX: Don't save if we're in the middle of clearing
+    if (isClearing) {
+      console.log('[Session] Save blocked - clearing in progress');
+      return;
+    }
+
     if (!routeState.routeName || !userId) return;
 
     const sessionData = {
@@ -202,7 +209,7 @@ export default function StockerApp() {
     };
 
     await sessionPersistence.save(sessionData, userId);
-  }, [routeState, sessionId, messages, userId, sessionPersistence]);
+  }, [routeState, sessionId, messages, userId, sessionPersistence, isClearing]);
 
   // Save on route state changes
   useEffect(() => {
@@ -1347,18 +1354,31 @@ export default function StockerApp() {
 
   const confirmReset = async () => {
     try {
-      console.log('[Reset] Clearing route progress...');
+      console.log('[Reset] Starting reset process...');
 
-      // Clear both local (IndexedDB) and server (Supabase) sessions
+      // Step 1: Set clearing flag to block auto-save
+      setIsClearing(true);
+      console.log('[Reset] Auto-save blocked');
+
+      // Step 2: Wait for any pending operations to complete
+      await new Promise(resolve => setTimeout(resolve, 500));
+      console.log('[Reset] Waited for pending operations');
+
+      // Step 3: Clear both local (IndexedDB) and server (Supabase) sessions
       await sessionPersistence.clear(userId);
+      console.log('[Reset] Session cleared from IndexedDB and Supabase');
 
-      console.log('[Reset] Session cleared, reloading page...');
+      // Step 4: Wait for clear to propagate
+      await new Promise(resolve => setTimeout(resolve, 300));
+      console.log('[Reset] Verified clear completed');
 
-      // Reload page to get clean state (avoids Deepgram reconnection issues)
+      // Step 5: Reload page to get clean state
+      console.log('[Reset] Reloading page...');
       window.location.reload();
     } catch (error) {
       console.error('[Reset] Failed to reset route:', error);
       setError('Failed to reset route. Please refresh the page.');
+      setIsClearing(false); // Reset flag on error
     }
   };
 

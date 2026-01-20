@@ -212,19 +212,43 @@ export function useSessionPersistence() {
 
   const clearServer = useCallback(async (userId: string): Promise<void> => {
     try {
-      // DELETE all sessions for this user (don't just mark completed)
-      const { error } = await supabase
+      console.log('[Session] clearServer called for userId:', userId);
+
+      // DELETE all sessions for this user with .select() to verify
+      const { error, data } = await supabase
         .from('sessions')
         .delete()
-        .eq('user_id', userId);
+        .eq('user_id', userId)
+        .select(); // Returns deleted rows
 
       if (error) {
-        console.error('[Session] Failed to delete server sessions:', error);
-      } else {
-        console.log('[Session] Deleted all server sessions');
+        console.error('[Session] DELETE failed:', error);
+        throw error; // Throw to prevent page reload if delete failed
       }
+
+      // Verify deletion
+      if (data && data.length > 0) {
+        console.log(`[Session] ✅ Deleted ${data.length} session(s) from Supabase`);
+        console.log('[Session] Deleted session IDs:', data.map((s: any) => s.id));
+      } else {
+        console.log('[Session] ⚠️ No sessions found to delete (might be already clear)');
+      }
+
+      // Double-check sessions are gone
+      const { data: remaining, error: checkError } = await supabase
+        .from('sessions')
+        .select('id')
+        .eq('user_id', userId);
+
+      if (!checkError && remaining && remaining.length > 0) {
+        console.error('[Session] ❌ WARNING: Sessions still exist after delete!', remaining);
+        throw new Error(`Failed to delete all sessions. ${remaining.length} remaining.`);
+      }
+
+      console.log('[Session] ✅ Verified: No sessions remaining in database');
     } catch (e) {
       console.error('[Session] Server clear error:', e);
+      throw e; // Re-throw to stop reset process
     }
   }, []);
 
