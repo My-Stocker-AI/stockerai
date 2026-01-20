@@ -14,59 +14,36 @@
 
 ---
 
-# 0.1 XPANSION OS - MANDATORY FOR BOUNDARY-CROSSING CHANGES
+# 0.1 XPANSION (XF) - AUTOMATIC SYSTEM IMPACT ANALYSIS
 
-**Status:** ACTIVE (See `/home/visionairy/CLAUDE.md` for full documentation)
-**Purpose:** Code-enforced verification for boundary-crossing changes
+**Status:** ACTIVE - Use automatically when needed
+**Purpose:** Discover all affected components before making changes
 
-## When to Use Xpansion OS (Mandatory)
+## When You (Claude) Must Use XF
 
-| Operation Type | Use Xpansion | Example |
-|----------------|--------------|---------|
-| **Workflow Activation** | ✅ YES | Activating n8n workflow, changing webhook paths |
-| **Database Schema Changes** | ✅ YES | ALTER TABLE, CASCADE rules, RLS policies |
-| **API Contract Changes** | ✅ YES | Updating WEBHOOK_MAP, endpoint changes |
-| **Multi-boundary Fixes** | ✅ YES | Fix that spans frontend + backend + database |
+**AUTOMATIC for:**
+- Workflow activation/changes (n8n)
+- Database schema changes (ALTER TABLE, CASCADE, RLS)
+- API contract changes (WEBHOOK_MAP, endpoint updates)
+- Multi-boundary fixes (frontend + backend + database)
+- Bug fixes affecting 2+ components
 
-## How to Use: Python Script Approach (NO MCP - Claude Code MCP broken)
+## How to Use XF (Hidden from User)
 
-**METHOD 1: Use xf-run helper (EASIEST)**
+**See:** `/home/visionairy/HOW_CLAUDE_USES_XF.md` for complete execution guide
 
-```bash
-# Quick one-liner
-xf-run -c "from adapters import SystemAdapter; result = SystemAdapter().discover(problem_text='your problem'); print(result)"
+**Quick summary:**
+1. User describes problem conversationally
+2. You run XF analysis (automatic, user doesn't see this)
+3. You discover DATA/NODES/FLOW/ERRORS boundaries
+4. You show user plain-English summary of what's affected
+5. You implement the solution properly
+6. Done
 
-# OR: Run example script
-xf-run xf_debug_example.py
-```
+**User NEVER sees:** Python code, MECE violations, technical XF details
+**User SEES:** "I analyzed the system. This affects [components]. Here's my plan: [simple summary]"
 
-**METHOD 2: Direct Python execution**
-
-```python
-#!/usr/bin/env python3
-import sys
-sys.path.insert(0, '/home/visionairy/Xpansion/tools')
-from adapters import SystemAdapter
-
-problem = """[Describe StockerAI issue - workflows, database, API]
-ANALYZE FOR: What can break? What data flows?"""
-
-adapter = SystemAdapter()
-result = adapter.discover(problem_text=problem)
-print(result)
-```
-
-Run: `/home/visionairy/Xpansion/.venv/bin/python analyze_issue.py`
-
-**CRITICAL:** This is AUTONOMOUS - NO human input needed during discovery
-- LLM analyzes problem text to answer own questions
-- Code enforces MECE validation (can't bypass)
-- Returns complete DATA/NODES/FLOW/ERRORS boundaries
-- 3-15 iterations minimum (code-enforced)
-
-**Example script:** See `xf_debug_example.py` in this directory
-
-**Full Protocol:** `/home/visionairy/CLAUDE.md` System Impact Audit section
+**Full protocol:** `/home/visionairy/CLAUDE.md` System Impact Audit section
 
 ---
 

@@ -133,7 +133,9 @@ export function useSessionPersistence() {
         user_id: userId,
         current_route_id: data.routeId,
         current_machine_id: data.currentMachineId,
-        current_item_index: data.currentMachineIndex,
+        // REMOVED: current_item_index - managed exclusively by n8n workflows
+        // Frontend was incorrectly writing currentMachineIndex (machine number) to current_item_index (item sequence)
+        // This caused machine to complete after only 2 items because index was corrupted to 1 instead of 24
         status: data.completed ? 'completed' : 'stocking',
         updated_at: new Date().toISOString(),
       };
