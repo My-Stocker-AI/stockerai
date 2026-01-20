@@ -47,11 +47,22 @@
 - User called out: "This platform has no value if you have the option of ignoring the explicit mandate"
 - **Lesson:** CLAUDE.md and STOCKER.md XF mandates are NOT optional
 
-**3. Proper XF Discovery Launched:**
+**3. XF Discovery Attempts:**
+
+**v1 (FAILED):**
 - Created: `/home/visionairy/StockerAI/xf_discover_reverse_count2.py`
 - Using: SystemAdapter + AutonomousDiscoveryCallback (NO human input)
-- Status: Running in background (task ID: ba60ebc)
-- Output: Will save to `xf_reverse_count2_results.json`
+- Launched: Background task ID ba60ebc
+- **Result:** MECE validation failed
+  - Structural overlaps >30% between boundaries (e.g., "Index Initialization Logic" vs "Index Initialization vs Advancement Mismatch")
+  - Semantic validation error: JSON parsing failure (unterminated string)
+  - LLM generated overlapping boundaries that violated MECE constraints
+
+**v2 (CREATED, NOT YET RUN):**
+- Created: `/home/visionairy/StockerAI/xf_discover_reverse_count2_v2.py`
+- Refined problem statement to avoid overlaps
+- More focused on state transitions and mid-session count changes
+- **Status:** Ready to run when user returns
 
 ### Files Modified This Session
 
@@ -59,10 +70,24 @@
 - "Determine Next State" node in get_next_item workflow (iykbFj7f9222PF7r)
 - Added: `completed_machine`, `completed_location`, `next_machine`, `next_location` fields
 - Fixed: Field name mismatch causing "undefined" errors
+- **Status:** User needs to manually paste into n8n UI
 
 **Documentation Created:**
 - `/home/visionairy/StockerAI/docs/audits/AUDIT_2026-01-20_reverse_count2_premature_machine_complete.md`
 - Manual boundary analysis (before XF enforcement)
+
+**XF Scripts:**
+- `xf_discover_reverse_count2.py` - v1 (failed MECE)
+- `xf_discover_reverse_count2_v2.py` - v2 (ready to run)
+
+### Session Status
+
+**User Action:** Logging out to switch to subscription account
+**Next Session Should:**
+1. Run XF discovery v2: `/home/visionairy/Xpansion/.venv/bin/python xf_discover_reverse_count2_v2.py`
+2. Review XF results to identify all boundaries systematically
+3. Determine proper fix based on XF findings
+4. Apply workflow code fixes to n8n
 
 ### Pending Work
 
