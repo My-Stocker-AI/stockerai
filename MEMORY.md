@@ -1,6 +1,44 @@
 # Stocker AI – Source of Truth
-**Last Updated:** 2026-01-20 (Session 45 - XF Systematic Bug Discovery)
-**Status:** 🔍 ANALYZING - Reverse+Count=2 bug under XF systematic discovery
+**Last Updated:** 2026-01-20 (Session 46 - XF Systemic Fix Deployed)
+**Status:** ✅ FIXED - Frontend corruption, voice format, progress bar fix pending deployment
+
+---
+
+## ✅ SESSION 46: XF SYSTEMIC FIX DEPLOYED (2026-01-20)
+
+**Context:** Machines completing after only 2 items picked regardless of count=1 or count=2. XF analysis revealed systemic frontend corruption of `current_item_index`.
+
+### Root Cause Discovered
+
+**Frontend was corrupting database field:**
+- File: `src/hooks/useSessionPersistence.ts:136`
+- Bug: Writing `currentMachineIndex` (machine number 1, 2, 3...) to database field `current_item_index` (item sequence 24, 25...)
+- Impact: n8n workflows read corrupted index, determined "no more items", marked machine complete prematurely
+
+### Fix Deployed
+
+**Commit:** 67a2091 (Systemic fix)
+**Change:** Removed `current_item_index` from frontend session saves
+**Reason:** n8n workflows OWN this field exclusively - frontend should never write to it
+**User Verification:** ✅ "All items now picked before machine completion"
+
+### Additional Fixes This Session
+
+**1. Voice Format Fix (✅ VERIFIED)**
+- File: `FORMAT_OUTPUT_COMPLETE_FIX.js`
+- Change: Voice now says "Product name size type X count" (not "X Product name")
+- Status: User confirmed "Voice is correct"
+
+**2. Progress Bar Fix (⏸️ AWAITING DEPLOYMENT)**
+- File: `start_machine_format_output_WITH_MACHINE_ID.js` (Commit: cd36980)
+- Bug: Format Output not returning `machine_id` in response
+- Impact: Frontend cannot fetch `total_items`, progress bar shows "Total: 0"
+- Fix: Include `machine_id: sessionData.machine_id` in Format Output response
+- **User Action Required:** Paste into n8n start_machine workflow → Format Output node
+
+### Documentation Created
+
+- `/home/visionairy/StockerAI/docs/audits/XF_SYSTEMIC_FIX_20260120.md` - Complete XF analysis and fix documentation
 
 ---
 
