@@ -204,6 +204,7 @@ export default function StockerApp() {
       currentItem: routeState.currentItem,
       currentItem2: routeState.currentItem2,
       completedItems: routeState.completedItems,
+      machines: routeState.machines,  // CRITICAL FIX: Save per-machine progress
       completed: routeState.completed,
       conversationHistory: messages,
       pendingMachineTransition: routeState.pendingMachineTransition

@@ -21,6 +21,7 @@ interface SessionData {
   currentItem: any;
   currentItem2?: any;  // Second item in 2-pick mode
   completedItems: any[];
+  machines: any[];  // CRITICAL FIX: Persist per-machine progress for dropdown
   completed: boolean;
   conversationHistory: any[];
   savedAt?: number;
