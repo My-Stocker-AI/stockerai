@@ -63,11 +63,7 @@ const INITIAL_STATE: RouteState = {
 async function fetchMachineTotalItems(machineId: string): Promise<number> {
   try {
     console.log('[Session] fetchMachineTotalItems called with:', machineId);
-    const { createClient } = await import('@supabase/supabase-js');
-    const supabase = createClient(
-      import.meta.env.VITE_SUPABASE_URL,
-      import.meta.env.VITE_SUPABASE_ANON_KEY
-    );
+    const { supabase } = await import('@/integrations/supabase/client');
 
     const { data, error } = await supabase
       .from('machines')
