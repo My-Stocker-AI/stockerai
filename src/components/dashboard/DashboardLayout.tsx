@@ -172,7 +172,7 @@ const DashboardLayout = ({ children, title, breadcrumbs }: DashboardLayoutProps)
   );
 
   return (
-    <div className="min-h-screen bg-dashboard-bg-alt pb-16 lg:pb-0">
+    <div className="min-h-screen bg-dashboard-bg-alt">
       {/* Mobile Header - Simple, no hamburger */}
       <header className="lg:hidden flex items-center justify-center p-4 bg-dashboard-bg border-b border-dashboard-border">
         <Link to="/dashboard" className="flex items-center gap-3">
@@ -216,39 +216,6 @@ const DashboardLayout = ({ children, title, breadcrumbs }: DashboardLayoutProps)
           </div>
         </main>
       </div>
-
-      {/* Mobile Bottom Navigation */}
-      <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-dashboard-bg border-t border-dashboard-border safe-area-inset-bottom">
-        <div className="flex items-center justify-around p-3">
-          {visibleNavItems.slice(0, 4).map((item) => {
-            const isActive = location.pathname === item.href;
-            const Icon = item.icon;
-
-            return (
-              <Link
-                key={item.href}
-                to={item.href}
-                className={cn(
-                  "flex flex-col items-center gap-1 px-3 py-2 rounded-lg text-xs font-medium transition-colors min-w-[60px]",
-                  isActive
-                    ? "text-primary"
-                    : "text-dashboard-text-secondary"
-                )}
-              >
-                <Icon className="h-5 w-5" />
-                <span className="truncate max-w-full">{item.label}</span>
-              </Link>
-            );
-          })}
-          <button
-            onClick={handleSignOut}
-            className="flex flex-col items-center gap-1 px-3 py-2 rounded-lg text-xs font-medium transition-colors min-w-[60px] text-dashboard-text-secondary"
-          >
-            <LogOut className="h-5 w-5" />
-            <span>Logout</span>
-          </button>
-        </div>
-      </nav>
     </div>
   );
 };
