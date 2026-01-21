@@ -126,8 +126,14 @@ export function useStockerSession(userId: string | null) {
     // Fetch machine total_items when starting or switching machines
     let machineTotalItems = 0;
     if (toolName === 'start_machine' && result.machine_id) {
+      console.log('[Session] Fetching total_items for machine_id:', result.machine_id);
       machineTotalItems = await fetchMachineTotalItems(result.machine_id);
-    } else if (toolName === 'get_next_item' && result.action === 'next_machine' && result.next_machine_id) {
+      console.log('[Session] fetchMachineTotalItems returned:', machineTotalItems);
+    } else if (toolName === 'start_machine') {
+      console.log('[Session] start_machine called but no machine_id in result:', result);
+    }
+
+    if (toolName === 'get_next_item' && result.action === 'next_machine' && result.next_machine_id) {
       machineTotalItems = await fetchMachineTotalItems(result.next_machine_id);
     }
 
