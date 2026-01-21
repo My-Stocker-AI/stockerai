@@ -24,6 +24,11 @@ interface SessionData {
   completed: boolean;
   conversationHistory: any[];
   savedAt?: number;
+  pendingMachineTransition?: {  // Machine awaiting direction response
+    nextMachineId: string;
+    nextMachineName: string;
+    nextMachineIndex: number;
+  } | null;
 }
 
 export function useSessionPersistence() {
