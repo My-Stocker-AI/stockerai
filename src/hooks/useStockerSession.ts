@@ -62,6 +62,7 @@ const INITIAL_STATE: RouteState = {
 // Helper: Fetch machine's total_items from database
 async function fetchMachineTotalItems(machineId: string): Promise<number> {
   try {
+    console.log('[Session] fetchMachineTotalItems called with:', machineId);
     const { createClient } = await import('@supabase/supabase-js');
     const supabase = createClient(
       import.meta.env.VITE_SUPABASE_URL,
@@ -79,6 +80,7 @@ async function fetchMachineTotalItems(machineId: string): Promise<number> {
       return 0;
     }
 
+    console.log('[Session] Database returned total_items:', data?.total_items);
     return data?.total_items || 0;
   } catch (err) {
     console.error('[Session] Error fetching machine total_items:', err);
