@@ -205,7 +205,8 @@ export default function StockerApp() {
       currentItem2: routeState.currentItem2,
       completedItems: routeState.completedItems,
       completed: routeState.completed,
-      conversationHistory: messages
+      conversationHistory: messages,
+      pendingMachineTransition: routeState.pendingMachineTransition
     };
 
     await sessionPersistence.save(sessionData, userId);
@@ -1050,15 +1051,24 @@ export default function StockerApp() {
             await voice.startListening();
 
             // Announce resume to user
-            const item = saved.currentItem;
-            if (item?.product) {
-              const msg = `Welcome back! Resuming ${saved.routeName}. Current item: ${item.quantity} ${item.product}, ${item.slot_spoken || item.slot}.`;
+            // Check if we were waiting for direction response when paused
+            if (saved.pendingMachineTransition) {
+              const prevMachine = saved.currentMachineName;
+              const nextMachine = saved.pendingMachineTransition.nextMachineName;
+              const msg = `Welcome back! ${prevMachine} complete. Next is ${nextMachine}. Would you like to start at the top of the list for this machine, or the bottom?`;
               setAiResponse(msg);
               await voice.speak(msg);
             } else {
-              const msg = `Welcome back! Resuming ${saved.routeName}.`;
-              setAiResponse(msg);
-              await voice.speak(msg);
+              const item = saved.currentItem;
+              if (item?.product) {
+                const msg = `Welcome back! Resuming ${saved.routeName}. Current item: ${item.quantity} ${item.product}, ${item.slot_spoken || item.slot}.`;
+                setAiResponse(msg);
+                await voice.speak(msg);
+              } else {
+                const msg = `Welcome back! Resuming ${saved.routeName}.`;
+                setAiResponse(msg);
+                await voice.speak(msg);
+              }
             }
 
             setInitialized(true);
@@ -1104,7 +1114,8 @@ export default function StockerApp() {
       currentItem2: savedSession.currentItem2 || null,
       completedItems: savedSession.completedItems || [],
       machines: savedSession.machines || [],
-      completed: savedSession.completed || false
+      completed: savedSession.completed || false,
+      pendingMachineTransition: savedSession.pendingMachineTransition || null
     });
     // Restore saved session ID, or generate new one if missing
     if (savedSession.sessionId) {
@@ -1121,13 +1132,22 @@ export default function StockerApp() {
     await voice.startListening();
 
     // Announce resume
-    const item = savedSession.currentItem;
-    if (item?.product) {
-      const msg = `Welcome back to ${savedSession.routeName}! Current item: ${item.quantity} ${item.product}, ${item.slot_spoken || item.slot}.`;
+    // Check if we were waiting for direction response when paused
+    if (savedSession.pendingMachineTransition) {
+      const prevMachine = savedSession.currentMachineName;
+      const nextMachine = savedSession.pendingMachineTransition.nextMachineName;
+      const msg = `Welcome back! ${prevMachine} complete. Next is ${nextMachine}. Would you like to start at the top of the list for this machine, or the bottom?`;
       setAiResponse(msg);
       await voice.speak(msg);
     } else {
-      await voice.speak(`Welcome back to ${savedSession.routeName} route.`);
+      const item = savedSession.currentItem;
+      if (item?.product) {
+        const msg = `Welcome back to ${savedSession.routeName}! Current item: ${item.quantity} ${item.product}, ${item.slot_spoken || item.slot}.`;
+        setAiResponse(msg);
+        await voice.speak(msg);
+      } else {
+        await voice.speak(`Welcome back to ${savedSession.routeName} route.`);
+      }
     }
   }, [savedSession, setRouteState, setSessionId, generateNewSessionId, setMessages, voice]);
 
