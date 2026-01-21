@@ -128,8 +128,8 @@ BEGIN
   v_machine2_id := gen_random_uuid();
 
   -- Insert test session WITH NULL current_route_id (simulating bug)
-  INSERT INTO sessions (id, user_id, current_route_id, current_machine_id, current_item_index, status)
-  VALUES (gen_random_uuid(), v_test_user_id, NULL, v_machine1_id, 0, 'stocking')
+  INSERT INTO sessions (id, user_id, session_key, current_route_id, current_machine_id, current_item_index, status)
+  VALUES (gen_random_uuid(), v_test_user_id, v_test_user_id || '-test-active', NULL, v_machine1_id, 0, 'stocking')
   RETURNING id INTO v_test_session_id;
 
   -- Insert 2 test machines
