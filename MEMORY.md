@@ -1,10 +1,95 @@
 # Stocker AI – Source of Truth
-**Last Updated:** 2026-01-22 (2-item voice callout fixed)
-**Status:** ✅ CRITICAL FIX APPLIED - 2-item voice announcements restored
+**Last Updated:** 2026-01-22 (count=2 systemic fix - display issue resolved)
+**Status:** ⚠️ PARTIALLY FIXED - Display working, auto-advancement under investigation
+
+---
+
+## ⚠️ SESSION 47C: COUNT=2 SYSTEMIC FIX - DATA STRUCTURE MISMATCH (2026-01-22)
+
+**Context:** count=2 critically broken - display shows 1 item, voice announces 2, system auto-advances
+
+### Root Cause: Frontend/Backend Data Structure Mismatch
+
+**Frontend expects** (StockerApp.tsx:469):
+```javascript
+result.item2.product_name   // Nested object
+result.item2.quantity
+```
+
+**n8n was returning:**
+```javascript
+result.product_name2        // Flat fields
+result.quantity2
+```
+
+**Result:**
+- `result.item2` was always `undefined`
+- Frontend couldn't display second item
+- Voice worked (uses `voice_text` directly from n8n)
+
+### Fix Applied
+
+**Commit:** 6e6fc97 (2026-01-22)
+**File:** `workflows/FORMAT_OUTPUT_FIXED_20260122.js`
+
+**Changed Format Output to return nested object:**
+```javascript
+output.item2 = {
+  product_name: data.product_name2,
+  quantity: data.quantity2,
+  slot: data.slot2,
+  slot_spoken: formatSlotForTTS(data.slot2),
+  inventory_current: data.inventory_current2 || 0,
+  inventory_parlevel: data.inventory_parlevel2 || 0,
+  product_parsed: { ... }
+};
+```
+
+### Edge Case Handling: Single Item Left
+
+**Already handles correctly!**
+
+When count=2 but only 1 item remains:
+- Determine Next State: `item2 = null` if no item found
+- Format Output: `if (data.product_name2)` → only creates item2 if data exists
+- Frontend: Shows 1 item (no item2 object)
+- Voice: Announces 1 item
+- Index: Advances by 1 (not 2)
+
+**No code changes needed for this edge case.**
+
+### User Action Required
+
+**⚠️ UPDATE n8n NOW:**
+1. Open: https://visionairy.app.n8n.cloud
+2. Workflow: "Stocker Tool: get_next_item (Optimized)"
+3. Node: "Format Output"
+4. Replace ALL code with: `/home/visionairy/StockerAI/workflows/FORMAT_OUTPUT_FIXED_20260122.js`
+5. Save workflow
+6. Test with count=2 enabled
+
+### Remaining Issue: Auto-Advancement
+
+**Status:** UNDER INVESTIGATION
+**Symptom:** System advances without "next" prompts
+**Possible Causes:**
+- Frontend debounce failure (1.5s not working)
+- Voice recognition ghost triggers (STT picking up noise)
+- Race condition in API calls
+- Session state corruption
+
+**Diagnostic Needed:**
+- Monitor browser console for duplicate API calls
+- Check Network tab for timing
+- Verify debounce logic firing
+
+**Doc:** `/home/visionairy/StockerAI/docs/BUGFIX_20260122_COUNT2_SYSTEMIC.md`
 
 ---
 
 ## ✅ SESSION 47: 2-ITEM VOICE CALLOUT FIX (2026-01-22)
+
+**NOTE:** This fix was INCOMPLETE - see Session 47C above for the full systemic fix
 
 **Context:** Voice stopped announcing 2 items when count=2 setting is active. Only called out first item.
 
