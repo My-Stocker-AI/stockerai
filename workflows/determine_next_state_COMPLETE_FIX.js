@@ -1,0 +1,191 @@
+// COMPLETE FIX: All 3 critical bugs from 2026-01-21 production issues
+//
+// BUG 1 & 3: Items remaining calculation off by 1 in reverse mode
+// BUG 2: Next machine startingIndex uses wrong items.length
+//
+// Workflow: get_next_item (Optimized) - ID: iykbFj7f9222PF7r
+// Node: "Determine Next State"
+
+// Get count parameter from webhook
+var input = $('Webhook').first().json.body;
+var count = input.count || 1;
+
+var consolidated = $('Extract Consolidated Data').first().json;
+var session = consolidated.session;
+var items = consolidated.items;
+var machines = consolidated.machines;
+
+var currentItemIndex = session.current_item_index || 0;
+var currentMachineId = session.current_machine_id;
+var currentRouteId = session.current_route_id;
+var pickDirection = session.pick_direction || 'forward';
+
+// CONCURRENT FIX: Store original index for optimistic lock check
+var originalItemIndex = currentItemIndex;
+
+var currentMachine = null;
+var currentMachineSeq = 0;
+for (var i = 0; i < machines.length; i++) {
+  if (machines[i].id === currentMachineId) {
+    currentMachine = machines[i];
+    currentMachineSeq = machines[i].sequence;
+    break;
+  }
+}
+
+var nextItem = null;
+if (pickDirection === 'reverse') {
+  for (var i = 0; i < items.length; i++) {
+    if (items[i].sequence === currentItemIndex - 1) {
+      nextItem = items[i];
+      break;
+    }
+  }
+} else {
+  for (var i = 0; i < items.length; i++) {
+    if (items[i].sequence === currentItemIndex + 1) {
+      nextItem = items[i];
+      break;
+    }
+  }
+}
+
+if (nextItem) {
+  var newIndex = pickDirection === 'reverse' ? currentItemIndex - 1 : currentItemIndex + 1;
+
+  // Get item2 if count=2
+  var item2 = null;
+  if (count === 2) {
+    var item2Index = pickDirection === 'reverse' ? newIndex - 1 : newIndex + 1;
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].sequence === item2Index) {
+        item2 = items[i];
+        break;
+      }
+    }
+    if (item2) {
+      newIndex = item2Index;
+    }
+  }
+
+  // FIX BUG 1 & 3: Correct items_remaining calculation for reverse mode
+  // In reverse mode: if at sequence 5, there are 5 items remaining (1,2,3,4,5)
+  // In forward mode: if at index 5 with 10 total, there are 10-5=5 items remaining
+  var remaining = pickDirection === 'reverse' ? newIndex : items.length - newIndex;
+
+  return [{
+    json: {
+      action: 'next_item',
+      product_name: nextItem.product_name,
+      quantity: nextItem.quantity,
+      slot: nextItem.slot,
+      slot_spoken: nextItem.slot_spoken || null,
+      product_name2: item2 ? item2.product_name : null,
+      quantity2: item2 ? item2.quantity : null,
+      slot2: item2 ? item2.slot : null,
+      slot_spoken2: item2 ? item2.slot_spoken : null,
+      items_remaining: remaining,
+      item_index: newIndex,
+      new_item_index: newIndex,
+      new_machine_id: currentMachineId,
+      new_route_id: currentRouteId,
+      session_record_id: session.id,
+      machine_complete: false,
+      route_complete: false,
+      // CONCURRENT FIX: Include optimistic lock fields
+      original_item_index: originalItemIndex,
+      expected_index: originalItemIndex  // DB update will check this matches before updating
+    }
+  }];
+}
+
+// No more items on machine - find next machine
+var nextMachine = null;
+if (pickDirection === 'reverse') {
+  for (var i = 0; i < machines.length; i++) {
+    if (machines[i].sequence === currentMachineSeq - 1 && machines[i].status !== 'skipped') {
+      nextMachine = machines[i];
+      break;
+    }
+  }
+} else {
+  for (var i = 0; i < machines.length; i++) {
+    if (machines[i].sequence === currentMachineSeq + 1 && machines[i].status !== 'skipped') {
+      nextMachine = machines[i];
+      break;
+    }
+  }
+}
+
+if (nextMachine) {
+  // FIX BUG 2: Don't use current machine's items.length for next machine
+  // The start_machine workflow will set the correct index after loading next machine's items
+  return [{
+    json: {
+      action: 'next_machine',
+      new_item_index: 0,  // Safe placeholder - start_machine will set correct value
+      new_machine_id: nextMachine.id,
+      new_route_id: currentRouteId,
+      machine_name: nextMachine.machine_name,
+      location_name: nextMachine.location_name,
+      session_record_id: session.id,
+      machine_complete: true,
+      route_complete: false,
+      // CONCURRENT FIX
+      original_item_index: originalItemIndex,
+      expected_index: originalItemIndex
+    }
+  }];
+}
+
+// No next machine - check for skipped machines
+var skippedMachines = [];
+for (var i = 0; i < machines.length; i++) {
+  if (machines[i].status === 'skipped') {
+    skippedMachines.push(machines[i]);
+  }
+}
+
+if (skippedMachines.length > 0) {
+  var firstSkipped = skippedMachines[0];
+
+  // FIX BUG 2: Safe placeholder - start_machine will set correct value
+  return [{
+    json: {
+      action: 'next_machine',
+      new_item_index: 0,  // Safe placeholder - start_machine will set correct value
+      new_machine_id: firstSkipped.id,
+      new_route_id: currentRouteId,
+      machine_name: firstSkipped.machine_name,
+      location_name: firstSkipped.location_name,
+      session_record_id: session.id,
+      machine_complete: true,
+      route_complete: false,
+      session_complete: false,
+      returning_to_skipped: true,
+      // CONCURRENT FIX
+      original_item_index: originalItemIndex,
+      expected_index: originalItemIndex
+    }
+  }];
+}
+
+// No next machine and no skipped machines, route is truly complete
+return [{
+  json: {
+    action: 'complete',
+    completed_route: 'Route',
+    total_routes: 1,
+    session_record_id: session.id,
+    new_status: 'completed',
+    new_item_index: currentItemIndex,
+    new_machine_id: currentMachineId,
+    new_route_id: currentRouteId,
+    machine_complete: true,
+    route_complete: true,
+    session_complete: true,
+    // CONCURRENT FIX
+    original_item_index: originalItemIndex,
+    expected_index: originalItemIndex
+  }
+}];

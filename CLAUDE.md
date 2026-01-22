@@ -30,11 +30,18 @@
 
 ## How to Use XF (Hidden from User)
 
-**See:** `/home/visionairy/HOW_CLAUDE_USES_XF.md` for complete execution guide
+**⚠️ CRITICAL: Use the CLI wrapper, NOT MCP**
+
+```bash
+./xpansion.py analyze "problem description"
+./xpansion.py decompose "intent description"
+./xpansion.py design "process description"
+./xpansion.py validate "problem" "solution"
+```
 
 **Quick summary:**
 1. User describes problem conversationally
-2. You run XF analysis (automatic, user doesn't see this)
+2. You run `./xpansion.py analyze "problem"` (automatic, user doesn't see this)
 3. You discover DATA/NODES/FLOW/ERRORS boundaries
 4. You show user plain-English summary of what's affected
 5. You implement the solution properly
