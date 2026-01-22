@@ -192,18 +192,23 @@ if (data.action === 'next_item') {
   };
 
   // FIX: Handle second item properly - check for product_name2 (not item2_product_name)
+  // CRITICAL: Frontend expects item2 as a NESTED OBJECT, not flat fields
   if (data.product_name2) {
     parsed2 = parseProduct(data.product_name2);
 
-    output.product_name2 = data.product_name2;
-    output.quantity2 = data.quantity2;
-    output.slot2 = data.slot2;
-    output.slot_spoken2 = formatSlotForTTS(data.slot2);
-
-    output.product_parsed2 = {
-      name: parsed2.name,
-      size: parsed2.size,
-      type: parsed2.type
+    // Return item2 as nested object to match frontend expectations
+    output.item2 = {
+      product_name: data.product_name2,
+      quantity: data.quantity2,
+      slot: data.slot2,
+      slot_spoken: formatSlotForTTS(data.slot2),
+      inventory_current: data.inventory_current2 || 0,
+      inventory_parlevel: data.inventory_parlevel2 || 0,
+      product_parsed: {
+        name: parsed2.name,
+        size: parsed2.size,
+        type: parsed2.type
+      }
     };
   }
 
