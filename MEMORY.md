@@ -1,6 +1,184 @@
 # Stocker AI – Source of Truth
-**Last Updated:** 2026-01-20 (Session 46 - XF Systemic Fix Deployed)
-**Status:** ✅ FIXED - Frontend corruption, voice format, progress bar fix pending deployment
+**Last Updated:** 2026-01-22 (XF Architecture Hardening Backlog Created)
+**Status:** ✅ BUGS FIXED - Architecture hardening backlog created from XF forensic analysis
+
+---
+
+## 📋 ARCHITECTURE HARDENING BACKLOG (2026-01-22)
+
+**Source:** XF forensic analysis of production bugs (Session 2026-01-22, $0.05 cost)
+**Context:** Bugs from Session 42 are FIXED, but XF identified architectural gaps that could cause similar issues under stress
+
+### Priority 1: Production Stability (Next Sprint)
+
+**1.1 Add Idempotency Keys to State-Changing APIs**
+- **Problem:** Same API call fired twice could corrupt state
+- **Impact:** User clicks "next" during network lag → duplicate updates
+- **Solution:** Add idempotency keys to:
+  - `/next-item` (get_next_item workflow)
+  - `/start-machine` (start_machine workflow)
+  - `/update-session` (update_session_state workflow)
+- **Implementation:** Check idempotency key in n8n before executing, return cached response if duplicate
+- **Effort:** 2-3 hours
+- **Risk if skipped:** Medium (could cause race conditions under poor network)
+
+**1.2 Add Transaction Rollback to Machine Transitions**
+- **Problem:** Database write succeeds but transition fails → corrupted state
+- **Impact:** Machine marked complete but route doesn't advance
+- **Solution:** Wrap machine completion logic in transaction:
+  - Mark machine complete
+  - Update route progress
+  - Trigger next machine
+  - ROLLBACK if any step fails
+- **Implementation:** Use Supabase transactions in get_next_item workflow
+- **Effort:** 3-4 hours
+- **Risk if skipped:** High (breaks workflow, requires manual recovery)
+
+**1.3 Add Initial State Validation on Session Resume**
+- **Problem:** Session starts with corrupted/null state from previous crashes
+- **Impact:** Directional flag null, index corrupted, undefined errors
+- **Solution:** Validate session state on load:
+  - Check directional flag not null
+  - Check current_item_index within bounds
+  - Reset to safe defaults if corrupted
+- **Implementation:** Add validation to session load in useSessionPersistence.ts
+- **Effort:** 1-2 hours
+- **Risk if skipped:** Medium (causes cryptic errors, user confusion)
+
+---
+
+### Priority 2: Security & Multi-Tenant (Month 2)
+
+**2.1 Add Authorization Middleware**
+- **Problem:** No checks for who can update machine state
+- **Impact:** Any authenticated user could update another user's session
+- **Solution:** Add RLS policies + middleware checks:
+  - Verify user owns session before updating
+  - Verify user owns route before transitioning
+- **Implementation:** Supabase RLS + n8n auth validation
+- **Effort:** 4-6 hours
+- **Risk if skipped:** CRITICAL for multi-tenant (blocks launch)
+
+**2.2 Add Route Transition Authorization**
+- **Problem:** No permission checks for route switching
+- **Impact:** User could switch to another user's route
+- **Solution:** Add ownership validation in switch_route workflow
+- **Implementation:** Query routes table, check user_id matches
+- **Effort:** 1-2 hours
+- **Risk if skipped:** HIGH (security vulnerability)
+
+---
+
+### Priority 3: Reliability & Recovery (Month 3)
+
+**3.1 Add Concurrency Locks for Critical Operations**
+- **Problem:** Multiple simultaneous "next" calls could corrupt index
+- **Impact:** Race condition causes duplicate items or skipped items
+- **Solution:** Use database-level locks:
+  - Advisory locks in Supabase
+  - Lock session during state updates
+  - Release lock on completion
+- **Implementation:** Use `pg_advisory_lock` in get_next_item workflow
+- **Effort:** 3-4 hours
+- **Risk if skipped:** Medium (current debouncing mitigates, but not foolproof)
+
+**3.2 Add Error Recovery Handlers**
+- **Problem:** No rollback when persistence fails
+- **Impact:** Partial updates leave system in undefined state
+- **Solution:** Add error handlers with rollback:
+  - Catch all n8n workflow errors
+  - Log to error table
+  - Rollback database changes
+  - Return safe error to frontend
+- **Implementation:** Add Error Trigger nodes to all workflows
+- **Effort:** 4-6 hours
+- **Risk if skipped:** Medium (manual recovery required)
+
+**3.3 Add Failure State Tracking**
+- **Problem:** No audit trail for timeout/retry/failure events
+- **Impact:** Can't debug intermittent issues
+- **Solution:** Create `session_errors` table:
+  - Log all failures with context
+  - Track retry attempts
+  - Enable debugging dashboard
+- **Implementation:** New Supabase table + n8n logging
+- **Effort:** 2-3 hours
+- **Risk if skipped:** Low (nice-to-have for ops)
+
+---
+
+### Priority 4: Operational Excellence (Month 4+)
+
+**4.1 Add Observability & Metrics**
+- **Problem:** No visibility into system health
+- **Impact:** Can't detect issues before users report
+- **Solution:** Add metrics tracking:
+  - Average session duration
+  - Error rate by workflow
+  - API latency percentiles
+- **Implementation:** Log metrics to analytics service
+- **Effort:** 6-8 hours
+- **Risk if skipped:** Low (development convenience)
+
+**4.2 Add Webhook Timeout Handling**
+- **Problem:** No explicit timeout logic for long-running operations
+- **Impact:** Webhooks could hang indefinitely
+- **Solution:** Add timeout configuration:
+  - Set max execution time per workflow
+  - Return timeout error after threshold
+  - Log timeout events
+- **Implementation:** Configure n8n workflow timeouts
+- **Effort:** 1-2 hours
+- **Risk if skipped:** Low (n8n has default timeouts)
+
+---
+
+### XF Analysis Summary
+
+**Total Issues Found:** 47 MECE violations across 3 boundaries
+**Confidence Scores:** 0.40-0.48 (degraded quality, non-fatal)
+**Cost:** $0.05 (88% token savings from hierarchical scoping)
+
+**Key Architectural Gaps:**
+1. **Concurrency Control:** Missing locks, atomicity, idempotency
+2. **Authorization:** No permission checks on state changes
+3. **Error Handling:** No rollback, recovery, or failure tracking
+4. **State Validation:** No initial state validation on resume
+
+**Immediate Bugs Status:**
+- ✅ Bug 1 (Duplicate "Next") - FIXED with optimistic locking
+- ✅ Bug 2 (Voice Restart) - FIXED with enhanced cleanup
+- ✅ Bug 3 (Progress Save) - FIXED with retry logic
+
+**Verdict:** Bugs are fixed. Architecture needs strategic hardening to prevent future issues under stress.
+
+---
+
+### Implementation Roadmap
+
+**Sprint 1 (Next 2 weeks):**
+- Add idempotency keys (2-3h)
+- Add transaction rollback (3-4h)
+- Add initial state validation (1-2h)
+- **Total:** 6-9 hours
+
+**Month 2:**
+- Add authorization middleware (4-6h)
+- Add route transition auth (1-2h)
+- **Total:** 5-8 hours
+
+**Month 3:**
+- Add concurrency locks (3-4h)
+- Add error recovery handlers (4-6h)
+- Add failure state tracking (2-3h)
+- **Total:** 9-13 hours
+
+**Month 4+:**
+- Add observability (6-8h)
+- Add timeout handling (1-2h)
+- **Total:** 7-10 hours
+
+**Grand Total:** 27-40 hours of strategic hardening
 
 ---
 
