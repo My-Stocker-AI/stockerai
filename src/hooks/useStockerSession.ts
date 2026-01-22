@@ -225,7 +225,7 @@ export function useStockerSession(userId: string | null) {
       if (toolName === 'get_next_item') {
         const action = result.action || '';
 
-        if (action === 'next_item' || action === 'next_machine' || action === 'route_complete') {
+        if (action === 'next_item' || action === 'next_machine' || action === 'route_complete' || action === 'complete') {
           // Add current item(s) to completed list (2-pick mode: add both if present)
           const itemsToAdd: CurrentItem[] = [];
           if (prev.currentItem && prev.currentItem.slot) {

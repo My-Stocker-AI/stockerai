@@ -64,32 +64,22 @@ serve(async (req) => {
     }];
 
     // Extract unique machines from the result
-    // OPTIMIZATION: Return current + next 2 machines + skipped (handles machine transitions)
+    // CRITICAL FIX: Return ALL machines in route (not just current + next 2)
+    // Bug: Route completion logic needs to see all remaining machines to decide next_machine vs complete
     const currentMachineId = data[0].current_machine_id;
-    const currentMachineSeq = data.find((r: any) => r.machine_id === currentMachineId)?.machine_sequence || 0;
 
     const machinesMap = new Map();
     data.forEach((row: any) => {
       if (row.machine_id && !machinesMap.has(row.machine_id)) {
-        // Include machine if:
-        // - It's the current machine, OR
-        // - It's the next 2 machines (sequence + 1 or + 2) for transitions, OR
-        // - It has status = 'skipped' (need ALL skipped for workflow logic)
-        const isCurrentMachine = row.machine_id === currentMachineId;
-        const isNextMachine = row.machine_sequence === currentMachineSeq + 1;
-        const isNextNextMachine = row.machine_sequence === currentMachineSeq + 2;
-        const isSkippedMachine = row.machine_status === 'skipped';
-
-        if (isCurrentMachine || isNextMachine || isNextNextMachine || isSkippedMachine) {
-          machinesMap.set(row.machine_id, {
-            id: row.machine_id,
-            machine_name: row.machine_name,
-            location_name: row.location_name,
-            machine_number: row.machine_number,
-            sequence: row.machine_sequence,
-            status: row.machine_status
-          });
-        }
+        // Include ALL machines in the route (workflow needs full list for completion logic)
+        machinesMap.set(row.machine_id, {
+          id: row.machine_id,
+          machine_name: row.machine_name,
+          location_name: row.location_name,
+          machine_number: row.machine_number,
+          sequence: row.machine_sequence,
+          status: row.machine_status
+        });
       }
     });
 
