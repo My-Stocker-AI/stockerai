@@ -1,6 +1,57 @@
 # Stocker AI – Source of Truth
-**Last Updated:** 2026-01-22 (XF Architecture Hardening Backlog Created)
-**Status:** ✅ BUGS FIXED - Architecture hardening backlog created from XF forensic analysis
+**Last Updated:** 2026-01-22 (2-item voice callout fixed)
+**Status:** ✅ CRITICAL FIX APPLIED - 2-item voice announcements restored
+
+---
+
+## ✅ SESSION 47: 2-ITEM VOICE CALLOUT FIX (2026-01-22)
+
+**Context:** Voice stopped announcing 2 items when count=2 setting is active. Only called out first item.
+
+### Root Cause Discovered
+
+**Field name mismatch in Format Output node:**
+- Format Output checked for: `data.count === 2 && data.item2_product_name`
+- Determine Next State outputs: `product_name2` and `quantity2`
+- Condition was ALWAYS false → never announced second item
+
+### Fix Applied
+
+**Commit:** a82f664 (2026-01-22)
+**Files Changed:**
+- `workflows/FORMAT_OUTPUT_FIXED_20260122.js` - Corrected code with proper field names
+- `docs/BUGFIX_20260122_2ITEM_CALLOUT.md` - Complete diagnostic and implementation guide
+
+**Critical Changes:**
+- Line 105: `data.count === 2 && data.item2_product_name` → `data.product_name2 && parsed2`
+- Line 118: `data.item2_quantity` → `data.quantity2`
+- Line 153: `data.count === 2` → `data.product_name2`
+- Line 207+: Restructured output to use correct field names
+
+### User Action Required
+
+**⚠️ MANUAL n8n UPDATE NEEDED:**
+1. Open n8n: https://visionairy.app.n8n.cloud
+2. Find workflow: "Stocker Tool: get_next_item (Optimized)"
+3. Open "Format Output" node
+4. Replace ALL code with: `/home/visionairy/StockerAI/workflows/FORMAT_OUTPUT_FIXED_20260122.js`
+5. Save workflow
+
+**Testing:**
+1. Start route, set count=2 in settings
+2. Say "next"
+3. Should hear: "Product1 size type.... X count, Product2 size type.... Y count"
+
+### Why This Happened
+
+Someone manually edited the Format Output node in n8n and introduced incorrect field names. The repository file was correct all along, but n8n workflow diverged from it.
+
+### Lesson Learned
+
+**Always verify field names match between nodes:**
+- Check what previous node OUTPUTS
+- Check what current node EXPECTS
+- Use n8n's variable browser to see available fields
 
 ---
 
