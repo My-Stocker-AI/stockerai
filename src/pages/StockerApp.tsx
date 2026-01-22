@@ -1769,18 +1769,21 @@ export default function StockerApp() {
           {/* Current Machine Item Progress */}
           {(() => {
             const itemsTotal = routeState.currentMachineTotalItems;
-            const itemsRemaining = routeState.currentMachineItemsRemaining;
 
             // Don't show if no data available yet
-            if (!itemsTotal || itemsTotal === 0 || itemsRemaining === undefined || itemsRemaining === null) {
-              console.log('[Progress] Missing data - Total:', itemsTotal, 'Remaining:', itemsRemaining);
+            if (!itemsTotal || itemsTotal === 0) {
+              console.log('[Progress] Missing data - Total:', itemsTotal);
               return null;
             }
 
-            const itemsCompleted = itemsTotal - itemsRemaining;
+            // CRITICAL FIX: Use actual completed items count from machines array
+            // Bug: itemsRemaining includes current item (announced but not picked yet)
+            // Result: Progress was always +1 ahead of reality
+            const currentMachine = routeState.machines.find(m => m.id === routeState.currentMachineId);
+            const itemsCompleted = currentMachine?.completedItems || 0;
             const itemPercent = Math.max(5, Math.min(100, (itemsCompleted / itemsTotal) * 100));
 
-            console.log('[Progress] Total:', itemsTotal, 'Remaining:', itemsRemaining, 'Completed:', itemsCompleted, 'Percent:', itemPercent);
+            console.log('[Progress] Total:', itemsTotal, 'Completed:', itemsCompleted, 'Percent:', itemPercent);
 
             return (
               <div>
