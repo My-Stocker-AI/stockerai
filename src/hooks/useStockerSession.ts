@@ -171,23 +171,6 @@ export function useStockerSession(userId: string | null) {
       }
 
       if (toolName === 'start_machine') {
-        // Clear any pending machine transition (user has provided direction)
-        if (prev.pendingMachineTransition) {
-          console.log('[Session] Applying pending machine transition');
-          next.currentMachineId = prev.pendingMachineTransition.nextMachineId;
-          next.currentMachineName = prev.pendingMachineTransition.nextMachineName;
-          next.currentMachineIndex = prev.pendingMachineTransition.nextMachineIndex;
-
-          // Mark the new machine as in_progress
-          next.machines = prev.machines.map(m =>
-            m.id === prev.pendingMachineTransition!.nextMachineId
-              ? { ...m, status: 'in_progress' as const }
-              : m
-          );
-
-          next.pendingMachineTransition = null;
-        }
-
         // Set machine item counts
         next.currentMachineTotalItems = machineTotalItems;
         next.currentMachineItemsRemaining = result.items_remaining || 0;
@@ -306,21 +289,21 @@ export function useStockerSession(userId: string | null) {
             );
           }
 
-          // Store pending machine transition (don't update currentMachineId yet)
-          // User must provide direction first (top/bottom)
-          next.pendingMachineTransition = {
-            nextMachineId: result.next_machine_id || '',
-            nextMachineName: result.next_machine || '',
-            nextMachineIndex: (prev.currentMachineIndex || 0) + 1
-          };
-
-          console.log('[Session] Pending machine transition:', next.pendingMachineTransition);
-
-          // Clear current item (machine is complete)
+          // REVERT TO WORKING BEHAVIOR: Update machine ID immediately
+          next.currentMachineIndex = (prev.currentMachineIndex || 0) + 1;
+          next.currentMachineName = result.next_machine || '';
+          next.currentMachineId = result.next_machine_id || null;
           next.currentItem = null;
           next.currentItem2 = null;
 
-          // Don't mark next machine as in_progress yet - wait for start_machine
+          // Mark next machine as in_progress
+          if (result.next_machine_id) {
+            next.machines = next.machines.map(m =>
+              m.id === result.next_machine_id
+                ? { ...m, status: 'in_progress' as const }
+                : m
+            );
+          }
         } else if (action === 'route_complete' || action === 'complete') {
           // Mark last machine as completed
           if (prev.currentMachineId) {
