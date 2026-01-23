@@ -313,7 +313,8 @@ export function useStockerSession(userId: string | null) {
         } else if (action === 'route_complete' || action === 'complete') {
           // Mark last machine as completed
           if (prev.currentMachineId) {
-            next.machines = prev.machines.map(m =>
+            // CRITICAL FIX: Use next.machines (not prev.machines) to preserve counter update from line 242
+            next.machines = next.machines.map(m =>
               m.id === prev.currentMachineId
                 ? { ...m, status: 'completed' as const }
                 : m
