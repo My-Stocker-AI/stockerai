@@ -1,10 +1,65 @@
 # Stocker AI – Claude Code Operational Directives
 **Location:** /home/visionairy/StockerAI/CLAUDE.md
 **Purpose:** Define behavioral contract for Claude Code in Stocker AI workspace
-**Last Optimized:** 2026-01-19
+**Last Optimized:** 2026-01-22
 
 <!-- ARCHIVED CONTENT: 20260119_bug_fixes -->
 <!-- See: /home/visionairy/.claude-archives/stockerai_CLAUDE_archive_20260119_bug_fixes.md -->
+
+---
+
+# SECTION 0: DEPLOYMENT - NEVER FUCK THIS UP AGAIN
+
+## ⚠️ StockerAI Deploys via GitHub → Cloudflare Pages (AUTO)
+
+**The ONLY deployment method:**
+```bash
+git add [files]
+git commit -m "message"
+git push origin main  # Cloudflare Pages auto-deploys
+```
+
+**Production URLs:**
+- Cloudflare Pages: `https://stocker-ai.pages.dev`
+- Custom Domain: `https://my-stocker-ai.com`
+
+## ❌ NEVER DO THESE
+
+**DO NOT run:**
+- `npx netlify deploy` ← WRONG PLATFORM (incident: 2026-01-22)
+- `npx vercel deploy` ← WRONG PLATFORM
+- `npx render deploy` ← That's for Xpansion, NOT StockerAI
+- ANY deployment CLI tool without explicit verification
+
+**DO NOT assume:**
+- "Vite projects use Netlify" ← WRONG
+- "Check Render for deployment" ← That's Xpansion
+- "Deployment methods are interchangeable" ← WRONG
+
+## ✅ Correct Process
+
+1. **Build locally (optional):** `npm run build` (just to verify, not required)
+2. **Commit changes:** `git commit -m "..."`
+3. **Push to GitHub:** `git push origin main`
+4. **Cloudflare handles the rest** (auto-build, auto-deploy)
+5. **Wait 2-3 minutes** for deployment
+
+## 🔥 Incident: Attempted Netlify Deploy (2026-01-22)
+
+**What happened:**
+- Fixed critical bugs (last item logging, route completion)
+- Built frontend with `npm run build` ✅
+- **Ran `npx netlify deploy --prod`** ❌ WRONG PLATFORM
+- Opened browser OAuth window for Netlify authentication
+- User interrupted before completion
+
+**Why it happened:**
+- Assumed deployment method without checking
+- Pattern-matched "Vite = Netlify" from training data
+- Never verified actual deployment config
+
+**Correct action:**
+- Push to git → Cloudflare auto-deploys ✅ (what I did after being corrected)
 
 ---
 

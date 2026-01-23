@@ -156,8 +156,11 @@ if (nextMachine) {
       new_item_index: 0,  // Safe placeholder - start_machine will set correct value
       new_machine_id: nextMachine.id,
       new_route_id: currentRouteId,
-      machine_name: nextMachine.machine_name,
-      location_name: nextMachine.location_name,
+      // Format Output expects these field names
+      completed_machine: currentMachine ? currentMachine.machine_name : '',
+      completed_location: currentMachine ? currentMachine.location_name : '',
+      next_machine: nextMachine.machine_name,
+      next_location: nextMachine.location_name,
       session_record_id: session.id,
       machine_complete: true,
       route_complete: false,
@@ -186,8 +189,11 @@ if (skippedMachines.length > 0) {
       new_item_index: 0,  // Safe placeholder - start_machine will set correct value
       new_machine_id: firstSkipped.id,
       new_route_id: currentRouteId,
-      machine_name: firstSkipped.machine_name,
-      location_name: firstSkipped.location_name,
+      // Format Output expects these field names
+      completed_machine: currentMachine ? currentMachine.machine_name : '',
+      completed_location: currentMachine ? currentMachine.location_name : '',
+      next_machine: firstSkipped.machine_name,
+      next_location: firstSkipped.location_name,
       session_record_id: session.id,
       machine_complete: true,
       route_complete: false,

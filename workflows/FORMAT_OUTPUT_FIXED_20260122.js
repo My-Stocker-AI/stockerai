@@ -135,7 +135,7 @@ function generateSpoken(action, data, parsed, parsed2) {
   }
 
   if (action === 'complete') {
-    return data.completed_route + ' route complete. Nice work!';
+    return data.completed_route + ' complete. Nice work!';
   }
 
   return null;
