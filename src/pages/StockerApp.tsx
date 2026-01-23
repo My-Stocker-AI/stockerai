@@ -479,7 +479,9 @@ export default function StockerApp() {
 
           // Execute tool calls directly (bypass AI)
           if (toolCalls.length > 0) {
-            const toolResults = await executeToolCalls(toolCalls, (name, result) => {
+            const toolResults = await executeToolCalls(
+              toolCalls,
+              (name, result) => {
               updateFromTool(name, result);
               v.playSuccessBeep();
 
@@ -503,7 +505,9 @@ export default function StockerApp() {
                   setLastItemPair(newItemPair);
                 }
               }
-            });
+            },
+            routeState.sessionInvalidated || routeState.completed  // CATASTROPHIC FAILURE FIX: Prevent commands after completion
+          );
 
             // Use fast path - speak the workflow's voice_text or spoken field directly
             for (const tr of toolResults) {
@@ -572,31 +576,35 @@ export default function StockerApp() {
         // Add assistant message with tool_calls (content set to null per OpenAI spec)
         addMessage({ role: 'assistant', content: null, tool_calls: response.tool_calls });
 
-        const toolResults = await executeToolCalls(response.tool_calls, (name, result) => {
-          updateFromTool(name, result);
-          v.playSuccessBeep(); // Use success beep for item confirmation
+        const toolResults = await executeToolCalls(
+          response.tool_calls,
+          (name, result) => {
+            updateFromTool(name, result);
+            v.playSuccessBeep(); // Use success beep for item confirmation
 
-          // Performance Priority 5: Prefetch TTS in parallel
-          // Start TTS fetch immediately when result arrives (before speak() is called)
-          // OPTION B: Use voice_text if available, fallback to spoken
-          const textForTTS = result.voice_text || result.spoken;
-          if (textForTTS) {
-            v.prefetchTTS(textForTTS);
-          }
-
-          // Store last item pair for repeat functionality (2-item mode support)
-          if (name === 'get_next_item' || name === 'start_machine') {
-            const spokenText = result.voice_text || result.spoken;
-            if (spokenText) {
-              const newItemPair = {
-                spokenText,
-                item1: result.item1 || { product: result.product_name, quantity: result.quantity, slot: result.slot },
-                item2: result.item2 || null
-              };
-              setLastItemPair(newItemPair);
+            // Performance Priority 5: Prefetch TTS in parallel
+            // Start TTS fetch immediately when result arrives (before speak() is called)
+            // OPTION B: Use voice_text if available, fallback to spoken
+            const textForTTS = result.voice_text || result.spoken;
+            if (textForTTS) {
+              v.prefetchTTS(textForTTS);
             }
-          }
-        });
+
+            // Store last item pair for repeat functionality (2-item mode support)
+            if (name === 'get_next_item' || name === 'start_machine') {
+              const spokenText = result.voice_text || result.spoken;
+              if (spokenText) {
+                const newItemPair = {
+                  spokenText,
+                  item1: result.item1 || { product: result.product_name, quantity: result.quantity, slot: result.slot },
+                  item2: result.item2 || null
+                };
+                setLastItemPair(newItemPair);
+              }
+            }
+          },
+          routeState.sessionInvalidated || routeState.completed  // CATASTROPHIC FAILURE FIX: Prevent commands after completion
+        );
 
         for (const tr of toolResults) {
           addMessage({ role: 'tool', tool_call_id: tr.tool_call_id, content: JSON.stringify(tr.result) });

@@ -40,6 +40,7 @@ export interface RouteState {
   completedItems: CurrentItem[];
   machines: MachineState[];
   completed: boolean;
+  sessionInvalidated?: boolean;  // CATASTROPHIC FAILURE FIX: Prevents commands after route complete
   pendingMachineTransition: {  // Tracks machine awaiting direction response
     nextMachineId: string;
     nextMachineName: string;
@@ -236,14 +237,24 @@ export function useStockerSession(userId: string | null) {
           }
 
           if (itemsToAdd.length > 0) {
-            next.completedItems = [...prev.completedItems, ...itemsToAdd];
-            // Update machine's completedItems count
-            if (prev.currentMachineId) {
-              next.machines = prev.machines.map(m =>
-                m.id === prev.currentMachineId
-                  ? { ...m, completedItems: m.completedItems + itemsToAdd.length }
-                  : m
-              );
+            // CATASTROPHIC FAILURE FIX: Deduplicate items to prevent duplicate logging
+            // Check if items are already in the completed list by slot ID
+            const existingSlots = new Set(prev.completedItems.map(item => item.slot));
+            const newItems = itemsToAdd.filter(item => !existingSlots.has(item.slot));
+
+            if (newItems.length > 0) {
+              next.completedItems = [...prev.completedItems, ...newItems];
+
+              // Update machine's completedItems count (only for genuinely new items)
+              if (prev.currentMachineId) {
+                next.machines = prev.machines.map(m =>
+                  m.id === prev.currentMachineId
+                    ? { ...m, completedItems: m.completedItems + newItems.length }
+                    : m
+                );
+              }
+            } else {
+              console.warn('[Session] Attempted to add duplicate items:', itemsToAdd.map(i => i.slot));
             }
           }
         }
@@ -323,6 +334,10 @@ export function useStockerSession(userId: string | null) {
           next.currentItem = null;
           next.currentItem2 = null;
           next.completed = true;
+
+          // CATASTROPHIC FAILURE FIX: Invalidate session to prevent further commands
+          next.sessionInvalidated = true;
+          console.log('[Session] Route complete - session invalidated, ignoring future commands');
         }
       }
 

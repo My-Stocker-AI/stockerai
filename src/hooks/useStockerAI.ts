@@ -601,13 +601,20 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
 
   const executeToolCalls = useCallback(async (
     toolCalls: any[],
-    onResult?: (name: string, result: any) => void
+    onResult?: (name: string, result: any) => void,
+    routeCompleted?: boolean  // NEW: Flag to check if route is complete
   ) => {
     // BUG-N8N-2 FIX: Validate session exists before executing tools
     if (!sessionIdRef.current || sessionIdRef.current === '') {
       const error = "Hold on, I'm still getting ready. Give me a second to load your route data.";
       console.error('[Tools] Session validation failed - session not initialized');
       throw new Error(error);
+    }
+
+    // CATASTROPHIC FAILURE FIX: Prevent commands after route completion
+    if (routeCompleted) {
+      console.warn('[Tools] Route already complete, ignoring all tool calls');
+      throw new Error("Route already complete. Please start a new route.");
     }
 
     const results: any[] = [];
