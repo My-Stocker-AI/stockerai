@@ -90,6 +90,47 @@ git push origin main  # Cloudflare Pages auto-deploys
 
 ---
 
+## 🔥 Incident: Machine Transition Bug - 2 Hours of Guessing (2026-01-23)
+
+**What happened:**
+- User reported: Machine 2 restarts as Machine 1 after saying "bottom"
+- Spent 2 hours trying 6 different wrong fixes
+- User demanded: "Why aren't you using the commit that worked as the source of truth?"
+- **That question solved it immediately:** `git diff 52e9508 HEAD` showed the problem
+
+**What I did wrong:**
+1. ❌ Checked workflow code (was correct)
+2. ❌ Added AI prompt context (didn't help)
+3. ❌ Checked database updates (were correct)
+4. ❌ Changed workflow query logic (made it worse)
+5. ❌ Found duplicate session (symptom not cause)
+6. ❌ Planned to add machine_id parameter (overengineering)
+
+**Root cause:**
+- Commit a376e8b (Jan 20) added `pendingMachineTransition` to fix pause/resume
+- This created state mismatch: database updated to Machine 2, frontend stayed Machine 1
+- Working version (Jan 18) updated `currentMachineId` immediately - no mismatch
+
+**Correct action (should have done FIRST):**
+```bash
+# Compare current to last known working
+git diff 52e9508 HEAD -- src/hooks/useStockerSession.ts
+# Found pendingMachineTransition immediately
+# Reverted to working behavior
+```
+
+**The fix:**
+- Revert frontend to immediate state updates (Jan 18 behavior)
+- Add database safeguards (unique constraint + trigger)
+- Delete duplicate session
+- Total: 3 line change, not 6 complex solutions
+
+**LESSON: When something breaks, FIRST compare to when it worked. Don't guess.**
+
+**Full documentation:** `/home/visionairy/StockerAI/docs/MACHINE_TRANSITION_BUG_COMPLETE_HISTORY.md`
+
+---
+
 # 1. SOURCE OF TRUTH
 
 **MEMORY.md is the primary SOT.** Always read it first for current state, workflow IDs, and pending tasks.
