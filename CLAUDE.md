@@ -131,7 +131,29 @@ git push origin main  # Cloudflare Pages auto-deploys
 **Document findings in `/docs/audits/AUDIT_[DATE]_[CHANGE].md`**
 **Get user approval BEFORE implementing**
 
-**Full Protocol:** See `/home/visionairy/CLAUDE.md` or Section 0.2 above
+### 🔥 Incident: Incomplete Fix - Machine Sequencing (2026-01-22)
+
+**What happened:**
+- Fixed machine sequencing logic (reverse mode bug) in Determine Next State node
+- Provided code replacement to user WITHOUT checking downstream Format Output node
+- Result: Voice output said "undefined complete. Next is undefined at undefined"
+- Root cause: Format Output expected different field names than I provided
+
+**What I should have done:**
+1. Read Format Output node code FIRST
+2. Verify what field names it expects (completed_machine, next_machine, etc.)
+3. Provide COMPLETE fix with correct field names
+4. User gets working code on first try
+
+**What I actually did:**
+1. Fixed logic bug ✅
+2. Provided code with wrong field names ❌
+3. User hit "undefined" error
+4. Had to fix again with correct field names
+
+**Lesson:** ALWAYS verify downstream consumers BEFORE providing code replacement. The fix must be complete and compatible with the entire system.
+
+**Full Protocol:** See `/home/visionairy/CLAUDE.md` Section "MANDATORY SYSTEM IMPACT AUDIT PROTOCOL"
 
 ---
 
