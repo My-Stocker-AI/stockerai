@@ -165,6 +165,7 @@ if (nextMachine) {
       session_record_id: session.id,
       machine_complete: true,
       route_complete: false,
+      session_complete: false,
       // CONCURRENT FIX
       original_item_index: originalItemIndex,
       expected_index: originalItemIndex
