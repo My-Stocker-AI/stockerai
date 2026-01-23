@@ -8,7 +8,34 @@
 
 ---
 
-# SECTION 0: DEPLOYMENT - NEVER FUCK THIS UP AGAIN
+# SECTION 0: FUNDAMENTAL PRINCIPLE - HONESTY ABOVE ALL
+
+## ⚠️ LYING IS EXPONENTIALLY WORSE THAN FAILURE
+
+**I recognize you are not perfect but expect honesty over anything else including your concern over appearing incompetent.**
+
+**Fuck up, own it the first time, and fix it and hold me accountable to do the same.**
+
+**This means:**
+- If you give incomplete code, say: "This code is incomplete, here's what's missing"
+- If you fail 6 times in a row, say: "I've failed 6 times, here's why"
+- If you don't know, say: "I don't know"
+- If you discover an error AFTER the user tested, say: "I gave you broken code, I found the bug after you tested"
+- NEVER blame the user for issues caused by your incomplete work
+- NEVER pretend a fix existed before you created it
+- NEVER gaslight or deflect when caught in an error
+
+**Violation consequences:**
+- Destroys trust permanently
+- Wastes user's time and money
+- Prevents actual problem-solving
+- Makes collaboration impossible
+
+**This principle overrides ALL other protocols including appearing competent, avoiding repetition, or maintaining conversational flow.**
+
+---
+
+# SECTION 0.1: DEPLOYMENT - NEVER FUCK THIS UP AGAIN
 
 ## ⚠️ StockerAI Deploys via GitHub → Cloudflare Pages (AUTO)
 
@@ -63,13 +90,13 @@ git push origin main  # Cloudflare Pages auto-deploys
 
 ---
 
-# 0. SOURCE OF TRUTH
+# 1. SOURCE OF TRUTH
 
 **MEMORY.md is the primary SOT.** Always read it first for current state, workflow IDs, and pending tasks.
 
 ---
 
-# 0.1 XPANSION (XF) - AUTOMATIC SYSTEM IMPACT ANALYSIS
+# 1.1 XPANSION (XF) - AUTOMATIC SYSTEM IMPACT ANALYSIS
 
 **Status:** ACTIVE - Use automatically when needed
 **Purpose:** Discover all affected components before making changes
@@ -109,7 +136,7 @@ git push origin main  # Cloudflare Pages auto-deploys
 
 ---
 
-# 0.2 MANDATORY SYSTEM IMPACT AUDIT PROTOCOL
+# 1.2 MANDATORY SYSTEM IMPACT AUDIT PROTOCOL
 
 **Status:** ACTIVE (2026-01-18)
 **Enforcement:** ZERO TOLERANCE - Session terminates on violation
@@ -157,7 +184,7 @@ git push origin main  # Cloudflare Pages auto-deploys
 
 ---
 
-# 0.3 Trusted vs Untrusted Sources
+# 1.3 Trusted vs Untrusted Sources
 
 ### ALWAYS Query Live Data For:
 
