@@ -45,8 +45,14 @@ var currentMachineId = session.current_machine_id;
 var currentRouteId = session.current_route_id;
 var pickDirection = session.pick_direction || 'forward';
 
+// FIX: When starting a new machine (index=0) in reverse mode, initialize to items.length
+// This allows reverse mode to look for sequence = items.length - 1 (last item)
+if (currentItemIndex === 0 && pickDirection === 'reverse' && items.length > 0) {
+  currentItemIndex = items.length;
+}
+
 // CONCURRENT FIX: Store original index for optimistic lock check
-var originalItemIndex = currentItemIndex;
+var originalItemIndex = session.current_item_index || 0;  // Use original from session, not adjusted
 
 var currentMachine = null;
 var currentMachineSeq = 0;
