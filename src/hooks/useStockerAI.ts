@@ -243,7 +243,12 @@ export function useStockerAI() {
     currentMachineIndex?: number,
     completedItemsCount?: number,
     totalItems?: number,
-    machines?: any[]
+    machines?: any[],
+    pendingMachineTransition?: {
+      nextMachineId: string;
+      nextMachineName: string;
+      nextMachineIndex: number;
+    } | null
   }) => {
     // Use local date, not UTC (toISOString gives UTC which can be wrong timezone)
     const now = new Date();
@@ -300,6 +305,31 @@ ROUTE PROGRESS (for status queries):
 - Total items in route: ${routeContext.totalItems || 0}
 - Skipped machines: ${skippedMachines.length > 0 ? skippedMachines.join(', ') : 'None'}
 - Available routes for today: ${routeContext.availableRoutes.length > 0 ? routeContext.availableRoutes.join(', ') : 'None cached'}`;
+    }
+
+    // Add pending machine transition context
+    let pendingTransitionContext = '';
+    if (routeContext?.pendingMachineTransition) {
+      pendingTransitionContext = `
+
+🚨 CRITICAL - YOU ARE WAITING FOR DIRECTION RESPONSE 🚨
+The user just finished a machine and you asked "Top or bottom?"
+Pending machine: ${routeContext.pendingMachineTransition.nextMachineName}
+
+When user says ANYTHING that includes direction keywords, IMMEDIATELY call start_machine:
+- "top", "beginning", "start", "first", "from the top" → start_machine with direction="beginning"
+- "bottom", "end", "last", "reverse", "from the bottom" → start_machine with direction="end"
+
+DO NOT:
+- Ask for clarification ("Sorry, didn't catch that")
+- Say "didn't catch that" or "say next when ready"
+- Call get_next_item
+- Wait for "next"
+- Treat direction words as unclear input
+
+JUST CALL start_machine with the direction parameter IMMEDIATELY.
+
+The user WILL say direction words like "bottom", "top", "reverse" - these are VALID RESPONSES, not unclear input.`;
     }
 
     let routeSelectionContext = '';
@@ -536,7 +566,7 @@ If user says something you don't recognize or can't help with, respond:
 "That's not one of my options, but here's what we can do from here: say 'next' to continue, 'skip machine' to move on, 'go back' for the previous item, or 'switch routes' to change routes. What would you like to do?"
 
 Current session ID: ${sessionIdRef.current}
-Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${routeSelectionContext}`;
+Today's date: ${today}${currentRouteStatus}${routeStateContext}${pendingTransitionContext}${itemContext}${routeSelectionContext}`;
   }, []);
 
   const sendToAI = useCallback(async (messages: any[], userName: string, currentItem: any, routeContext?: {
@@ -547,7 +577,12 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
     currentMachineIndex?: number,
     completedItemsCount?: number,
     totalItems?: number,
-    machines?: any[]
+    machines?: any[],
+    pendingMachineTransition?: {
+      nextMachineId: string;
+      nextMachineName: string;
+      nextMachineIndex: number;
+    } | null
   }) => {
     // Check online status (from original PWA)
     if (!navigator.onLine) {
