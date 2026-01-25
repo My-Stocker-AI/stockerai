@@ -123,6 +123,50 @@ git push origin main  # Cloudflare Pages auto-deploys
 
 ---
 
+## ✅ MAJOR: AI Prompt Restructure for Bulletproof Execution (2026-01-25)
+
+**Problem identified:**
+- 32 instances of "CRITICAL" → diluted emphasis, AI doesn't know what matters
+- No clear state precedence → AI confused when rules conflict
+- Top 5 commands (next, yes, bottom, top, done) = 95% of usage but "not bulletproof by a long shot"
+- Missing edge case handling
+
+**Solution implemented (commit 75b020a):**
+
+**1. State-Machine Approach:**
+- **STATE 1: AWAITING DIRECTION** → OVERRIDES all other rules
+  - Only top/bottom matter, ignore everything else
+- **STATE 2: AWAITING SKIP CONFIRMATION** → Only yes/no matter
+- **STATE 3: IDLE** → Follow priority order (Top 5 → Other commands → Status → Errors)
+
+**2. Bulletproof Top 5 Commands (95% usage):**
+```
+"NEXT"    → Always get_next_item (unless in direction/skip state)
+"YES"     → Context-aware (skip? route? next item?)
+"BOTTOM"  → ALWAYS start_machine(end), NEVER "go back to machine"
+"TOP"     → ALWAYS start_machine(beginning)
+"DONE"    → Same as next
+```
+
+**3. Reduced Cognitive Load:**
+- Removed 20+ redundant CRITICAL markers
+- Visual separators for scannability
+- Clear precedence: State rules > Top 5 > Other > Status > Errors
+
+**4. Edge Case Handling:**
+- Unclear input during state → Repeat question
+- Tool call fails → "Something went wrong. Try again."
+- Suspected mishearing → "Did you mean [X]?"
+
+**Result:**
+- AI has unambiguous execution paths for 95% of commands
+- State-based rules prevent confusion
+- Easy to debug (clear mental model)
+
+**Files:** `src/hooks/useStockerAI.ts` (~300 lines restructured)
+
+---
+
 ## 🔥 Incident: Machine Transition Bug - 2 Hours of Guessing (2026-01-23)
 
 **What happened:**
