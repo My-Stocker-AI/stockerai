@@ -3,10 +3,14 @@
 -- ============================================================================
 -- Purpose: Create a small test route (5 machines, 4 items each = 20 items)
 --          Always dated for tomorrow so it's available without manual updates
--- Usage: Run in Supabase SQL Editor (authenticated as your user)
+-- Usage: Run in Supabase SQL Editor
 -- Safe: Uses TEST_ prefix, won't interfere with production routes
 -- Idempotent: Delete + recreate on each run
 -- ============================================================================
+
+-- STEP 0: Get your user_id first by running this query:
+-- SELECT id, email FROM auth.users WHERE email = 'russ@visionairy.biz';
+-- Copy the id and paste it below in the INSERT statement
 
 -- Step 1: Delete existing test route if present (idempotent)
 DELETE FROM items WHERE machine_id IN (
@@ -32,7 +36,7 @@ WITH new_route AS (
     created_at
   )
   VALUES (
-    auth.uid(),                           -- Current authenticated user
+    'PASTE-YOUR-USER-ID-HERE'::uuid,     -- Replace with your user_id from Step 0
     'TEST ROUTE - Dev Only',              -- Clear test identifier
     CURRENT_DATE + INTERVAL '1 day',      -- Always tomorrow
     5,                                    -- 5 machines
