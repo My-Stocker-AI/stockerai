@@ -211,6 +211,113 @@ if (result && result.error && toolName === 'start_machine') {
 
 ---
 
+## ✅ MAJOR: Systematic Edge Case Elimination - Machine Transitions (2026-01-25)
+
+**Context:** User frustrated with platform bugs, requested "anticipatory analysis" of edge cases.
+
+**Deep analysis performed:** Systematic review of machine transition flow covering:
+- Race conditions (rapid commands)
+- AI prompt ambiguities
+- State machine completeness
+- Error propagation paths
+- Timing assumptions
+- Cleanup paths (success/error/timeout)
+- Stale state persistence
+- Network failure scenarios
+
+**13 Issues Found (3 CRITICAL, 3 HIGH, 7 MEDIUM/LOW)**
+
+---
+
+### CRITICAL FIXES (Commits 451b105, b32ea39)
+
+**1. Race Condition Lock (CRITICAL)**
+- **Problem:** Rapid commands during transition → machine ID mismatch, duplicate sessions
+- **Solution:** Added `machineTransitionLockRef`
+  - Acquired when `action='next_machine'`
+  - Released on success/error/skip/complete
+  - Prevents concurrent state updates
+- **File:** `src/hooks/useStockerSession.ts:103, 319-346`
+
+**2. Enhanced Error Recovery (CRITICAL)**
+- **Problem:** start_machine error cleared flag but left machine ID in limbo
+- **Solution:** Restore previous machine state on error
+  - Find last completed machine
+  - Revert `currentMachineId/Name`
+  - Release transition lock
+- **File:** `src/hooks/useStockerSession.ts:133-151`
+
+**3. Network Failure Cleanup (CRITICAL)**
+- **Problem:** Network timeout left `pendingMachineTransition` set forever
+- **Solution:** Clear state in error handlers
+  - Tool failures → clear immediately
+  - Network errors → preserve during retries, clear after max retries exhausted
+  - Rate limits → preserve state, allow user retry
+- **File:** `src/pages/StockerApp.tsx:714-733`
+
+---
+
+### HIGH PRIORITY FIXES
+
+**4. Command Recognizer State Enforcement (HIGH)**
+- **Problem:** Direct command execution bypassed AI state machine
+- **Solution:** Check `pendingMachineTransition` BEFORE executing commands
+  - Only allow DIRECTION_TOP/BOTTOM when awaiting direction
+  - Re-prompt for direction if non-direction command received
+  - Prevents skip/next/undo during transition
+- **File:** `src/pages/StockerApp.tsx:354-368`
+
+**5. Session Persistence Consistency (HIGH)**
+- **Problem:** Resume used stale `currentMachineId` when `pendingMachineTransition` set
+- **Solution:** Use `pendingMachineTransition.nextMachineId` if present
+  - Ensures DB queries use correct machine after reload
+  - Prevents wrong machine being started
+- **File:** `src/pages/StockerApp.tsx:1133-1144`
+
+---
+
+### MEDIUM/LOW ISSUES
+
+**6-13:** Additional edge cases identified but deemed low-risk:
+- Voice interruption timing (partially mitigated)
+- Wake lock cleanup on error paths
+- Defensive validations for invalid machine IDs
+- SessionInvalidated check coverage gaps
+
+**Decision:** Monitor in production, fix if observed.
+
+---
+
+### IMPACT
+
+**Before fixes:**
+- Race condition → machine ID mismatch
+- Tool errors → stuck in direction mode
+- Network failures → permanent lockup
+- Command bypass → wrong state transitions
+- Page reload → wrong machine started
+
+**After fixes:**
+- Transition lock prevents races ✅
+- Error recovery restores previous state ✅
+- Network failures clear stuck state after retries ✅
+- State machine enforced at all entry points ✅
+- Resume uses correct machine ID ✅
+
+**User experience:**
+- No more stuck states
+- Graceful degradation on errors
+- Can retry after failures
+- State persists correctly across reloads
+
+**Files changed:**
+- `src/hooks/useStockerSession.ts`: Lock, error recovery, state management
+- `src/pages/StockerApp.tsx`: Command recognizer checks, error cleanup, resume fix
+
+**Lesson:** Systematic edge case analysis prevents "whack-a-mole" debugging. Lock mechanisms + comprehensive error cleanup = robust state machines.
+
+---
+
 ## 🔥 Incident: Machine Transition Bug - 2 Hours of Guessing (2026-01-23)
 
 **What happened:**
