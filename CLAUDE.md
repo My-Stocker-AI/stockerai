@@ -167,6 +167,50 @@ git push origin main  # Cloudflare Pages auto-deploys
 
 ---
 
+## 🔥 Incident: Machine Transition Fragility - Tool Call Failure (2026-01-25)
+
+**Problem identified:**
+- If `start_machine` tool call fails (network timeout, server error, database down)
+- `updateFromTool` sees `result.error` and returns early (line 129)
+- `pendingMachineTransition` state **NEVER cleared**
+- User stuck in direction-awaiting mode
+- All commands ignored except "top/bottom"
+- No escape except page reload
+
+**Example scenario:**
+1. User finishes Machine 1 → `pendingMachineTransition` set to Machine 2
+2. AI asks "Top or bottom for Machine 2?"
+3. User says "bottom"
+4. AI calls `start_machine(direction="end")`
+5. **Network timeout / server error**
+6. Error handler returns early WITHOUT clearing state
+7. User tries "next" → Ignored (only direction accepted)
+8. User tries "skip" → Ignored
+9. **Stuck forever**
+
+**The fix (commit 09fc0d3):**
+```typescript
+// Before general error check, detect start_machine failure
+if (result && result.error && toolName === 'start_machine') {
+  setRouteState(prev => ({
+    ...prev,
+    pendingMachineTransition: null  // Clear to exit direction-awaiting state
+  }));
+  return;
+}
+```
+
+**Impact:**
+- Graceful degradation instead of hard lockup
+- User can proceed with other commands (next, skip, etc.)
+- No longer stuck after transient failures
+
+**Files:** `src/hooks/useStockerSession.ts:128-137`
+
+**Lesson:** Error paths must clean up state just like success paths. State flags that control execution flow (like `pendingMachineTransition`) MUST be cleared on ALL exit paths.
+
+---
+
 ## 🔥 Incident: Machine Transition Bug - 2 Hours of Guessing (2026-01-23)
 
 **What happened:**
