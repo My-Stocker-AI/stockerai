@@ -66,7 +66,8 @@ const INITIAL_STATE: RouteState = {
   pendingMachineTransition: null
 };
 
-// Helper: Fetch machine's total_items from database
+// DEPRECATED: No longer used - totalItems loaded at route start
+// Kept for reference/debugging. Use machines array instead.
 async function fetchMachineTotalItems(machineId: string): Promise<number> {
   try {
     console.log('[Session] fetchMachineTotalItems called with:', machineId);
@@ -162,25 +163,29 @@ export function useStockerSession(userId: string | null) {
       return;
     }
 
-    // Fetch machine total_items when starting or switching machines
+    // FIX: Get machine total_items from machines array (already loaded at route start)
+    // No more database fetches - data is already in memory!
+    const getMachineTotalItems = (machineId: string, machines: any[]): number => {
+      const machine = machines.find(m => m.id === machineId);
+      return machine?.totalItems || 0;
+    };
+
     let machineTotalItems = 0;
+
+    // Get totalItems from machines array instead of fetching from database
     if (toolName === 'start_machine' && result.machine_id) {
-      console.log('[Session] Fetching total_items for machine_id:', result.machine_id);
-      machineTotalItems = await fetchMachineTotalItems(result.machine_id);
-      console.log('[Session] fetchMachineTotalItems returned:', machineTotalItems);
-    } else if (toolName === 'start_machine') {
-      console.log('[Session] start_machine called but no machine_id in result:', result);
+      machineTotalItems = getMachineTotalItems(result.machine_id, routeState.machines);
+      console.log('[Session] start_machine - Retrieved totalItems from machines array:', machineTotalItems);
     }
 
     if (toolName === 'get_next_item' && result.action === 'next_machine' && result.next_machine_id) {
-      machineTotalItems = await fetchMachineTotalItems(result.next_machine_id);
+      machineTotalItems = getMachineTotalItems(result.next_machine_id, routeState.machines);
+      console.log('[Session] get_next_item - Retrieved totalItems from machines array:', machineTotalItems);
     }
 
-    // FIX: Fetch totalItems for skip_current_machine with action='next_machine'
     if (toolName === 'skip_current_machine' && result.action === 'next_machine' && result.next_machine_id) {
-      console.log('[Session] skip_current_machine - Fetching total_items for next machine:', result.next_machine_id);
-      machineTotalItems = await fetchMachineTotalItems(result.next_machine_id);
-      console.log('[Session] skip_current_machine - fetchMachineTotalItems returned:', machineTotalItems);
+      machineTotalItems = getMachineTotalItems(result.next_machine_id, routeState.machines);
+      console.log('[Session] skip_current_machine - Retrieved totalItems from machines array:', machineTotalItems);
     }
 
     setRouteState(prev => {
@@ -429,17 +434,8 @@ export function useStockerSession(userId: string | null) {
           next.currentItem = null;
           next.currentItem2 = null;
 
-          // FIX: Store fetched totalItems in machines array for next machine
-          if (machineTotalItems > 0) {
-            next.machines = next.machines.map(m =>
-              m.id === result.next_machine_id
-                ? { ...m, totalItems: machineTotalItems }
-                : m
-            );
-            console.log('[Session] Skip stored totalItems:', machineTotalItems, 'for next machine:', result.next_machine_id);
-          }
-
           console.log('[Session] Skip set pending transition:', next.pendingMachineTransition);
+          // Note: totalItems already in machines array from route load - no need to update
         } else if (action === 'route_complete') {
           // No more machines - route is done
           next.currentMachineIndex = (prev.currentMachineIndex || 0) + 1;
