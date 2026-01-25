@@ -7,12 +7,146 @@
 ---
 
 # Stocker AI – Source of Truth
-**Last Updated:** 2026-01-22 (count=2 systemic fix - display issue resolved)
-**Status:** ⚠️ PARTIALLY FIXED - Display working, auto-advancement under investigation
+**Last Updated:** 2026-01-25 (Phase 1: Contract Validation Infrastructure - COMPLETE)
+**Status:** ✅ CONTRACTS DEFINED - Validation infrastructure deployed, ready for Phase 2
 
 ---
 
+## ✅ SESSION 48: PHASE 1 CONTRACT VALIDATION INFRASTRUCTURE - COMPLETE (2026-01-25)
 
+**Context:** User reported 3 interconnected bugs after machine transition fixes. Root cause identified as missing data contracts - no formal enforcement of immutable vs mutable separation.
+
+**Bugs Identified:**
+1. Skip machine says "complete" instead of "skipped" (AI text generation violation)
+2. Machine 2 shows "2/5 items" instead of "0/5" (completedItems contamination between machines)
+3. Machine finishes after 3 items when it has 5 total (using global count instead of per-machine)
+
+### Strategic Decision: Stop and Define Contracts
+
+**User directive:** "Run an XF review and figure out what we need to do SYSTEMICALLY ACROSS ALL WORKFLOWS TO ENSURE THIS. There should be immutable contracts that are obviously not in place."
+
+**Approach chosen:** Option C - Stop all feature work, define contracts first, then fix violations
+
+### Documentation Cleanup (COMPLETE)
+
+**Problem:** 177 documentation files (66 at root level), 60% obsolete, unusable
+**Solution:** Comprehensive audit + cleanup
+- **Deleted:** 105 obsolete files
+- **Kept:** 70 files organized by category (docs/, docs/testing/, docs/workflows/, docs/audits/, docs/archive/)
+- **Created:** docs/README.md navigation index
+- **Result:** Documentation now findable in <30 seconds
+
+### Contract Definition (COMPLETE)
+
+**Created:** `/docs/DATA_CONTRACTS.md` (1,186 lines)
+
+**Core Principles:**
+- **Immutable vs Mutable Separation:** Route/Machine structure is immutable, state is mutable
+- **Per-Machine Isolation:** Each machine has independent `completedItems` counter (NEVER carries over)
+- **Source of Truth Hierarchy:** Database > Session > Frontend for completed_items
+- **Boundary Validation:** Enforce at workflow→frontend, frontend state, AI text generation
+
+**Critical Contracts Defined:**
+```typescript
+interface MachineContract {
+  // IMMUTABLE - Set once at creation
+  total_items: number;  // NEVER changes
+
+  // MUTABLE - Changes during execution
+  completed_items: number;  // 0→total_items, ISOLATED per machine
+}
+
+interface BaseWorkflowOutput {
+  action: WorkflowAction;
+  spoken: string;  // REQUIRED - frontend MUST use verbatim
+}
+```
+
+**5 Critical Protocols:**
+1. Resume/Persistence Contract
+2. AI Text Generation Rules (workflow.spoken verbatim - no AI generation)
+3. Error Recovery Contract
+4. Race Condition Lock Protocol
+5. go_back_to_skipped Contract
+
+### Validation Infrastructure Implementation (COMPLETE)
+
+**Commits:** f154629, 9ceb3c9
+**Status:** ✅ Deployed to production
+
+**Files Created:**
+- `src/types/contracts.ts` (450 lines) - TypeScript interfaces for all contracts
+- `src/utils/contractValidation.ts` (400+ lines) - Runtime validation functions
+
+**Files Modified:**
+- `src/hooks/useStockerSession.ts` - Added workflow output + state update validation
+- `src/pages/StockerApp.tsx` - Added AI text generation validation
+
+**Validation Coverage:**
+- ✅ Workflow output contracts (required fields, spoken text, counter values)
+- ✅ Machine totalItems immutability
+- ✅ Per-machine completedItems isolation
+- ✅ Counter bounds (non-negative, <= totalItems)
+- ✅ Skip vs Complete text validation
+- ✅ AI text generation rules (workflow.spoken required for workflow actions)
+
+**Validation Strategy:**
+- **Non-blocking:** Logs violations to console but allows execution
+- **Full context:** Includes contract name, rule, actual value, expected value
+- **3 boundaries:** Workflow→Frontend, Frontend state updates, AI text generation
+
+**Example Violation Log:**
+```
+[ContractViolation] Workflow skip_current_machine output - 1 violation(s):
+  - SkipMachineOutput: Skip action MUST say "skipped" not "complete"
+    Actual: "Machine 1 complete. Next is Machine 2."
+    Expected: text containing "skipped"
+```
+
+### Documentation Created
+
+**Complete Phase 1 Summary:**
+- `/docs/PHASE_1_CONTRACT_VALIDATION_COMPLETE.md` (358 lines)
+- Validation coverage details
+- Example validations (pass/fail scenarios)
+- Next steps for Phases 2-5
+
+### Next Steps: Phase 2-5 Fix Checklist
+
+**Phase 2: Workflow Fixes (17 items)**
+- Fix skip_current_machine: spoken text says "skipped" not "complete"
+- Fix skip_current_machine: preserve completed_items count
+- Fix get_next_item: spoken text says "complete" when done
+- Fix start_machine: items_remaining is per-machine count
+- Fix go_back_to_skipped: resume from completed_items
+- Verify all workflows: totalItems never modified
+- Verify all workflows: spoken text always provided
+
+**Phase 3: Frontend Fixes (14 items)**
+- useStockerSession: Per-machine completedItems isolation
+- useStockerSession: Reset counts when machine changes
+- useStockerAI: Use workflow.spoken verbatim (no generation)
+- StockerApp progress bar: Use per-machine counters
+- Error recovery implementations
+
+**Phase 4: Database Constraints (4 items)**
+- CHECK: machines.completed_items <= total_items
+- CHECK: machines.completed_items >= 0
+- Trigger: Prevent total_items modification
+- Trigger: Prevent machine deletion after route started
+
+**Phase 5: Testing (25 scenarios)**
+- Comprehensive validation testing
+
+### Lesson Learned
+
+**Systemic vs Symptomatic Fixes:**
+- ❌ Fix bugs one-by-one as they appear (whack-a-mole)
+- ✅ Define contracts, enforce with validation, fix violations systematically
+
+**Result:** Clear path forward with measurable progress (60+ items across 5 phases)
+
+---
 
 ## ⚠️ SESSION 47C: COUNT=2 SYSTEMIC FIX - DATA STRUCTURE MISMATCH (2026-01-22)
 
