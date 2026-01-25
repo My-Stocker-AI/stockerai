@@ -163,35 +163,19 @@ export function useStockerSession(userId: string | null) {
       return;
     }
 
-    // FIX: Get machine total_items from machines array (already loaded at route start)
-    // No more database fetches - data is already in memory!
-    const getMachineTotalItems = (machineId: string, machines: any[]): number => {
-      const machine = machines.find(m => m.id === machineId);
-      // Handle both formats: totalItems (from n8n workflows) and total_items (from database)
-      const total = machine?.totalItems || machine?.total_items || 0;
-      console.log('[Session] getMachineTotalItems - machineId:', machineId, 'found:', !!machine, 'totalItems:', machine?.totalItems, 'total_items:', machine?.total_items, 'using:', total);
-      return total;
-    };
-
-    let machineTotalItems = 0;
-
-    // Get totalItems from machines array instead of fetching from database
-    if (toolName === 'start_machine' && result.machine_id) {
-      machineTotalItems = getMachineTotalItems(result.machine_id, routeState.machines);
-      console.log('[Session] start_machine - Retrieved totalItems from machines array:', machineTotalItems);
-    }
-
-    if (toolName === 'get_next_item' && result.action === 'next_machine' && result.next_machine_id) {
-      machineTotalItems = getMachineTotalItems(result.next_machine_id, routeState.machines);
-      console.log('[Session] get_next_item - Retrieved totalItems from machines array:', machineTotalItems);
-    }
-
-    if (toolName === 'skip_current_machine' && result.action === 'next_machine' && result.next_machine_id) {
-      machineTotalItems = getMachineTotalItems(result.next_machine_id, routeState.machines);
-      console.log('[Session] skip_current_machine - Retrieved totalItems from machines array:', machineTotalItems);
-    }
-
     setRouteState(prev => {
+      // CRITICAL FIX: Lookup totalItems INSIDE callback to avoid stale closure
+      // (updateFromTool has empty deps [] so routeState is stale - must use 'prev')
+      const getMachineTotalItems = (machineId: string): number => {
+        const machine = prev.machines.find(m => m.id === machineId);
+        if (!machine) {
+          console.warn('[Session] ❌ Machine not found in state:', machineId);
+          console.warn('[Session] Available machines:', prev.machines.map(m => ({ id: m.id, name: m.name, totalItems: m.totalItems })));
+          return 0;
+        }
+        console.log('[Session] ✓ Found machine:', machine.name, 'totalItems:', machine.totalItems);
+        return machine.totalItems;
+      };
       const next = { ...prev };
 
       if (toolName === 'set_route_sequence') {
@@ -220,10 +204,11 @@ export function useStockerSession(userId: string | null) {
       }
 
       if (toolName === 'start_machine') {
-        // Set machine item counts
-        next.currentMachineTotalItems = machineTotalItems;
+        // Set machine item counts (lookup from current state, not stale closure)
+        const totalItems = getMachineTotalItems(result.machine_id);
+        next.currentMachineTotalItems = totalItems;
         next.currentMachineItemsRemaining = result.items_remaining || 0;
-        console.log('[Session] start_machine - Total:', machineTotalItems, 'Remaining:', result.items_remaining);
+        console.log('[Session] start_machine - Total:', totalItems, 'Remaining:', result.items_remaining);
 
         // Handle 2-pick mode: item1 and optionally item2
         const itemData = result.item1 || result;
