@@ -204,6 +204,10 @@ export function useStockerSession(userId: string | null) {
         } else {
           next.currentItem2 = null;
         }
+
+        // CRITICAL FIX: Clear pending direction flag after starting machine
+        next.pendingMachineTransition = null;
+        console.log('[Session] Direction answered - cleared pending transition');
       }
 
       if (toolName === 'get_next_item') {
@@ -304,6 +308,14 @@ export function useStockerSession(userId: string | null) {
                 : m
             );
           }
+
+          // CRITICAL FIX: Set pending direction flag for AI context
+          next.pendingMachineTransition = {
+            nextMachineId: result.next_machine_id || '',
+            nextMachineName: result.next_machine || '',
+            nextMachineIndex: (prev.currentMachineIndex || 0) + 1
+          };
+          console.log('[Session] Machine transition - awaiting direction for:', result.next_machine);
         } else if (action === 'route_complete' || action === 'complete') {
           // Mark last machine as completed
           if (prev.currentMachineId) {
@@ -317,6 +329,7 @@ export function useStockerSession(userId: string | null) {
           next.currentItem = null;
           next.currentItem2 = null;
           next.completed = true;
+          next.pendingMachineTransition = null;
 
           // CATASTROPHIC FAILURE FIX: Invalidate session to prevent further commands
           next.sessionInvalidated = true;
@@ -339,6 +352,7 @@ export function useStockerSession(userId: string | null) {
         next.currentMachineId = result.next_machine_id || null;
         next.currentItem = null;
         next.currentItem2 = null;
+        next.pendingMachineTransition = null;  // Clear any pending direction
         // Mark next machine as in_progress
         if (result.next_machine_id) {
           next.machines = next.machines.map(m =>

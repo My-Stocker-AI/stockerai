@@ -291,6 +291,10 @@ export function useStockerAI() {
       const skippedMachines = (routeContext.machines || []).filter((m: any) => m.status === 'skipped').map((m: any) => m.name);
       const machinesLeft = routeContext.totalMachines - (routeContext.currentMachineIndex || 0);
 
+      // CRITICAL FIX: Add direction awaiting flag
+      const awaitingDirection = routeContext.pendingMachineTransition ?
+        `\n⚠️ AWAITING DIRECTION RESPONSE FOR: ${routeContext.pendingMachineTransition.nextMachineName}\n- Next user input is DIRECTION ONLY (top/bottom)\n- Do NOT interpret as any other command\n- Call start_machine immediately with user's direction choice` : '';
+
       routeStateContext = `
 ROUTE PROGRESS (for status queries):
 - Total machines: ${routeContext.totalMachines}
@@ -299,7 +303,7 @@ ROUTE PROGRESS (for status queries):
 - Items completed: ${routeContext.completedItemsCount || 0}
 - Total items in route: ${routeContext.totalItems || 0}
 - Skipped machines: ${skippedMachines.length > 0 ? skippedMachines.join(', ') : 'None'}
-- Available routes for today: ${routeContext.availableRoutes.length > 0 ? routeContext.availableRoutes.join(', ') : 'None cached'}`;
+- Available routes for today: ${routeContext.availableRoutes.length > 0 ? routeContext.availableRoutes.join(', ') : 'None cached'}${awaitingDirection}`;
     }
 
     let routeSelectionContext = '';
@@ -458,6 +462,16 @@ NEVER just acknowledge direction - ALWAYS call start_machine tool with the direc
 When get_next_item returns action="next_machine":
 - Ask about direction: "Done with [completed_machine]. Next up is [next_machine]. Would you like to start from the top of the list for this machine, or the bottom?"
 - Wait for user response, then call start_machine with their chosen direction
+
+⚠️ CRITICAL STATE AWARENESS - AWAITING DIRECTION:
+If you see "AWAITING DIRECTION RESPONSE" in the route context below, this means:
+- You JUST asked the user "top or bottom?" for starting the next machine
+- The NEXT user input MUST be interpreted as a direction choice for that machine
+- ANY response containing "top/beginning/start" → call start_machine with direction="beginning"
+- ANY response containing "bottom/end/last" → call start_machine with direction="end"
+- DO NOT interpret "bottom" as wanting to go back to a previous machine
+- DO NOT ask clarifying questions - just call start_machine with the direction
+- This is the ONLY valid action when AWAITING DIRECTION RESPONSE flag is active
 
 CRITICAL - Skip commands (REQUIRES CONFIRMATION):
 Skip is a significant action - DON'T skip on garbled/unclear input!
