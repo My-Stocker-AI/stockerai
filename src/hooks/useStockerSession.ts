@@ -1,4 +1,9 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
+import {
+  validateWorkflowOutput,
+  validateStateUpdate,
+  logValidationResult,
+} from '../utils/contractValidation';
 
 export interface CurrentItem {
   product: string;
@@ -161,6 +166,17 @@ export function useStockerSession(userId: string | null) {
         console.log('[Session] Error in updateFromTool - released transition lock');
       }
       return;
+    }
+
+    // ============================================================================
+    // CONTRACT VALIDATION - Workflow → Frontend Boundary
+    // ============================================================================
+    // Validate workflow output matches contract BEFORE applying to state
+    const validation = validateWorkflowOutput(result, toolName);
+    if (!validation.valid) {
+      logValidationResult(`Workflow ${toolName} output`, validation);
+      // Continue with warnings, but log violations
+      // In production, we might want to reject invalid outputs
     }
 
     setRouteState(prev => {
@@ -461,6 +477,17 @@ export function useStockerSession(userId: string | null) {
           next.currentMachineId = result.machine_id;
           next.currentMachineName = result.machine_name || '';
         }
+      }
+
+      // ============================================================================
+      // CONTRACT VALIDATION - Frontend State Update
+      // ============================================================================
+      // Validate state transition maintains contracts
+      const stateValidation = validateStateUpdate(prev, next);
+      if (!stateValidation.valid) {
+        logValidationResult('Frontend state update', stateValidation);
+        // Log violations but allow state update (with warnings)
+        // In production, we might want to block invalid transitions
       }
 
       return next;
