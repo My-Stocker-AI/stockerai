@@ -142,9 +142,25 @@ git diff 52e9508 HEAD -- src/hooks/useStockerSession.ts
 **Status:** ACTIVE - Use automatically when needed
 **Purpose:** Discover all affected components before making changes
 
-## When You (Claude) Must Use XF
+## ⚠️ ABSOLUTE MANDATE - WHEN USER SAYS "USE XF"
 
-**AUTOMATIC for:**
+**If user says "use XF" or "run XF" or "analyze with XF":**
+1. **IMMEDIATELY run XF** - Do not explain, do not ask, do not suggest alternatives
+2. **Use exact problem statement provided**
+3. **Show results when complete**
+4. **NO EXCUSES** - Not "simple enough", not "faster manually", not "XF overkill"
+
+**Violation = session-ending failure.**
+
+**Evidence of past violations:**
+- Session 45 (2026-01-20): User demanded XF, I attempted manual analysis first, got called out
+- Session 47 (2026-01-23): Spent 2 hours guessing, 6 failed fixes, never used XF
+
+---
+
+## When You (Claude) Must Use XF Automatically
+
+**AUTOMATIC for (unless user says "skip XF"):**
 - Workflow activation/changes (n8n)
 - Database schema changes (ALTER TABLE, CASCADE, RLS)
 - API contract changes (WEBHOOK_MAP, endpoint updates)
