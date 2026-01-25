@@ -167,8 +167,10 @@ export function useStockerSession(userId: string | null) {
     // No more database fetches - data is already in memory!
     const getMachineTotalItems = (machineId: string, machines: any[]): number => {
       const machine = machines.find(m => m.id === machineId);
-      console.log('[Session] getMachineTotalItems - machineId:', machineId, 'found:', machine, 'total_items:', machine?.total_items);
-      return machine?.total_items || 0;  // FIX: Use total_items (snake_case) not totalItems
+      // Handle both formats: totalItems (from n8n workflows) and total_items (from database)
+      const total = machine?.totalItems || machine?.total_items || 0;
+      console.log('[Session] getMachineTotalItems - machineId:', machineId, 'found:', !!machine, 'totalItems:', machine?.totalItems, 'total_items:', machine?.total_items, 'using:', total);
+      return total;
     };
 
     let machineTotalItems = 0;
