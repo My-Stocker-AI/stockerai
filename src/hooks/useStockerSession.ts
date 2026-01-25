@@ -407,19 +407,42 @@ export function useStockerSession(userId: string | null) {
               : m
           );
         }
-        next.currentMachineIndex = (prev.currentMachineIndex || 0) + 1;
-        next.currentMachineName = result.next_machine || '';
-        next.currentMachineId = result.next_machine_id || null;
-        next.currentItem = null;
-        next.currentItem2 = null;
-        next.pendingMachineTransition = null;  // Clear any pending direction
-        // Mark next machine as in_progress
-        if (result.next_machine_id) {
-          next.machines = next.machines.map(m =>
-            m.id === result.next_machine_id
-              ? { ...m, status: 'in_progress' as const }
-              : m
-          );
+
+        // FIX: Handle machine transition consistently with get_next_item
+        // Check for action field (added in workflow fix)
+        const action = result.action || '';
+
+        if (action === 'next_machine' && result.next_machine_id) {
+          // Set pending transition - wait for user direction (same as get_next_item)
+          next.pendingMachineTransition = {
+            nextMachineId: result.next_machine_id,
+            nextMachineName: result.next_machine || '',
+            nextMachineIndex: (prev.currentMachineIndex || 0) + 1
+          };
+          next.currentItem = null;
+          next.currentItem2 = null;
+          console.log('[Session] Skip set pending transition:', next.pendingMachineTransition);
+        } else if (action === 'route_complete') {
+          // No more machines - route is done
+          next.currentMachineIndex = (prev.currentMachineIndex || 0) + 1;
+          next.currentItem = null;
+          next.currentItem2 = null;
+          next.pendingMachineTransition = null;
+        } else {
+          // Legacy fallback (if workflow not updated yet)
+          next.currentMachineIndex = (prev.currentMachineIndex || 0) + 1;
+          next.currentMachineName = result.next_machine || '';
+          next.currentMachineId = result.next_machine_id || null;
+          next.currentItem = null;
+          next.currentItem2 = null;
+          next.pendingMachineTransition = null;
+          if (result.next_machine_id) {
+            next.machines = next.machines.map(m =>
+              m.id === result.next_machine_id
+                ? { ...m, status: 'in_progress' as const }
+                : m
+            );
+          }
         }
       }
 

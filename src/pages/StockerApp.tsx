@@ -1403,10 +1403,12 @@ export default function StockerApp() {
   };
 
   const handlePauseToggle = () => {
-    if (voice.status === 'paused') {
-      voice.resumeListening();
+    // FIX: Pause also mutes microphone to prevent background noise pickup
+    // User can now use pause OR mute button - they do the same thing
+    if (voice.status === 'paused' || voice.status === 'muted') {
+      voice.unmute();
     } else {
-      voice.pauseListening();
+      voice.mute();
     }
   };
 
