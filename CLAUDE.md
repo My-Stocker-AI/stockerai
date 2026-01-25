@@ -90,6 +90,39 @@ git push origin main  # Cloudflare Pages auto-deploys
 
 ---
 
+## 🔥 Incident: Machine Transition Bug - ACTUAL FIX (2026-01-25)
+
+**What happened:**
+- Jan 23 "fix" (commit 7de9bcb) WAS deployed but bug STILL occurred
+- User finished Machine 1, said "bottom" for Machine 2
+- AI responded: "You're on Machine 1. Did you want to restart this machine?"
+- The revert fix didn't solve the root cause
+
+**Root cause (the REAL one):**
+- Jan 23 fix updated frontend state immediately ✅
+- But AI prompt had NO explicit flag indicating "awaiting direction response"
+- When user said "bottom", AI saw:
+  - currentMachineName = Machine 2
+  - Conversation history mentioning Machine 1 complete
+  - No explicit "you just asked top/bottom, interpret this as direction"
+- AI got confused and thought user wanted to go BACK to Machine 1
+
+**The actual fix (commit 07e4dd5):**
+1. Set `pendingMachineTransition` when `action="next_machine"`
+2. Clear `pendingMachineTransition` when `start_machine` is called
+3. Inject "⚠️ AWAITING DIRECTION RESPONSE" into AI prompt context
+4. AI now knows: "Next input MUST be interpreted as direction only"
+
+**Files changed:**
+- `src/hooks/useStockerSession.ts`: State management for pending transition
+- `src/hooks/useStockerAI.ts`: Prompt context with explicit awaiting flag
+
+**Lesson:** Frontend state updates aren't enough - AI needs EXPLICIT context about what state it's in and what user input means in that state.
+
+**Full history:** `/home/visionairy/StockerAI/docs/MACHINE_TRANSITION_BUG_COMPLETE_HISTORY.md`
+
+---
+
 ## 🔥 Incident: Machine Transition Bug - 2 Hours of Guessing (2026-01-23)
 
 **What happened:**
