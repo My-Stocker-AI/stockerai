@@ -480,7 +480,502 @@ function validateMachineTransition(prev: RouteState, next: RouteState) {
 
 ---
 
-## 5. CURRENT VIOLATIONS
+### 4.5 go_back_to_skipped
+
+**Purpose:** Return to a previously skipped machine to finish it
+
+**Input:**
+```typescript
+{
+  session_id: string;
+  machine_id: string;  // ID of skipped machine to resume
+}
+```
+
+**Output Contract:**
+```typescript
+{
+  action: 'item_ready';
+  machine_id: string;
+  machine_name: string;
+  items_remaining: number;     // Items LEFT on this machine (total - completed)
+  item1: {
+    product_name: string;
+    quantity: number;
+    slot: string;
+    slot_spoken: string;
+  };
+  item2?: { ... };
+  spoken: string;              // "Back to TEST Machine 1. X items remaining."
+  display_text: string;
+}
+```
+
+**Contract Rules:**
+- ✅ MUST resume from machine.completed_items (continue where left off)
+- ✅ items_remaining = machine.total_items - machine.completed_items
+- ✅ MUST update machine.status from 'skipped' to 'in_progress'
+- ✅ MUST update session.current_machine_id to this machine
+- ✅ items_remaining counts only REMAINING items, not total
+- ❌ NEVER reset completed_items when resuming skipped machine
+- ❌ NEVER start from beginning (honor completed_items count)
+
+**Example:**
+- Machine 1: total_items = 5, completed_items = 2 (skipped after 2 items)
+- User goes back to Machine 1
+- items_remaining = 5 - 2 = 3 (not 5!)
+- Resume from item 3 (not item 1)
+
+---
+
+### 4.6 switch_route
+
+**Purpose:** Switch from one route to another
+
+**Input:**
+```typescript
+{
+  user_id: string;
+  new_route_id: string;
+  date?: string;
+}
+```
+
+**Output Contract:**
+```typescript
+{
+  action: 'route_switched';
+  route_name: string;
+  date: string;
+  total_machines: number;
+  total_items: number;
+  spoken: string;              // "Switched to [route name] for [date]"
+}
+```
+
+**Contract Rules:**
+- ✅ MUST save current route state before switching
+- ✅ MUST load new route with correct machines[] and counts
+- ✅ New route starts with all machines.completed_items = 0 (unless resuming)
+- ✅ If resuming saved route, restore machines[].completed_items from database
+- ❌ NEVER lose progress on previous route
+- ❌ NEVER mix data from old route with new route
+
+---
+
+### 4.7 delete_route
+
+**Purpose:** Delete a route and all associated data
+
+**Input:**
+```typescript
+{
+  user_id: string;
+  route_id: string;
+}
+```
+
+**Output Contract:**
+```typescript
+{
+  action: 'route_deleted';
+  route_name: string;
+  spoken: string;              // "Route [name] deleted"
+}
+```
+
+**Contract Rules:**
+- ✅ MUST cascade delete: route → machines → items
+- ✅ MUST delete associated sessions
+- ✅ MUST fail if route is currently active (session exists)
+- ❌ NEVER delete active route without warning
+- ❌ NEVER orphan machines/items (use CASCADE)
+
+---
+
+### 4.8 get_current_status
+
+**Purpose:** Query current state (route progress, machine status, etc.)
+
+**Input:**
+```typescript
+{
+  session_id: string;
+}
+```
+
+**Output Contract:**
+```typescript
+{
+  action: 'status_report';
+  route_name: string;
+  current_machine_name: string;
+  current_machine_index: number;  // 1-based
+  total_machines: number;
+  machines: Array<{
+    name: string;
+    status: MachineStatus;
+    completed_items: number;
+    total_items: number;
+  }>;
+  total_items_picked: number;     // Sum of all machines[].completed_items
+  total_items_in_route: number;   // Sum of all machines[].total_items
+  spoken: string;
+}
+```
+
+**Contract Rules:**
+- ✅ MUST return current state snapshot
+- ✅ total_items_picked = sum of machines[].completed_items
+- ✅ total_items_in_route = sum of machines[].total_items
+- ✅ MUST include status for ALL machines (not just current)
+- ❌ NEVER modify state (read-only operation)
+
+---
+
+### 4.9 update_session_state
+
+**Purpose:** Generic session state update (called by other workflows)
+
+**Input:**
+```typescript
+{
+  session_id: string;
+  update: {
+    current_machine_id?: string;
+    current_item_index?: number;
+    completed?: boolean;
+  };
+}
+```
+
+**Output Contract:**
+```typescript
+{
+  action: 'session_updated';
+  session_id: string;
+  updated_fields: string[];
+}
+```
+
+**Contract Rules:**
+- ✅ MUST validate session exists before update
+- ✅ MUST validate current_machine_id exists in route
+- ✅ MUST validate current_item_index <= machine.total_items
+- ❌ NEVER allow invalid state transitions
+- ❌ NEVER update immutable fields (route structure)
+
+---
+
+## 5. CRITICAL PROTOCOLS
+
+### 5.1 Resume/Persistence Contract
+
+**Purpose:** Ensure state integrity when app reloads or user returns
+
+**Source of Truth Hierarchy:**
+1. **Database `machines.completed_items`** - PRIMARY source of truth
+2. **Session `current_item_index`** - Position within current machine
+3. **Frontend `completedItems[]` array** - UI display only (derived)
+
+**Resume Protocol:**
+```typescript
+// When app reloads or user returns
+async function resumeSession(userId: string, routeId: string) {
+  // 1. Load route structure (immutable)
+  const route = await loadRoute(routeId);
+
+  // 2. Load machines with completed_items counts (from database)
+  const machines = await loadMachines(routeId);
+
+  // 3. Load or create session
+  const session = await loadOrCreateSession(userId, routeId);
+
+  // 4. Validate session.current_machine_id exists in machines
+  const currentMachine = machines.find(m => m.id === session.current_machine_id);
+  if (!currentMachine) {
+    // Corruption detected - reset to first pending machine
+    session.current_machine_id = machines.find(m => m.status === 'pending')?.id;
+  }
+
+  // 5. Restore frontend state from database (NOT session)
+  setState({
+    routeId: route.id,
+    machines: machines,  // With correct completed_items from DB
+    currentMachineId: session.current_machine_id,
+    completedItems: []   // Will be populated from database query
+  });
+
+  // 6. Query completed items from database for "done" card
+  const completedItems = await queryCompletedItems(routeId, machines);
+  setState({ completedItems });
+}
+```
+
+**Contract Rules:**
+- ✅ Database `machines.completed_items` is ALWAYS source of truth
+- ✅ Session stores position only (currentMachineId, currentItemIndex)
+- ✅ Frontend rebuilds state from database on resume
+- ✅ If session conflicts with database, database wins
+- ❌ NEVER trust session as primary source for completed_items
+- ❌ NEVER trust frontend state across reloads
+- ❌ NEVER allow "phantom items" (session says picked but not in DB)
+
+**Conflict Resolution:**
+```
+IF session.current_item_index > machine.completed_items:
+  → Use machine.completed_items (user might have refreshed mid-pick)
+  → Discard session.current_item_index
+  → Resume from machine.completed_items + 1
+
+IF session.current_machine_id not found in machines:
+  → Session corruption
+  → Reset to first pending/in_progress machine
+  → Log error for investigation
+```
+
+---
+
+### 5.2 AI Text Generation Rules
+
+**Purpose:** Define when AI can generate text vs must use workflow output
+
+**Rule 1: Workflow Actions**
+```typescript
+// For ALL workflow tool call responses:
+if (toolResult.action && toolResult.spoken) {
+  // USE WORKFLOW TEXT VERBATIM
+  voice.speak(toolResult.spoken);
+  display(toolResult.display_text || toolResult.spoken);
+
+  // ❌ DO NOT let AI generate its own response
+  // ❌ DO NOT pass workflow result to AI for reformulation
+}
+```
+
+**Rule 2: Status Queries**
+```typescript
+// For status/query requests (not workflow actions):
+if (userIntent === 'query_status' && !toolResult.action) {
+  // AI CAN generate conversational response
+  const aiResponse = await generateAIResponse(toolResult);
+  voice.speak(aiResponse);
+}
+```
+
+**Rule 3: Fallback**
+```typescript
+// If workflow.spoken is missing/null/empty:
+if (!toolResult.spoken) {
+  // LOG ERROR - this is a contract violation
+  console.error('Workflow missing spoken text:', toolResult);
+
+  // Fallback to generic response
+  voice.speak('Action completed.');
+}
+```
+
+**Contract Rules:**
+- ✅ Workflow actions (next_machine, item_ready, route_complete) → Use workflow.spoken
+- ✅ Status queries (get_current_status) → AI can generate response
+- ✅ Always use workflow.spoken if present
+- ❌ NEVER let AI rewrite workflow.spoken text
+- ❌ NEVER mix workflow text with AI-generated text
+- ❌ NEVER route workflow actions through AI for text generation
+
+**Action Types That MUST Use Workflow Text:**
+- `machine_ready` (set_route_sequence)
+- `item_ready` (start_machine, get_next_item)
+- `next_machine` (get_next_item, skip_current_machine)
+- `route_complete` (get_next_item, skip_current_machine)
+- `route_switched` (switch_route)
+- `route_deleted` (delete_route)
+
+**Action Types Where AI CAN Generate:**
+- `status_report` (get_current_status)
+- User conversational queries ("how many items left?")
+- Error messages
+- Clarification requests
+
+---
+
+### 5.3 Error Recovery Contract
+
+**Purpose:** Define behavior when workflow tool calls fail
+
+**Error Categories:**
+
+**1. Network Timeout**
+```typescript
+// Tool call times out (no response)
+{
+  error: 'timeout',
+  toolName: 'get_next_item',
+  machineId: 'abc-123'
+}
+```
+
+**Recovery:**
+- ✅ Preserve state (don't modify completed_items)
+- ✅ Allow user to retry same operation
+- ✅ Show user-friendly error: "Connection issue. Please try again."
+- ❌ NEVER auto-increment counters on timeout
+- ❌ NEVER assume operation succeeded
+
+**2. Validation Error**
+```typescript
+// Tool call rejected by workflow validation
+{
+  error: 'validation_failed',
+  message: 'Machine not found',
+  machineId: 'invalid-id'
+}
+```
+
+**Recovery:**
+- ✅ Preserve state
+- ✅ Log error for debugging
+- ✅ Show specific error to user
+- ❌ NEVER proceed with invalid state
+
+**3. Database Error**
+```typescript
+// Database write/read failed
+{
+  error: 'database_error',
+  message: 'Failed to update completed_items'
+}
+```
+
+**Recovery:**
+- ✅ Rollback any partial state changes
+- ✅ Restore to last known good state
+- ✅ Show error: "Something went wrong. Please try again."
+- ❌ NEVER leave database in inconsistent state
+- ❌ NEVER continue as if operation succeeded
+
+**Idempotency Rules:**
+- ✅ `start_machine` - Idempotent (can call multiple times, same result)
+- ✅ `get_next_item` - Idempotent IF current_item_index unchanged
+- ⚠️ `skip_current_machine` - NOT idempotent (sets status=skipped once)
+- ⚠️ Item completion - NOT idempotent (increments completed_items)
+
+**Retry Logic:**
+```typescript
+async function retryWithBackoff(operation, maxRetries = 3) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (attempt === maxRetries) throw error;
+
+      // Exponential backoff: 1s, 2s, 4s
+      await sleep(1000 * Math.pow(2, attempt - 1));
+    }
+  }
+}
+```
+
+**Contract Rules:**
+- ✅ Network errors → Retry with backoff (3 attempts)
+- ✅ Validation errors → Fail immediately (no retry)
+- ✅ Database errors → Rollback + fail
+- ✅ After max retries → Preserve state, show error
+- ❌ NEVER retry validation errors
+- ❌ NEVER infinite retry loops
+
+---
+
+### 5.4 Race Condition Lock Protocol
+
+**Purpose:** Prevent concurrent machine transitions from corrupting state
+
+**Lock Acquisition:**
+```typescript
+// Lock is acquired when:
+1. get_next_item returns action='next_machine'
+2. skip_current_machine called
+3. go_back_to_skipped called
+
+// Lock stored in:
+machineTransitionLockRef.current = true;
+```
+
+**Lock Release:**
+```typescript
+// Lock is released when:
+1. start_machine completes successfully (user chose top/bottom)
+2. start_machine fails with error
+3. route_complete reached
+4. Component unmounts
+
+machineTransitionLockRef.current = false;
+```
+
+**Operations Blocked During Lock:**
+```typescript
+if (machineTransitionLockRef.current) {
+  // BLOCKED operations:
+  - get_next_item (prevent duplicate transitions)
+  - skip_current_machine (prevent skip during transition)
+  - go_back_to_skipped (prevent back during transition)
+
+  // ALLOWED operations:
+  - start_machine (this releases the lock)
+  - get_current_status (read-only)
+  - User says "top" or "bottom" (triggers start_machine)
+}
+```
+
+**Timeout:**
+- ⏱️ Lock timeout: 30 seconds
+- If lock held > 30s → Auto-release + log warning
+- User stuck? → Allow manual escape after timeout
+
+**Contract Rules:**
+- ✅ Only ONE machine transition at a time
+- ✅ Lock acquired BEFORE updating any state
+- ✅ Lock released AFTER start_machine or on error
+- ✅ Timeout prevents permanent lockup
+- ❌ NEVER allow nested transitions
+- ❌ NEVER forget to release lock (use try/finally)
+- ❌ NEVER block user forever (timeout required)
+
+**Lock Guard Pattern:**
+```typescript
+async function transitionToNextMachine(nextMachineId: string) {
+  // Check if already locked
+  if (machineTransitionLockRef.current) {
+    console.warn('Transition already in progress');
+    return;
+  }
+
+  try {
+    // Acquire lock
+    machineTransitionLockRef.current = true;
+
+    // Update state
+    setRouteState(prev => ({
+      ...prev,
+      currentMachineId: nextMachineId,
+      pendingMachineTransition: { ... }
+    }));
+
+    // Wait for user direction...
+
+  } catch (error) {
+    // Release lock on error
+    machineTransitionLockRef.current = false;
+    throw error;
+  }
+
+  // Lock remains until start_machine completes
+}
+```
+
+---
+
+## 6. CURRENT VIOLATIONS
 
 ### 5.1 Bug: Skip says "complete" instead of "skipped"
 
@@ -541,18 +1036,38 @@ function validateMachineTransition(prev: RouteState, next: RouteState) {
 ### Phase 2: Workflow Fixes
 
 - [ ] **skip_current_machine:** Verify spoken text says "skipped" not "complete"
+- [ ] **skip_current_machine:** Verify preserves completed_items count (no reset)
 - [ ] **get_next_item:** Verify spoken text says "complete" when machine done
-- [ ] **start_machine:** Verify items_remaining is per-machine count
+- [ ] **get_next_item:** Verify items_remaining is per-machine count
 - [ ] **get_next_item:** Verify items_remaining decrements correctly
+- [ ] **start_machine:** Verify items_remaining is per-machine count
+- [ ] **go_back_to_skipped:** Verify resumes from completed_items (not from start)
+- [ ] **go_back_to_skipped:** Verify items_remaining = total_items - completed_items
+- [ ] **switch_route:** Verify saves current route state before switching
+- [ ] **switch_route:** Verify loads new route with correct completed_items
+- [ ] **delete_route:** Verify fails if route is active
+- [ ] **delete_route:** Verify CASCADE deletes machines/items
+- [ ] **get_current_status:** Verify returns all machines with status/counts
+- [ ] **update_session_state:** Verify validates machine_id exists
 - [ ] All workflows: Verify totalItems never modified
+- [ ] All workflows: Verify spoken text always provided
 
 ### Phase 3: Frontend Fixes
 
 - [ ] **useStockerSession:** Track completedItems per machine in machines[] array
 - [ ] **useStockerSession:** Reset display when machine changes
-- [ ] **useStockerAI:** Use workflow.spoken text verbatim (no generation)
+- [ ] **useStockerSession:** Implement resume from database (not session)
+- [ ] **useStockerSession:** Database wins on conflicts (not session state)
+- [ ] **useStockerSession:** Implement error recovery (preserve state on timeout)
+- [ ] **useStockerSession:** Implement retry with backoff for network errors
+- [ ] **useStockerSession:** Validate lock release on all error paths
+- [ ] **useStockerAI:** Use workflow.spoken text verbatim (NO AI generation)
+- [ ] **useStockerAI:** Only generate text for status queries (not workflow actions)
+- [ ] **useStockerAI:** Implement action type filter (machine_ready → use spoken)
 - [ ] **StockerApp progress bar:** Use machine.completedItems / machine.totalItems
 - [ ] **StockerApp done card:** Show all items with machine attribution
+- [ ] **StockerApp race lock:** Implement 30s timeout for transition lock
+- [ ] **StockerApp race lock:** Block duplicate transitions during lock
 
 ### Phase 4: Database Validation
 
@@ -563,13 +1078,40 @@ function validateMachineTransition(prev: RouteState, next: RouteState) {
 
 ### Phase 5: Testing
 
+**Basic Flow:**
 - [ ] Test route with 5 machines, 5 items each
-- [ ] Test skip machine at start (0 items picked)
-- [ ] Test skip machine mid-way (2 items picked)
-- [ ] Test complete machine normally (all 5 items)
-- [ ] Test progress bar displays correctly
+- [ ] Test skip machine at start (0 items picked) - verify says "skipped"
+- [ ] Test skip machine mid-way (2 items picked) - verify preserves count
+- [ ] Test complete machine normally (all 5 items) - verify says "complete"
+- [ ] Test progress bar displays correctly (per-machine count)
 - [ ] Test done card shows items from all machines
 - [ ] Test machine dropdown shows correct counts
+
+**Resume/Persistence:**
+- [ ] Test app reload mid-machine - verify resumes at correct item
+- [ ] Test app reload mid-transition - verify handles gracefully
+- [ ] Test database has 3 items but session says 5 - verify DB wins
+
+**Go Back to Skipped:**
+- [ ] Test skip machine with 2 items, go back - verify resumes from item 3
+- [ ] Test skip machine at start, go back - verify starts from item 1
+- [ ] Test go back while on different machine - verify switches correctly
+
+**Error Recovery:**
+- [ ] Test network timeout on get_next_item - verify preserves state
+- [ ] Test start_machine failure - verify releases lock
+- [ ] Test rapid "next" commands - verify lock prevents race
+
+**Text Generation:**
+- [ ] Test skip machine - verify uses workflow.spoken ("skipped" not "complete")
+- [ ] Test complete machine - verify uses workflow.spoken ("complete")
+- [ ] Test status query - verify AI CAN generate response
+
+**Switch/Delete Route:**
+- [ ] Test switch route - verify saves current progress
+- [ ] Test switch back - verify restores previous progress
+- [ ] Test delete active route - verify fails with error
+- [ ] Test delete inactive route - verify cascades correctly
 
 ---
 
