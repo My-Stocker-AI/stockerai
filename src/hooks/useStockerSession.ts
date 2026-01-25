@@ -99,6 +99,9 @@ export function useStockerSession(userId: string | null) {
   // Ref to avoid stale closures - always has latest messages
   const messagesRef = useRef<any[]>([]);
 
+  // CRITICAL FIX: Lock to prevent race conditions during machine transitions
+  const machineTransitionLockRef = useRef(false);
+
   // Generate a new session ID (called explicitly, not on mount)
   const generateNewSessionId = useCallback(() => {
     const newId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -126,17 +129,33 @@ export function useStockerSession(userId: string | null) {
   };
 
   const updateFromTool = useCallback(async (toolName: string, result: any) => {
-    // CRITICAL FIX: Clear pending transition on start_machine failure to prevent stuck state
+    // CRITICAL FIX: Enhanced error recovery for start_machine failure
     if (result && result.error && toolName === 'start_machine') {
-      setRouteState(prev => ({
-        ...prev,
-        pendingMachineTransition: null
-      }));
-      console.log('[Session] start_machine failed - cleared pending transition to prevent stuck state');
+      machineTransitionLockRef.current = false; // Release lock
+      setRouteState(prev => {
+        // Find the previous in-progress machine (before failed transition)
+        const previousMachine = prev.machines.find(m => m.status === 'completed' && m.sequence === prev.currentMachineIndex - 1);
+
+        return {
+          ...prev,
+          pendingMachineTransition: null,
+          // Restore to previous machine if transition failed
+          currentMachineId: previousMachine?.id || prev.currentMachineId,
+          currentMachineName: previousMachine?.name || prev.currentMachineName
+        };
+      });
+      console.log('[Session] start_machine failed - cleared pending transition and restored previous state');
       return;
     }
 
-    if (!result || result.error) return;
+    if (!result || result.error) {
+      // Generic error - release lock if held
+      if (machineTransitionLockRef.current) {
+        machineTransitionLockRef.current = false;
+        console.log('[Session] Error in updateFromTool - released transition lock');
+      }
+      return;
+    }
 
     // Fetch machine total_items when starting or switching machines
     let machineTotalItems = 0;
@@ -217,7 +236,8 @@ export function useStockerSession(userId: string | null) {
 
         // CRITICAL FIX: Clear pending direction flag after starting machine
         next.pendingMachineTransition = null;
-        console.log('[Session] Direction answered - cleared pending transition');
+        machineTransitionLockRef.current = false; // Release transition lock
+        console.log('[Session] Direction answered - cleared pending transition and released lock');
       }
 
       if (toolName === 'get_next_item') {
@@ -294,6 +314,16 @@ export function useStockerSession(userId: string | null) {
           next.currentMachineIndex = result.machine_index || prev.currentMachineIndex;
           next.currentMachineName = machineName;
         } else if (action === 'next_machine') {
+          // CRITICAL FIX: Check if transition already in progress (prevent race condition)
+          if (machineTransitionLockRef.current) {
+            console.warn('[Session] Machine transition already in progress - ignoring duplicate');
+            return prev; // Return unchanged state
+          }
+
+          // Set lock BEFORE making any state changes
+          machineTransitionLockRef.current = true;
+          console.log('[Session] Machine transition lock acquired');
+
           // Mark previous machine as completed
           if (prev.currentMachineId) {
             next.machines = prev.machines.map(m =>
@@ -327,6 +357,9 @@ export function useStockerSession(userId: string | null) {
           };
           console.log('[Session] Machine transition - awaiting direction for:', result.next_machine);
         } else if (action === 'route_complete' || action === 'complete') {
+          // Release transition lock on route completion
+          machineTransitionLockRef.current = false;
+
           // Mark last machine as completed
           if (prev.currentMachineId) {
             // CRITICAL FIX: Use next.machines (not prev.machines) to preserve counter update from line 242
@@ -348,6 +381,12 @@ export function useStockerSession(userId: string | null) {
       }
 
       if (toolName === 'skip_current_machine') {
+        // Release transition lock if skip called during transition
+        if (machineTransitionLockRef.current) {
+          machineTransitionLockRef.current = false;
+          console.log('[Session] Skip called during transition - released lock');
+        }
+
         // Mark current machine as skipped
         if (prev.currentMachineId) {
           const currentMachine = prev.machines.find(m => m.id === prev.currentMachineId);

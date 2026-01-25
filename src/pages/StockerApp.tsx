@@ -350,6 +350,23 @@ export default function StockerApp() {
       const commandMatch = commandRecognizer.recognize(transcript);
 
       if (commandMatch.command !== PickingCommand.UNKNOWN && commandMatch.confidence >= 0.7) {
+        // CRITICAL FIX: State machine enforcement - check for pending machine transition
+        if (routeState.pendingMachineTransition) {
+          const isDirectionCommand =
+            commandMatch.command === PickingCommand.DIRECTION_TOP ||
+            commandMatch.command === PickingCommand.DIRECTION_BOTTOM;
+
+          if (!isDirectionCommand) {
+            console.log('[CommandRecognizer] Ignoring non-direction command during machine transition:', commandMatch.command);
+            const msg = `Top or bottom for ${routeState.pendingMachineTransition.nextMachineName}?`;
+            setAiResponse(msg);
+            await v.speak(msg);
+            processingRef.current = false;
+            return;
+          }
+          // Allow direction commands to proceed
+        }
+
         console.log('[CommandRecognizer] ✓ Matched:', commandMatch.command, 'confidence:', commandMatch.confidence, '(bypassing AI)');
         processingRef.current = true;
         v.setThinking();
@@ -1109,14 +1126,23 @@ export default function StockerApp() {
   const resumeSession = useCallback(async () => {
     if (!savedSession) return;
 
+    // CRITICAL FIX: If pending transition exists, ensure currentMachineId matches
+    const currentMachineId = savedSession.pendingMachineTransition
+      ? savedSession.pendingMachineTransition.nextMachineId
+      : savedSession.currentMachineId || null;
+
+    const currentMachineName = savedSession.pendingMachineTransition
+      ? savedSession.pendingMachineTransition.nextMachineName
+      : savedSession.currentMachineName;
+
     setRouteState({
       routeId: savedSession.routeId || null,
       routeName: savedSession.routeName,
       routeDate: savedSession.routeDate,
       totalMachines: savedSession.totalMachines,
       currentMachineIndex: savedSession.currentMachineIndex,
-      currentMachineName: savedSession.currentMachineName,
-      currentMachineId: savedSession.currentMachineId || null,
+      currentMachineName: currentMachineName,
+      currentMachineId: currentMachineId,
       currentMachineTotalItems: savedSession.currentMachineTotalItems || 0,
       currentMachineItemsRemaining: savedSession.currentMachineItemsRemaining || 0,
       currentItem: savedSession.currentItem,
