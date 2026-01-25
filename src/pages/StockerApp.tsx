@@ -706,9 +706,21 @@ export default function StockerApp() {
         routeState: {
           routeName: routeState.routeName,
           currentItem: routeState.currentItem?.product,
-          machineIndex: routeState.currentMachineIndex
+          machineIndex: routeState.currentMachineIndex,
+          pendingTransition: routeState.pendingMachineTransition
         }
       });
+
+      // CRITICAL FIX: Clear stuck state on network/tool failures
+      if (routeState.pendingMachineTransition && !isNetworkError) {
+        // Non-network errors (tool failures, validation errors) should clear transition
+        console.log('[Stocker] Clearing pendingMachineTransition due to error');
+        setRouteState(prev => ({
+          ...prev,
+          pendingMachineTransition: null
+        }));
+      }
+      // Network errors: let retry handler deal with it, don't clear state yet
 
       // Auto-retry on network errors (up to MAX_RETRIES)
       if (isNetworkError && retryCount < MAX_RETRIES) {
@@ -719,6 +731,15 @@ export default function StockerApp() {
         await new Promise(resolve => setTimeout(resolve, 1000));
         processingRef.current = false;
         return handleTranscript(transcript, true);
+      }
+
+      // CRITICAL FIX: Clear stuck state after max retries exhausted
+      if (isNetworkError && routeState.pendingMachineTransition) {
+        console.log('[Stocker] Max retries exhausted - clearing pendingMachineTransition');
+        setRouteState(prev => ({
+          ...prev,
+          pendingMachineTransition: null
+        }));
       }
 
       // Friendly messages for common errors
