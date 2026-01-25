@@ -17,6 +17,8 @@ import { RouteSelectionCard } from '@/components/stocker/RouteSelectionCard';
 import { MachineListPanel } from '@/components/stocker/MachineListPanel';
 import { DiagnosticOverlay } from '@/components/DiagnosticOverlay';
 import { CommandRecognizer, PickingCommand } from '@/utils/commandRecognizer';
+import { validateTextSource, requiresWorkflowSpoken } from '@/utils/contractValidation';
+import type { WorkflowAction } from '@/types/contracts';
 
 // Route info for selection cards
 interface RouteOption {
@@ -539,6 +541,32 @@ export default function StockerApp() {
             routeState.sessionInvalidated || routeState.completed  // CATASTROPHIC FAILURE FIX: Prevent commands after completion
           );
 
+            // ============================================================================
+            // CONTRACT VALIDATION - AI Text Generation Rules
+            // ============================================================================
+            // Validate that workflow actions use workflow.spoken (not AI generation)
+            for (const tr of toolResults) {
+              if (tr.result?.action) {
+                const action = tr.result.action as WorkflowAction;
+                const hasSpoken = !!(tr.result.voice_text || tr.result.spoken);
+
+                // Validate text source for this action
+                const textValidation = validateTextSource(action, hasSpoken);
+                if (!textValidation.valid) {
+                  console.error('[ContractViolation] AI text generation rule violated:', {
+                    action,
+                    hasSpoken,
+                    errors: textValidation.errors.map(e => e.rule)
+                  });
+                }
+
+                // CRITICAL: Workflow actions MUST have spoken text
+                if (requiresWorkflowSpoken(action) && !hasSpoken) {
+                  console.error(`[ContractViolation] ${action} missing workflow.spoken - frontend MUST NOT generate text`);
+                }
+              }
+            }
+
             // Use fast path - speak the workflow's voice_text or spoken field directly
             for (const tr of toolResults) {
               const voiceText = tr.result?.voice_text || tr.result?.spoken;
@@ -552,7 +580,8 @@ export default function StockerApp() {
               }
             }
 
-            // Fallback if no spoken field (shouldn't happen)
+            // Fallback if no spoken field (CONTRACT VIOLATION - should not happen)
+            console.error('[ContractViolation] No spoken field in workflow result - this violates data contracts');
             console.warn('[CommandRecognizer] No spoken field in result, falling through to AI');
           }
         } catch (err: any) {
