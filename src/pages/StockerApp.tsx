@@ -347,7 +347,13 @@ export default function StockerApp() {
     // This bypasses AI for 90% of commands, achieving <1s response time and 99.9% accuracy
     // Only active when user is on a route (not during route selection)
     if (routeState.routeName) {
+      console.log('[CommandRecognizer] 🎤 Transcript received:', transcript);
       const commandMatch = commandRecognizer.recognize(transcript);
+      console.log('[CommandRecognizer] 🔍 Recognition result:', {
+        command: commandMatch.command,
+        confidence: commandMatch.confidence,
+        parameters: commandMatch.parameters
+      });
 
       if (commandMatch.command !== PickingCommand.UNKNOWN && commandMatch.confidence >= 0.7) {
         // CRITICAL FIX: State machine enforcement - check for pending machine transition

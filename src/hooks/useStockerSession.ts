@@ -176,6 +176,13 @@ export function useStockerSession(userId: string | null) {
       machineTotalItems = await fetchMachineTotalItems(result.next_machine_id);
     }
 
+    // FIX: Fetch totalItems for skip_current_machine with action='next_machine'
+    if (toolName === 'skip_current_machine' && result.action === 'next_machine' && result.next_machine_id) {
+      console.log('[Session] skip_current_machine - Fetching total_items for next machine:', result.next_machine_id);
+      machineTotalItems = await fetchMachineTotalItems(result.next_machine_id);
+      console.log('[Session] skip_current_machine - fetchMachineTotalItems returned:', machineTotalItems);
+    }
+
     setRouteState(prev => {
       const next = { ...prev };
 
@@ -421,6 +428,17 @@ export function useStockerSession(userId: string | null) {
           };
           next.currentItem = null;
           next.currentItem2 = null;
+
+          // FIX: Store fetched totalItems in machines array for next machine
+          if (machineTotalItems > 0) {
+            next.machines = next.machines.map(m =>
+              m.id === result.next_machine_id
+                ? { ...m, totalItems: machineTotalItems }
+                : m
+            );
+            console.log('[Session] Skip stored totalItems:', machineTotalItems, 'for next machine:', result.next_machine_id);
+          }
+
           console.log('[Session] Skip set pending transition:', next.pendingMachineTransition);
         } else if (action === 'route_complete') {
           // No more machines - route is done
