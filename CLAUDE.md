@@ -318,6 +318,69 @@ if (result && result.error && toolName === 'start_machine') {
 
 ---
 
+## 🔥 Incident: Progress Bar Bug - Stale Closure Pattern (2026-01-25)
+
+**Context:** User reported progress bar not showing despite items being picked and in "done" card.
+
+**What I did wrong:**
+1. ❌ Made 3 partial fixes instead of systematic analysis (commits 1aaad58, 178de54)
+2. ❌ Fix 1: Changed `totalItems` to `total_items` (broke n8n workflows)
+3. ❌ Fix 2: Added fallback for both formats (bandaid on symptom)
+4. ❌ Violated System Impact Audit Protocol - never traced data flow
+5. ❌ User called me out: "Do a systemic review and provide complete fixes instead of partial symptomatic fails"
+
+**Root cause (commit 89d613e):**
+- `updateFromTool` defined with `useCallback(..., [])` - empty dependencies
+- Captured `routeState` from first render and NEVER updated (stale closure)
+- Lines tried to read `routeState.machines` from stale closure
+- `set_route_sequence` updated state → machines array populated
+- `start_machine` called → closure still saw empty `routeState.machines` from mount
+- Result: `getMachineTotalItems` always returned 0
+
+**Timeline of failure:**
+1. Component mounts → `routeState.machines = []`
+2. `updateFromTool` closure captures `routeState.machines = []`
+3. `set_route_sequence` runs → Updates state → `machines = [5 machines]`
+4. `start_machine` runs → Closure still sees `routeState.machines = []` ❌
+5. Progress bar gets `totalItems = 0`, never shows
+
+**The complete fix:**
+```typescript
+setRouteState(prev => {
+  // MOVED getMachineTotalItems INSIDE callback
+  const getMachineTotalItems = (machineId: string): number => {
+    const machine = prev.machines.find(m => m.id === machineId);
+    return machine?.totalItems || 0;
+  };
+
+  if (toolName === 'start_machine') {
+    const totalItems = getMachineTotalItems(result.machine_id);
+    next.currentMachineTotalItems = totalItems; // Now works!
+  }
+});
+```
+
+**Why this works:**
+- `setRouteState` callback receives `prev` with CURRENT state (not stale)
+- `getMachineTotalItems` now reads from `prev.machines`, not captured `routeState.machines`
+- Always gets latest data regardless of closure capture
+
+**What I should have done FIRST:**
+1. ✅ Trace data flow: set_route_sequence → machines array → start_machine → progress bar
+2. ✅ Check where machines array is accessed (inside/outside closure)
+3. ✅ Identify stale closure pattern (empty deps + stateful access)
+4. ✅ Provide ONE complete fix, not 3 partial ones
+
+**Lesson learned:**
+- **NEVER access stateful values from useCallback with empty deps `[]`**
+- Always use state updater callback `(prev => ...)` to get current state
+- Stale closures are invisible - closure looks correct but uses old data
+- Systematic analysis FIRST, not 3 guesses and a bandaid
+
+**Files:** `src/hooks/useStockerSession.ts:166-209`
+
+---
+
 ## 🔥 Incident: Machine Transition Bug - 2 Hours of Guessing (2026-01-23)
 
 **What happened:**
