@@ -132,9 +132,15 @@ export function useStockerSession(userId: string | null) {
     // CRITICAL FIX: Enhanced error recovery for start_machine failure
     if (result && result.error && toolName === 'start_machine') {
       machineTransitionLockRef.current = false; // Release lock
+      console.log('[Session] ⚠️  start_machine FAILED - Error:', result.error);
       setRouteState(prev => {
         // Find the previous in-progress machine (before failed transition)
         const previousMachine = prev.machines.find(m => m.status === 'completed' && m.sequence === prev.currentMachineIndex - 1);
+
+        console.log('[Session] 🔙 ROLLBACK STATE:', {
+          restoring: { machineId: previousMachine?.id, machineName: previousMachine?.name },
+          clearingPending: prev.pendingMachineTransition?.nextMachineName
+        });
 
         return {
           ...prev,
@@ -144,7 +150,6 @@ export function useStockerSession(userId: string | null) {
           currentMachineName: previousMachine?.name || prev.currentMachineName
         };
       });
-      console.log('[Session] start_machine failed - cleared pending transition and restored previous state');
       return;
     }
 
@@ -237,7 +242,7 @@ export function useStockerSession(userId: string | null) {
         // CRITICAL FIX: Clear pending direction flag after starting machine
         next.pendingMachineTransition = null;
         machineTransitionLockRef.current = false; // Release transition lock
-        console.log('[Session] Direction answered - cleared pending transition and released lock');
+        console.log('[Session] ✅ DIRECTION ANSWERED - Lock released | Machine:', prev.currentMachineName, '| Item:', next.currentItem?.product);
       }
 
       if (toolName === 'get_next_item') {
@@ -316,13 +321,13 @@ export function useStockerSession(userId: string | null) {
         } else if (action === 'next_machine') {
           // CRITICAL FIX: Check if transition already in progress (prevent race condition)
           if (machineTransitionLockRef.current) {
-            console.warn('[Session] Machine transition already in progress - ignoring duplicate');
+            console.warn('[Session] ❌ RACE CONDITION BLOCKED - Machine transition already in progress - ignoring duplicate');
             return prev; // Return unchanged state
           }
 
           // Set lock BEFORE making any state changes
           machineTransitionLockRef.current = true;
-          console.log('[Session] Machine transition lock acquired');
+          console.log('[Session] 🔒 LOCK ACQUIRED - Machine transition starting');
 
           // Mark previous machine as completed
           if (prev.currentMachineId) {
@@ -340,6 +345,12 @@ export function useStockerSession(userId: string | null) {
           next.currentItem = null;
           next.currentItem2 = null;
 
+          console.log('[Session] 🔄 MACHINE TRANSITION STATE UPDATE:', {
+            from: { machineId: prev.currentMachineId, machineName: prev.currentMachineName },
+            to: { machineId: result.next_machine_id, machineName: result.next_machine },
+            newIndex: next.currentMachineIndex
+          });
+
           // Mark next machine as in_progress
           if (result.next_machine_id) {
             next.machines = next.machines.map(m =>
@@ -355,7 +366,7 @@ export function useStockerSession(userId: string | null) {
             nextMachineName: result.next_machine || '',
             nextMachineIndex: (prev.currentMachineIndex || 0) + 1
           };
-          console.log('[Session] Machine transition - awaiting direction for:', result.next_machine);
+          console.log('[Session] ⏸️  AWAITING DIRECTION for:', result.next_machine, '| pendingMachineTransition:', next.pendingMachineTransition);
         } else if (action === 'route_complete' || action === 'complete') {
           // Release transition lock on route completion
           machineTransitionLockRef.current = false;

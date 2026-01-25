@@ -356,14 +356,21 @@ export default function StockerApp() {
             commandMatch.command === PickingCommand.DIRECTION_TOP ||
             commandMatch.command === PickingCommand.DIRECTION_BOTTOM;
 
+          console.log('[CommandRecognizer] 🚦 STATE CHECK: pendingMachineTransition exists', {
+            command: commandMatch.command,
+            isDirectionCommand,
+            machine: routeState.pendingMachineTransition.nextMachineName
+          });
+
           if (!isDirectionCommand) {
-            console.log('[CommandRecognizer] Ignoring non-direction command during machine transition:', commandMatch.command);
+            console.log('[CommandRecognizer] ❌ BLOCKED - Non-direction command during transition:', commandMatch.command);
             const msg = `Top or bottom for ${routeState.pendingMachineTransition.nextMachineName}?`;
             setAiResponse(msg);
             await v.speak(msg);
             processingRef.current = false;
             return;
           }
+          console.log('[CommandRecognizer] ✅ ALLOWED - Direction command:', commandMatch.command);
           // Allow direction commands to proceed
         }
 
@@ -714,13 +721,17 @@ export default function StockerApp() {
       // CRITICAL FIX: Clear stuck state on network/tool failures
       if (routeState.pendingMachineTransition && !isNetworkError) {
         // Non-network errors (tool failures, validation errors) should clear transition
-        console.log('[Stocker] Clearing pendingMachineTransition due to error');
+        console.log('[Stocker] ⚠️  CLEARING pendingMachineTransition due to non-network error:', errorMsg);
+        console.log('[Stocker] 🧹 Pending transition before clear:', routeState.pendingMachineTransition);
         setRouteState(prev => ({
           ...prev,
           pendingMachineTransition: null
         }));
       }
       // Network errors: let retry handler deal with it, don't clear state yet
+      else if (routeState.pendingMachineTransition && isNetworkError) {
+        console.log('[Stocker] 🌐 NETWORK ERROR - Preserving pendingMachineTransition during retries');
+      }
 
       // Auto-retry on network errors (up to MAX_RETRIES)
       if (isNetworkError && retryCount < MAX_RETRIES) {
@@ -735,7 +746,8 @@ export default function StockerApp() {
 
       // CRITICAL FIX: Clear stuck state after max retries exhausted
       if (isNetworkError && routeState.pendingMachineTransition) {
-        console.log('[Stocker] Max retries exhausted - clearing pendingMachineTransition');
+        console.log('[Stocker] 💀 MAX RETRIES EXHAUSTED - Clearing pendingMachineTransition');
+        console.log('[Stocker] 🧹 Pending transition:', routeState.pendingMachineTransition);
         setRouteState(prev => ({
           ...prev,
           pendingMachineTransition: null
