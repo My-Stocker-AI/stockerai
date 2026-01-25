@@ -55,6 +55,7 @@ machines_data AS (
     machine_number,
     sequence,
     status,
+    total_items,
     created_at
   )
   SELECT
@@ -64,6 +65,7 @@ machines_data AS (
     100 + machine_num,
     machine_num,
     'pending',
+    4,  -- Each machine has 4 items
     NOW()
   FROM generate_series(1, 5) AS machine_num
   RETURNING id, sequence
