@@ -126,6 +126,16 @@ export function useStockerSession(userId: string | null) {
   };
 
   const updateFromTool = useCallback(async (toolName: string, result: any) => {
+    // CRITICAL FIX: Clear pending transition on start_machine failure to prevent stuck state
+    if (result && result.error && toolName === 'start_machine') {
+      setRouteState(prev => ({
+        ...prev,
+        pendingMachineTransition: null
+      }));
+      console.log('[Session] start_machine failed - cleared pending transition to prevent stuck state');
+      return;
+    }
+
     if (!result || result.error) return;
 
     // Fetch machine total_items when starting or switching machines
