@@ -78,7 +78,9 @@ serve(async (req) => {
           location_name: row.location_name,
           machine_number: row.machine_number,
           sequence: row.machine_sequence,
-          status: row.machine_status
+          status: row.machine_status,
+          completed_items: row.machine_completed_items || 0,
+          total_items: row.machine_total_items
         });
       }
     });
