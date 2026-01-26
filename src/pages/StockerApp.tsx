@@ -1141,6 +1141,16 @@ export default function StockerApp() {
               setMessages(sanitizeConversationHistory(saved.conversationHistory));
             }
 
+            // CRITICAL: Set session ID BEFORE starting voice (prevents "still getting ready" error)
+            if (saved.sessionId) {
+              setSessionId(saved.sessionId);
+              setSession(saved.sessionId, userId);
+            } else {
+              const newSessionId = generateNewSessionId();
+              setSessionId(newSessionId);
+              setSession(newSessionId, userId);
+            }
+
             // CRITICAL: Restart voice system after refresh
             await voice.startListening();
 
