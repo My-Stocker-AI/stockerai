@@ -1143,13 +1143,16 @@ export default function StockerApp() {
 
             // CRITICAL: Set session ID BEFORE starting voice (prevents "still getting ready" error)
             if (saved.sessionId) {
+              console.log('[Session] Auto-resume: Setting session ID:', saved.sessionId);
               setSessionId(saved.sessionId);
               setSession(saved.sessionId, userId);
             } else {
               const newSessionId = generateNewSessionId();
+              console.log('[Session] Auto-resume: Generating new session ID:', newSessionId);
               setSessionId(newSessionId);
               setSession(newSessionId, userId);
             }
+            console.log('[Session] Session ID set, voice starting next...');
 
             // CRITICAL: Restart voice system after refresh
             await voice.startListening();

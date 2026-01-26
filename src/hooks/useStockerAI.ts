@@ -231,8 +231,10 @@ export function useStockerAI() {
   const DEBOUNCE_MS = 1500; // Ignore duplicate commands within 1.5 seconds
 
   const setSession = useCallback((sessionId: string, userId: string | null) => {
+    console.log('[useStockerAI] setSession called:', { sessionId, userId, prevSessionId: sessionIdRef.current });
     sessionIdRef.current = sessionId;
     userIdRef.current = userId;
+    console.log('[useStockerAI] sessionIdRef.current now:', sessionIdRef.current);
   }, []);
 
   const buildSystemPrompt = useCallback((userName: string, currentItem: any, routeContext?: {
@@ -669,7 +671,11 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
     // BUG-N8N-2 FIX: Validate session exists before executing tools
     if (!sessionIdRef.current || sessionIdRef.current === '') {
       const error = "Hold on, I'm still getting ready. Give me a second to load your route data.";
-      console.error('[Tools] Session validation failed - session not initialized');
+      console.error('[Tools] Session validation failed - session not initialized', {
+        sessionIdRef: sessionIdRef.current,
+        toolName: name,
+        timestamp: new Date().toISOString()
+      });
       throw new Error(error);
     }
 
