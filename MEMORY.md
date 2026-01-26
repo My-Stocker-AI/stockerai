@@ -136,6 +136,10 @@ interface BaseWorkflowOutput {
 - User ID: `bdc96b72-3f35-4cae-9e79-99473eb4a23b`
 - Machines: 5 machines, 5 items each (25 total)
 
+**Supabase Configuration:**
+- Base URL: `https://wvtkuposrlvadyeixlke.supabase.co`
+- REST API: `https://wvtkuposrlvadyeixlke.supabase.co/rest/v1/`
+
 **Key RPC Functions:**
 - `get_next_item_data(p_user_id)` - Returns consolidated session + machines + items
 - Returns: `machine_completed_items`, `machine_skipped_at_item`
