@@ -1,6 +1,7 @@
 // ============================================================================
-// Increment Completed Items - Add async function wrapper
-// BUG: await not working at top level, need async function
+// Increment Completed Items - COMPLETE FIX
+// BUG: Node returned before HTTP request completed, database not updating
+// FIX: Await the async IIFE to block until HTTP PATCH completes
 // ============================================================================
 
 var input = $input.first().json;
@@ -17,8 +18,8 @@ if (!machineId) {
   throw new Error('machine_id missing from input');
 }
 
-// WRAP in async IIFE to ensure await works
-(async function() {
+// AWAIT the async IIFE to block until HTTP request completes
+await (async function() {
   await $this.helpers.httpRequest({
     method: 'PATCH',
     url: 'https://wvtkuposrlvadyeixlke.supabase.co/rest/v1/machines?id=eq.' + machineId,
