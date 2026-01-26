@@ -2213,11 +2213,6 @@ export default function StockerApp() {
                   const prevItem = arr[i - 1];
                   const showMachineSeparator = i > 0 && prevItem?.machineName && item.machineName && prevItem.machineName !== item.machineName;
 
-                  // DEBUG: Log separator logic
-                  if (i > 0 && i < 5) {
-                    console.log(`[DoneList] i=${i}, item.machine="${item.machineName}", prev.machine="${prevItem?.machineName}", show=${showMachineSeparator}`);
-                  }
-
                   return (
                     <div key={routeState.completedItems.length - 1 - i}>
                       {showMachineSeparator && (
