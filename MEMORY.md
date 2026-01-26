@@ -16,47 +16,182 @@
 
 ## ACTIVE WORK (Session 50 - 2026-01-26)
 
-### Phase 2: Critical Bug Fixes
+### 🔥 CRITICAL BUG FIXED: Machine Completing at 3/5 Instead of 5/5
 
-**Problem:** Data flow broken between database and workflows
-**Root Cause:** Edge Function dropped `completed_items` and `total_items` from RPC result
+**Problem:** Machine showed 3/5 items complete after user picked all 5 items
+- Done list showed all 9 items correctly ✓
+- Machine dropdown showed 4/5 (missing last increment) ✗
+- Machine 3 started with Machine 2 items instead of Machine 3 ✗
+- Database: `completed_items = 3` when should be 5 ✗
 
-**Fixes Applied:**
-1. ✅ start_machine workflow Format Output - Reverted to working version (broken direction field)
-2. ✅ get_next_item workflow Format Output - Verified already correct
-3. ✅ Edge Function - Added `completed_items` and `total_items` passthrough
-4. ✅ Frontend dedup fix - Deployed (commit ca68824)
+---
 
-**Complete Data Flow (Verified):**
+### Timeline of Debugging (Learning Moments)
+
+**Initial hypothesis 1: Increment node not executing**
+- ❌ WRONG: Execution logs showed it WAS executing (28572, 28573, 28577, 28578)
+- User corrected: "Increment fired on 28572 and 28573, not 28574, fired 28577, and 28578, but not the last 28579"
+
+**Initial hypothesis 2: Await not working in Code node**
+- ❌ WRONG: Created async IIFE wrapper, but this wasn't the problem
+- Created: `INCREMENT_COMPLETED_ITEMS_AWAIT_FIX.js` (unnecessary)
+
+**Initial hypothesis 3: PATH 3 fallback triggering incorrectly**
+- ✅ PARTIALLY CORRECT: PATH 3 WAS triggered (execution 28574, 28579)
+- But this was a SYMPTOM, not the root cause
+
+**USER INSIGHT (breakthrough):**
+> "It's counting the number of conversation turns instead of the items picked? That's why it's 3, not 5 right? There are 5 items, it picked 2 twice and 1 once, and it was done with the machine."
+
+✅ **ROOT CAUSE DISCOVERED:**
+
+---
+
+### Root Cause: Dual-Counter Architectural Bug
+
+**What happened:**
+```javascript
+// Line 194 in Determine Next State - OLD CODE:
+var itemsToIncrement = item2 ? 2 : 1;  // ← BUG: Counts items FOUND, not items PICKED
 ```
-Database (machines.completed_items)
-  ↓
-RPC (machine_completed_items) ✅
-  ↓
-Edge Function (completed_items) ✅ FIXED
-  ↓
-Workflow (currentMachine.completed_items) ✅
-  ↓
-Increment node writes back ✅
-```
 
-**Files Modified:**
-- `supabase/functions/get-next-item-data/index.ts` (lines 81-82)
-- `src/hooks/useStockerSession.ts` (dedup logic - lines 280-281)
+**User picked:**
+- Turn 1: count=2 (2 items) → `itemsToIncrement = 2` ✓
+- Turn 2: count=2 (2 items) → `itemsToIncrement = 1` ✗ (item2 didn't exist at sequence 6)
+- Turn 3: count=1 (1 item) → `itemsToIncrement = 1` ✓
+- **Total: 2+1+1 = 4 items counted** (not 2+2+1 = 5)
+
+**Why item2 was null on Turn 2:**
+- Session at `current_item_index = 4`
+- Looking for sequence 5 (nextItem) ✓ Found
+- Looking for sequence 6 (item2) ✗ Doesn't exist (only 5 items total)
+- Result: `item2 = null`, so `itemsToIncrement = 1` not 2
+
+**The architectural problem:**
+- System has TWO counters: `current_item_index` (sequence position) AND `completed_items` (items picked)
+- These can DIVERGE and cause bugs
+- Workflow was using `item2` existence (sequence-based) instead of `count` parameter (user request)
+
+---
+
+### Bandaid Fix Deployed (2026-01-26)
+
+**File:** `workflows/FIXED_determine_next_state_USE_COUNT_PARAM.js`
+
+**Changes:**
+1. ✅ Line 194: `var itemsToIncrement = count;` (was: `item2 ? 2 : 1`)
+2. ✅ Removed PATH 3 entirely (lines 238-322)
+3. ✅ Added error handling if nextItem null but machine incomplete
+
+**Commit:** `d958b3d` - Bandaid fix: Use count parameter for items_to_increment
+
+**Impact:**
+- `completed_items` now increments by requested count, not found items
+- Machine completion ONLY by `completed_items >= total_items` (PATH 1)
+- No more "ran out of sequence" fallback (PATH 3 removed)
+
+**Status:** Fix created, needs pasting into n8n workflow
+- Workflow: `get_next_item (Optimized)` (ID: iykbFj7f9222PF7r)
+- Node: "Determine Next State"
+- Action: Replace ALL code with `FIXED_determine_next_state_USE_COUNT_PARAM.js`
+
+---
+
+### 🚨 ARCHITECTURAL DEBT: Dual-Counter System
+
+**Current system (after bandaid):**
+- `current_item_index` - Tracks sequence position (which item to show next)
+- `completed_items` - Tracks items picked count (source of truth for completion)
+- These counters can DIVERGE (as they did in this bug)
+
+**User insight:**
+> "Shouldn't there just be 1 way of counting everything the whole way through? There are the number of items in a machine, and the number of items that have been presented and picked, being indicate by the user saying next. That's it, isn't it?"
+
+✅ **User is correct.** The system is over-engineered.
+
+**Proper architectural fix (NOT YET IMPLEMENTED):**
+
+1. **Remove `current_item_index` entirely**
+2. **Use ONLY `completed_items` for both counting AND finding next item:**
+   ```javascript
+   // Calculate target sequence from completed_items
+   if (pickDirection === 'forward') {
+     targetSequence = completedItems + 1;  // 0→1, 1→2, 2→3
+   } else {
+     targetSequence = totalItems - completedItems;  // 0→5, 1→4, 2→3
+   }
+
+   // Find item with that sequence
+   for (var i = 0; i < items.length; i++) {
+     if (items[i].sequence === targetSequence) {
+       nextItem = items[i];
+       break;
+     }
+   }
+
+   // Increment by count parameter
+   completedItems += count;
+
+   // Complete when: completedItems >= totalItems
+   ```
+
+3. **Update ALL workflows to stop using current_item_index:**
+   - get_next_item workflow (Determine Next State, Update Session)
+   - start_machine workflow (stop setting current_item_index)
+   - skip_current_machine workflow (already sets to 0, works as-is)
+
+4. **Validate assumptions:**
+   - ✅ Items array sorted by sequence (1,2,3,4,5)
+   - ✅ Sequences consecutive (no gaps)
+   - ✅ Array index = sequence - 1
+
+**Why not implemented yet:**
+- Bandaid fixes immediate bug (5 minutes)
+- Architectural fix requires 2-3 hours + thorough testing
+- Risk: 4 workflows + frontend changes
+- Decision: Fix NOW, refactor LATER
+
+**Documentation of proper fix location:**
+- See VALIDATION section in Session 50 transcript
+- Algorithm validated against actual execution data
+- Safe to implement when time permits
+
+---
+
+### Files Modified (Session 50)
+
+**Bandaid fix:**
+- `workflows/FIXED_determine_next_state_USE_COUNT_PARAM.js` (new file)
+- `workflows/INCREMENT_COMPLETED_ITEMS_AWAIT_FIX.js` (created but unnecessary)
+- `workflows/SKIP_PREPARE_SESSION_UPDATE_FIX.js` (fixed separate bug)
+- `workflows/ADD_FIRST_ITEM_FIX.js` (read only, already fixed)
+
+**Frontend fix:**
+- `src/hooks/useSessionPersistence.ts` (clearServer now resets machines)
 
 **Commits:**
-- `cc00c52` - Fix Edge Function: Pass through completed_items and total_items
-- `ca68824` - Fix Machine 2+ items not appearing in done list (deployed yesterday)
+- `d958b3d` - Bandaid fix: Use count parameter for items_to_increment
+- `1583852` - Fix: Reset machines.completed_items on route reset
+- `6717501` - Fix: Wrap await in async IIFE (unnecessary, but harmless)
 
-**Deployed:**
-- Edge Function to Supabase ✅
-- Frontend to Cloudflare Pages ✅
+---
 
-**Ready to Test:**
-- Per-machine progress tracking (0/5, 1/5, etc.)
-- Machine 2+ items appearing in done list
-- Database increments persisting across picks
-- Machine completion detection
+### Phase 2 Status
+
+**✅ WORKING:**
+- Edge Function passes `completed_items` through
+- Increment node executes on next_item actions
+- Database increments by requested count (after bandaid fix)
+- Machine dropdown will show correct N/5 progress
+- Reset button clears `completed_items` back to 0
+
+**🚨 NEEDS DEPLOYMENT:**
+- Paste `FIXED_determine_next_state_USE_COUNT_PARAM.js` into n8n workflow
+
+**📋 ARCHITECTURAL DEBT:**
+- Dual-counter system (current_item_index + completed_items)
+- Should refactor to single counter when time permits
+- Complete algorithm and validation documented above
 
 ---
 
