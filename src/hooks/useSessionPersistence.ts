@@ -152,12 +152,11 @@ export function useSessionPersistence() {
           .update(sessionRecord)
           .eq('id', existing.id);
       } else {
-        await supabase
-          .from('sessions')
-          .insert({
-            ...sessionRecord,
-            started_at: new Date().toISOString(),
-          });
+        // PHASE 2 FIX: Do NOT create sessions from frontend
+        // Sessions are created by n8n workflows (set_route_sequence, start_machine)
+        // Frontend only UPDATES existing sessions for cross-device sync
+        console.log('[Session] No existing session found - skipping insert (workflow will create)');
+        return;
       }
       
       console.log('[Session] Saved to server for cross-device sync');
