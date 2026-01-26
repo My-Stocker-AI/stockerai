@@ -227,7 +227,39 @@ export function useSessionPersistence() {
     try {
       console.log('[Session] clearServer called for userId:', userId);
 
-      // DELETE all sessions for this user with .select() to verify
+      // STEP 1: Get current route_id BEFORE deleting session
+      const { data: sessions, error: fetchError } = await supabase
+        .from('sessions')
+        .select('current_route_id')
+        .eq('user_id', userId)
+        .eq('status', 'stocking')
+        .limit(1);
+
+      if (fetchError) {
+        console.error('[Session] Failed to fetch session for route_id:', fetchError);
+      }
+
+      const routeId = sessions && sessions.length > 0 ? sessions[0].current_route_id : null;
+
+      // STEP 2: Reset machines for this route (completed_items → 0, status → pending)
+      if (routeId) {
+        console.log('[Session] Resetting machines for route:', routeId);
+        const { error: machinesError } = await supabase
+          .from('machines')
+          .update({
+            completed_items: 0,
+            status: 'pending'
+          })
+          .eq('route_id', routeId);
+
+        if (machinesError) {
+          console.error('[Session] Failed to reset machines:', machinesError);
+          throw machinesError;
+        }
+        console.log('[Session] ✅ Reset all machines to completed_items=0');
+      }
+
+      // STEP 3: DELETE all sessions for this user with .select() to verify
       const { error, data } = await supabase
         .from('sessions')
         .delete()
