@@ -276,9 +276,9 @@ export function useStockerSession(userId: string | null) {
 
           if (itemsToAdd.length > 0) {
             // CATASTROPHIC FAILURE FIX: Deduplicate items to prevent duplicate logging
-            // Check if items are already in the completed list by slot ID
-            const existingSlots = new Set(prev.completedItems.map(item => item.slot));
-            const newItems = itemsToAdd.filter(item => !existingSlots.has(item.slot));
+            // Check if items are already in the completed list by BOTH slot AND machine name
+            const existingKeys = new Set(prev.completedItems.map(item => `${item.machineName}:${item.slot}`));
+            const newItems = itemsToAdd.filter(item => !existingKeys.has(`${item.machineName}:${item.slot}`));
 
             if (newItems.length > 0) {
               next.completedItems = [...prev.completedItems, ...newItems];
