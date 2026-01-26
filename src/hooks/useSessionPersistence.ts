@@ -152,6 +152,11 @@ export function useSessionPersistence() {
           .update(sessionRecord)
           .eq('id', existing.id);
       } else {
+        // Only INSERT if we have a route - don't create sessions without routes
+        if (!data.routeId) {
+          console.log('[Session] Skipping INSERT - no route selected yet');
+          return;
+        }
         await supabase
           .from('sessions')
           .insert({
