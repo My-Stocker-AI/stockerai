@@ -195,6 +195,225 @@ var itemsToIncrement = item2 ? 2 : 1;  // ← BUG: Counts items FOUND, not items
 
 ---
 
+## 🎯 XF DEBUGGING PROTOCOL (Learned from Session 50)
+
+**Status:** MANDATORY for multi-component bugs
+**Purpose:** Prevent 2-hour guessing games with systematic boundary discovery
+
+### When Session 50 Went Wrong (Symptomatic Approach)
+
+**What we did:**
+1. Observed symptom: 3/5 instead of 5/5
+2. Guessed cause 1: Increment not executing → ❌ WRONG (it WAS executing)
+3. Guessed cause 2: Await broken → ❌ WRONG (await was fine)
+4. Guessed cause 3: PATH 3 bug → ⚠️ SYMPTOM not cause
+5. User insight: "Counting conversation turns instead of items picked"
+6. Fixed increment calculation → Deployed
+7. **User tested:** "Item not found" error (new symptom!)
+8. Fixed sequence lookup → Deployed (second fix)
+
+**Result:** 2 hours, 6-8 wrong hypotheses, 2 partial fixes, user frustrated
+
+---
+
+### How XF Would Have Solved It (Systemic Approach)
+
+**One XF command discovers everything:**
+```bash
+./xpansion.py analyze "Machine showing 3/5 items complete after user picked all 5 items with count=2,2,1. Database has completed_items=3 not 5. User picked 5 items total but system only counted 3."
+```
+
+**XF discovers in 15 minutes what took us 2 hours:**
+
+**DATA Boundary:**
+```
+INPUTS:
+- webhook.body.count (user's requested count: 1 or 2)
+- session.current_item_index (sequence position: 1-5)
+- machines.completed_items (items picked count: 0-5)
+- item2 (second item when count=2, may be null)
+
+CALCULATION DIVERGENCE DETECTED:
+- Line 194: itemsToIncrement = item2 ? 2 : 1
+- This depends on item2 EXISTENCE, not count PARAMETER
+- RISK: count=2 requested but item2 doesn't exist → increments by 1 not 2
+
+DUAL-COUNTER SYSTEM DETECTED:
+- Counter A: completed_items (database, source of truth for completion)
+- Counter B: current_item_index (session, for sequence lookup)
+- RISK: Can diverge if not synchronized
+```
+
+**NODES Boundary:**
+```
+CRITICAL PATH:
+  Webhook (count=2)
+  → Determine Next State (calculates itemsToIncrement)
+  → Increment Completed Items (updates DB)
+
+AFFECTED: 1 workflow node (Determine Next State)
+NO IMPACT: Frontend, Edge Functions, other workflows
+```
+
+**FLOW Boundary:**
+```
+SCENARIO: count=2 at end of machine (items 4,5 when only 5 exist)
+1. User requests count=2
+2. Determine Next State looks for item2 at sequence 6
+3. Item2 doesn't exist (only 5 items total)
+4. itemsToIncrement set to 1 (BUG: should use count=2)
+5. Database increments by 1
+6. Result: completed_items = 2+1=3 not 2+2=4
+
+SECONDARY BUG DETECTED (dormant):
+1. Session has current_item_index = 1 (from last pick)
+2. Pick direction = reverse
+3. Determine Next State calculates: sequence = 1-1 = 0
+4. No item at sequence 0 (items are 1-5)
+5. WILL FAIL when this code path executes
+```
+
+**ERRORS Boundary:**
+```
+ERROR 1 (active): Counting divergence
+- Root cause: itemsToIncrement = item2 ? 2 : 1
+- Fix: itemsToIncrement = count
+
+ERROR 2 (dormant): Sequence exhaustion
+- Root cause: Using current_item_index for sequence lookup
+- Fix: Calculate sequence from completed_items
+- Forward: targetSequence = completed_items + 1
+- Reverse: targetSequence = totalItems - completedItems
+```
+
+**XF OUTPUT:**
+```
+=== COMPLETE FIX REQUIRED ===
+
+CHANGE 1: Line 194
+  itemsToIncrement = item2 ? 2 : 1
+  → itemsToIncrement = count
+
+CHANGE 2: Lines 158-172 (sequence lookup)
+  if (pickDirection === 'reverse') {
+    nextItem = items[currentItemIndex - 1];
+  }
+  →
+  var targetSequence = pickDirection === 'reverse'
+    ? totalItems - completedItems
+    : completedItems + 1;
+  nextItem = items.find(i => i.sequence === targetSequence);
+
+IMPACT: Single workflow node, no downstream effects
+DEPLOY: Once, test once, done
+```
+
+**Result:** 15 minutes, 1 complete fix, 0 wrong hypotheses, 1 deployment
+
+---
+
+### XF Usage Protocol (MANDATORY)
+
+**⚠️ ALWAYS use XF when:**
+
+1. **Bug affects multiple states/counters**
+   - Example: completed_items vs current_item_index
+   - Example: Frontend state vs database state
+
+2. **You have >2 hypotheses**
+   - If guessing, STOP and run XF
+   - Example: "Could be await, or increment, or PATH 3..."
+
+3. **Fix might have downstream effects**
+   - Example: Changing sequence lookup affects all pick modes
+   - Example: Workflow changes might break frontend
+
+4. **User reports "still broken" after your fix**
+   - Indicates incomplete boundary discovery
+   - XF reveals what you missed
+
+5. **Multi-component debugging**
+   - Spans workflow + database + frontend
+   - Need to trace data flow across boundaries
+
+**✅ SKIP XF when:**
+
+1. **Single obvious typo**
+   - Example: `machien_name` → `machine_name`
+
+2. **Copy-paste error**
+   - Example: Wrong variable name, clear from context
+
+3. **User says "don't analyze, just fix X"**
+   - Explicit instruction to skip discovery
+
+---
+
+### XF Command Reference
+
+**1. Discover complete bug boundaries:**
+```bash
+./xpansion.py analyze "[User's bug description with symptoms]"
+```
+
+**2. Validate proposed fix:**
+```bash
+./xpansion.py validate \
+  "[Problem statement]" \
+  "[Proposed solution]"
+```
+
+**3. Design complete fix:**
+```bash
+./xpansion.py design "[Goal: fix X to do Y]"
+```
+
+---
+
+### Practical Example (Session 50 Bug)
+
+**Instead of our 2-hour debugging:**
+
+```bash
+# User reports: "Picked 5 items, shows 3/5, database has completed_items=3"
+
+# Step 1: STOP - Don't guess
+# Step 2: Run XF
+./xpansion.py analyze "Machine showing 3/5 items complete after user picked all 5 items with count=2,2,1. Database has completed_items=3 not 5."
+
+# Step 3: XF discovers BOTH bugs (increment + sequence lookup)
+# Step 4: Create COMPLETE fix (not partial)
+# Step 5: Deploy once
+# Step 6: Test once
+# Done in 15 minutes
+```
+
+---
+
+### Key Insight
+
+**Symptomatic debugging:** Fix immediate symptom → User tests → New symptom → Fix again → ...
+
+**XF systemic debugging:** Discover ALL boundaries → Fix ALL issues → Deploy once → Done
+
+**Time savings:** ~75% (15 min vs 2 hours)
+**User frustration:** Eliminated (1 deployment vs 2+)
+**Code quality:** Higher (complete fix vs partial fixes)
+
+---
+
+### Session 50 Lesson
+
+**What we learned:**
+- Partial fixes waste time (user reports "still broken")
+- Guessing wastes time (6+ wrong hypotheses)
+- XF discovers complete picture upfront
+- One complete fix > multiple partial fixes
+
+**Next time:** Run XF FIRST when bug affects multiple components or you're guessing at root cause.
+
+---
+
 ## SESSION 49 (2026-01-25)
 
 ### Phase 2: get_next_item Workflow Updates
