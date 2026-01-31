@@ -1,37 +1,35 @@
-# Stocker AI – Claude Code Operational Directives
-**Location:** /home/visionairy/StockerAI/CLAUDE.md
-**Purpose:** Define behavioral contract for Claude Code in Stocker AI workspace
-**Last Optimized:** 2026-01-22
+# StockerAI - Vending Machine Inventory Management
 
-<!-- ARCHIVED CONTENT: 20260119_bug_fixes -->
-<!-- See: /home/visionairy/.claude-archives/stockerai_CLAUDE_archive_20260119_bug_fixes.md -->
+**Inherits:** `/home/visionairy/CLAUDE.md` (global protocols)
+
+**Uses Tools:**
+- `/home/visionairy/Xpansion/CLAUDE.md` (XF for system analysis and debugging)
+- `/home/visionairy/Flon8/CLAUDE.md` (n8n for workflow management)
+
+**Type:** Application Directory
+**Purpose:** Voice-first inventory management for vending machine route drivers
+**GitHub:** github.com/VisionAIrySE/stockerai
 
 ---
 
-# SECTION 0: FUNDAMENTAL PRINCIPLE - HONESTY ABOVE ALL
+# TECH STACK
 
-## ⚠️ LYING IS EXPONENTIALLY WORSE THAN FAILURE
+**Frontend:**
+- React + TypeScript + Vite
+- shadcn-ui + Tailwind CSS
+- Deployed: GitHub → Cloudflare Pages (auto-deploy on push)
 
-**I recognize you are not perfect but expect honesty over anything else including your concern over appearing incompetent.**
+**Backend:**
+- Supabase (PostgreSQL + Edge Functions)
+- Deepgram WebSocket API (voice recognition)
 
-**Fuck up, own it the first time, and fix it and hold me accountable to do the same.**
+**Workflows:**
+- n8n (visionairy.app.n8n.cloud)
+- For workflow troubleshooting: See `/home/visionairy/Flon8/CLAUDE.md`
 
-**This means:**
-- If you give incomplete code, say: "This code is incomplete, here's what's missing"
-- If you fail 6 times in a row, say: "I've failed 6 times, here's why"
-- If you don't know, say: "I don't know"
-- If you discover an error AFTER the user tested, say: "I gave you broken code, I found the bug after you tested"
-- NEVER blame the user for issues caused by your incomplete work
-- NEVER pretend a fix existed before you created it
-- NEVER gaslight or deflect when caught in an error
-
-**Violation consequences:**
-- Destroys trust permanently
-- Wastes user's time and money
-- Prevents actual problem-solving
-- Makes collaboration impossible
-
-**This principle overrides ALL other protocols including appearing competent, avoiding repetition, or maintaining conversational flow.**
+**Production URLs:**
+- Cloudflare Pages: https://stocker-ai.pages.dev
+- Custom Domain: https://my-stocker-ai.com
 
 ---
 
