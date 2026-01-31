@@ -55,10 +55,11 @@ serve(async (req) => {
     // - Get Machines returns: array of machines
 
     // Extract session (first row has session data)
+    // SYSTEMIC FIX: Removed current_item_index (dual-counter eliminated)
+    // Progress now tracked via machines.completed_items only
     const sessionArray = [{
       id: data[0].session_id,
       current_machine_id: data[0].current_machine_id,
-      current_item_index: data[0].current_item_index,
       current_route_id: data[0].current_route_id,
       pick_direction: data[0].pick_direction
     }];

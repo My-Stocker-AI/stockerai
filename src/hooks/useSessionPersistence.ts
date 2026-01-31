@@ -200,7 +200,10 @@ export function useSessionPersistence() {
       // Convert server session to local format
       const route = session.routes as any;
       const machine = session.machines as any;
-      
+
+      // SYSTEMIC FIX: Removed current_item_index reference
+      // currentMachineIndex is machine position in route (1st, 2nd, 3rd)
+      // This will be determined by workflow, not stored in session
       return {
         sessionId: session.id,
         userId: session.user_id,
@@ -208,11 +211,12 @@ export function useSessionPersistence() {
         routeName: route?.route_name || null,
         routeDate: session.delivery_date,
         totalMachines: route?.total_machines || 0,
-        currentMachineIndex: session.current_item_index || 0,
+        currentMachineIndex: 0, // Will be updated by workflow when route loads
         currentMachineId: session.current_machine_id,
         currentMachineName: machine?.machine_name || null,
         currentItem: null, // Will be reloaded from DB
         completedItems: [],
+        machines: [], // Will be populated from route data
         completed: session.status === 'completed',
         conversationHistory: [],
         savedAt: new Date(session.updated_at || session.created_at).getTime(),
