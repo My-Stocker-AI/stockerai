@@ -201,9 +201,10 @@ if (nextItem) {
     }
   }
 
-  // CRITICAL FIX: Use count parameter, not item2 existence
-  // User requested count=N, so increment by N (even if item2 doesn't exist in sequence)
-  var itemsToIncrement = count;
+  // CRITICAL FIX: Use count parameter, but cap at remaining items
+  // Don't try to pick more items than exist (boundary protection)
+  var itemsAvailable = totalItems - completedItems;
+  var itemsToIncrement = Math.min(count, itemsAvailable);
   var newCompletedItems = completedItems + itemsToIncrement;
   var newItemsRemaining = totalItems - newCompletedItems;
 
