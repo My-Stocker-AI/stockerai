@@ -59,10 +59,36 @@
 - 15 references removed atomically across 4 files
 - Verification protocol: grep + TypeScript build
 
+**Pattern:** DISCOVER_002 - Hierarchical Validation Protocol
+- Captured in `/home/visionairy/Flon8/knowledge/synta-learnings/DISCOVER_002_hierarchical_validation.md`
+- Discovery: Validation must mirror decomposition (inverted)
+- Intent decomposition flows TOP-DOWN (complex → simple)
+- Validation MUST flow BOTTOM-UP (syntax → function → integration → system)
+- 4 layers: Syntax (code compiles) → Function (logic works) → Integration (boundaries correct) → System (user experience works)
+- CRITICAL: NEVER claim "verified" without specifying which layers passed
+- User insight: "Code doesn't live in a vacuum" - syntax validity ≠ system validity
+
 **Infrastructure:** Mandatory Learning Capture Protocol
 - Added to `/home/visionairy/Flon8/CLAUDE.md`
 - 4 triggers, 3 checkpoints, verification protocol
 - Knowledge bridge now functional and tested
+
+### Validation Status (2026-02-01)
+
+**Database Verification:** ✅ PASSED
+- Test 1: sessions.current_item_index removed ✓
+- Test 2: machines.completed_items exists ✓
+- Test 3: RPC function returns machine_completed_items ✓
+- Test 4: Sample RPC output shows correct fields ✓
+- Test 5: Route progress aggregation works ✓
+
+**Hierarchical Validation:**
+- ✅ Layer 1 (Syntax): TypeScript build passed, grep verification clean, SQL executes
+- ✅ Layer 2 (Function): RPC returns correct fields, progress calculations work
+- ⚠️ Layer 3 (Integration): Cannot programmatically test n8n → frontend flow
+- ⏸️ Layer 4 (System): Manual testing pending (checklist created)
+
+**Next Step:** User manual testing using `/tmp/...scratchpad/MANUAL_TESTING_CHECKLIST.md`
 
 ### THE ORIGINAL CATASTROPHIC FAILURE
 
