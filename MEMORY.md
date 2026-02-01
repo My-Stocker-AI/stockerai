@@ -86,9 +86,229 @@
 - ✅ Layer 1 (Syntax): TypeScript build passed, grep verification clean, SQL executes
 - ✅ Layer 2 (Function): RPC returns correct fields, progress calculations work
 - ⚠️ Layer 3 (Integration): Cannot programmatically test n8n → frontend flow
-- ⏸️ Layer 4 (System): Manual testing pending (checklist created)
+- ✅ Layer 4 (System): Manual testing COMPLETED
 
-**Next Step:** User manual testing using `/tmp/...scratchpad/MANUAL_TESTING_CHECKLIST.md`
+**Manual Testing Results (2026-02-01):**
+
+**✅ CORE FUNCTIONALITY WORKING:**
+- Dashboard loads without errors ✓
+- Routes display correctly ✓
+- Voice recognition works ✓
+- Items can be picked and increment ✓
+- Progress tracking works (mostly) ✓
+- Machine completion detection ✓
+- Skip machine functionality ✓
+- Resume skipped machine (partially) ✓
+- No schema migration errors ✓
+- Database queries successful ✓
+
+**Session 51 Migration: ✅ SUCCESS**
+- Removed `sessions.current_item_index` column
+- Migrated to `machines.completed_items`
+- Updated 1 RPC function
+- Updated 6 n8n workflows
+- Updated 15 frontend references
+- No crashes, no schema errors
+- Core data flow intact
+
+**⚠️ 5 EDGE CASES DISCOVERED (Non-blocking, need fixes):**
+
+---
+
+### Edge Case 1: Machine Transition Semantic Confusion
+
+**Severity:** MEDIUM
+**Status:** Reproducible
+
+**Symptom:**
+- User finished Machine 1
+- System asked "top or bottom" for Machine 2
+- User replied: "start at the bottom"
+- AI responded: "You're already starting from the bottom"
+- But user wasn't ON Machine 2 yet (just finished Machine 1)
+
+**Root Cause:**
+AI misunderstood context - interpreted "bottom" as current position instead of next machine direction
+
+**Expected Behavior:**
+AI should understand "start at the bottom" means "begin Machine 2 from the last item"
+
+**Impact:**
+Confuses users, requires clarification exchange
+
+**Fix Location:**
+- File: `src/hooks/useStockerAI.ts`
+- Component: AI prompt context for machine transitions
+- Solution: Add explicit "NEXT machine" context when asking direction
+
+---
+
+### Edge Case 2: Direction Prompt Timing Wrong
+
+**Severity:** MEDIUM
+**Status:** Reproducible
+
+**Symptom:**
+- Skipped Machine 2
+- Started Machine 3
+- System gave 2 items BEFORE asking "top or bottom"
+- User had to say "next" to trigger the direction prompt
+- Then system asked "top or bottom"
+
+**Root Cause:**
+Prompt sequence incorrect - should ask direction BEFORE giving first items
+
+**Expected Behavior:**
+1. Detect new machine
+2. Ask "top or bottom?"
+3. User responds
+4. THEN give first item(s)
+
+**Impact:**
+User sees items they may not want (if they wanted to start from opposite end)
+
+**Fix Location:**
+- File: `src/hooks/useStockerSession.ts` and `src/pages/StockerApp.tsx`
+- Component: Machine transition flow control
+- Solution: Reorder: prompt → response → then get items
+
+---
+
+### Edge Case 3: Item Count Wrong on Final Machine
+
+**Severity:** HIGH
+**Status:** Reproducible
+
+**Symptom:**
+- Final machine (Machine 4, 5 items total)
+- After picking first 2 items, count showed "6" (wrong - should be 2/5)
+- System gave only 1 item instead of next 2
+- First 2 picked items did NOT appear in "done" card
+
+**Root Cause:**
+Item counting logic broken for last machine OR done card update failing
+
+**Expected Behavior:**
+- Count: 2/5 after first 2 items
+- Done card: Shows 2 completed items
+- Next items: Should give 2 more (items 3-4), not just 1
+
+**Impact:**
+Progress tracking incorrect, done card missing items, wrong items announced
+
+**Fix Location:**
+- File: `src/hooks/useStockerSession.ts` (counting logic)
+- File: `src/components/DoneCard.tsx` (display logic)
+- Component: `updateFromTool` for `get_next_item` response
+- Solution: Debug completed_items increment and done card state update
+
+---
+
+### Edge Case 4: Resume Skipped Machine State Lost
+
+**Severity:** HIGH
+**Status:** Reproducible
+
+**Symptom:**
+- Skipped Machine 2 after picking 2 items
+- Completed other machines
+- Returned to Machine 2 (correct behavior ✓)
+- But system asked "top or bottom" again (should remember we started from bottom)
+- Progress didn't show 2 already picked
+- System gave 2 DIFFERENT items (wrong - should give items 3-4)
+- Didn't give final 5th item
+
+**Root Cause:**
+Skipped machine state not preserved:
+- Direction lost (top/bottom)
+- Progress lost (completed_items count)
+- Position lost (current item index within machine)
+
+**Expected Behavior:**
+When resuming skipped machine:
+1. Remember direction (don't ask again)
+2. Show progress (2/5 items completed)
+3. Continue from where left off (give items 3-4, then 5)
+
+**Impact:**
+User re-picks same items, loses time, wrong completion count
+
+**Fix Location:**
+- File: `src/hooks/useStockerSession.ts`
+- Component: Skip machine state persistence
+- Database: May need to store machine state (direction, position) in sessions or machines table
+- Solution: Persist direction + progress when skipping, restore when resuming
+
+---
+
+### Edge Case 5: Completion Detection Wrong
+
+**Severity:** MEDIUM
+**Status:** Reproducible
+
+**Symptom:**
+- After resuming skipped machine with state issues (Edge Case 4)
+- System thought machine was complete (it wasn't - missing items)
+- Moved to ALREADY COMPLETED machine (should skip completed machines)
+
+**Root Cause:**
+Either:
+- Completion check logic broken (doesn't verify all items picked)
+- OR state corruption from Edge Case 4 caused wrong machine selection
+- OR completed machine detection not working (should skip to next incomplete)
+
+**Expected Behavior:**
+- Detect all items in machine completed (completed_items = total_items)
+- Skip already-completed machines
+- Move to next incomplete machine OR end route if all complete
+
+**Impact:**
+User sent to wrong machine, wastes time, route completion detection unreliable
+
+**Fix Location:**
+- File: `src/hooks/useStockerSession.ts`
+- Component: Machine completion detection + next machine selection
+- Workflow: `get_current_status` or machine transition logic
+- Solution: Verify completion check logic, ensure completed machines are skipped
+
+---
+
+### Assessment Summary
+
+**Migration Success:** ✅
+- No schema errors
+- Core data flow works
+- Migration from `current_item_index` to `machines.completed_items` successful
+
+**Core Features Working:** ✅
+- Voice recognition
+- Item picking
+- Progress tracking (basic)
+- Machine transitions (basic)
+- Skip functionality (basic)
+
+**Edge Cases Broken:** ⚠️ 5 ISSUES
+- Semantic confusion (transition context)
+- Prompt timing (direction before items)
+- Item counting (last machine + done card)
+- State persistence (skipped machine resume)
+- Completion detection (wrong machine selection)
+
+**Production Readiness:** ⚠️ NOT READY
+- Core migration: Complete ✓
+- User experience: Broken edge cases ❌
+- Recommendation: Fix 5 edge cases before production use
+
+**User Quote:** "We're getting MUCH closer. BUT WE'RE CLOSE!"
+
+---
+
+### Next Steps
+
+1. **Capture learnings** - Document bidirectional XF architecture, hybrid Synta+XF approach ✓
+2. **Debug edge cases** - Use hybrid Synta+XF approach to systematically fix 5 issues
+3. **Re-test** - Complete manual testing checklist again
+4. **Deploy** - Push to production when all edge cases fixed
 
 ### THE ORIGINAL CATASTROPHIC FAILURE
 
