@@ -12,12 +12,16 @@
 -- - Blocking ALL workflows that use get-next-item-data Edge Function
 --
 -- Fix:
--- - Remove current_item_index from RETURNS TABLE definition
--- - Remove current_item_index from SELECT statement
+-- - DROP existing function (return type changed)
+-- - CREATE new function without current_item_index
 -- - System now uses ONLY machines.completed_items for progress tracking
 -- ============================================================================
 
-CREATE OR REPLACE FUNCTION get_next_item_data(p_user_id UUID)
+-- Drop existing function (required when changing return type)
+DROP FUNCTION IF EXISTS get_next_item_data(UUID);
+
+-- Create updated function without current_item_index
+CREATE FUNCTION get_next_item_data(p_user_id UUID)
 RETURNS TABLE (
   -- Session fields
   session_id UUID,
@@ -102,11 +106,14 @@ BEGIN
 END;
 $$;
 
+-- Restore permissions
+GRANT EXECUTE ON FUNCTION get_next_item_data(UUID) TO anon, authenticated;
+
 -- ============================================================================
 -- VERIFICATION
 -- ============================================================================
 
--- Verify function updated
+-- Verify function recreated
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -116,7 +123,7 @@ BEGIN
     RAISE EXCEPTION 'Function get_next_item_data not found';
   END IF;
 
-  RAISE NOTICE 'SUCCESS: get_next_item_data updated - current_item_index removed';
+  RAISE NOTICE 'SUCCESS: get_next_item_data recreated - current_item_index removed';
 END $$;
 
 -- Update function comment
@@ -218,8 +225,9 @@ LIMIT 5;
 -- SUMMARY
 -- ============================================================================
 
--- ✅ Removed current_item_index from RETURNS TABLE definition
--- ✅ Removed current_item_index from SELECT statement
+-- ✅ Dropped old function (return type change requires DROP)
+-- ✅ Created new function without current_item_index
+-- ✅ Restored GRANT permissions for anon and authenticated
 -- ✅ Function now queries only existing columns
 -- ✅ Progress tracking via machines.completed_items (single source of truth)
 -- ✅ Verification tests included
