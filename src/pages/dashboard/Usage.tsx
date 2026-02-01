@@ -142,13 +142,22 @@ const Usage = () => {
       const userIds = teamMembers?.map(m => m.user_id) || [];
       if (userIds.length === 0) return [];
 
-      // Get sessions for last 30 days
+      // Get sessions with machines for last 30 days
       const thirtyDaysAgo = subDays(new Date(), 30);
       const { data: sessions } = await supabase
         .from('sessions')
-        .select('created_at, current_item_index')
+        .select('created_at, current_route_id')
         .in('user_id', userIds)
         .gte('created_at', thirtyDaysAgo.toISOString());
+
+      // Get machines for those sessions
+      const routeIds = sessions?.map(s => s.current_route_id).filter(Boolean) || [];
+      const { data: machines } = routeIds.length > 0 ? await supabase
+        .from('machines')
+        .select('route_id, completed_items, updated_at')
+        .in('route_id', routeIds)
+        .gte('updated_at', thirtyDaysAgo.toISOString())
+        : { data: [] };
 
       // Aggregate by date
       const dateMap: Record<string, number> = {};
@@ -157,11 +166,11 @@ const Usage = () => {
         dateMap[format(date, 'yyyy-MM-dd')] = 0;
       }
 
-      sessions?.forEach((session: any) => {
-        const dateKey = format(new Date(session.created_at), 'yyyy-MM-dd');
+      // Aggregate machine progress by date
+      machines?.forEach((machine: any) => {
+        const dateKey = format(new Date(machine.updated_at), 'yyyy-MM-dd');
         if (dateMap[dateKey] !== undefined) {
-          // Use current_item_index as a proxy for items completed
-          dateMap[dateKey] += session.current_item_index || 0;
+          dateMap[dateKey] += machine.completed_items || 0;
         }
       });
 
@@ -200,10 +209,26 @@ const Usage = () => {
       const userIds = teamMembers.map((m: any) => m.user_id);
       const { data: sessions } = await supabase
         .from('sessions')
-        .select('user_id, status, current_item_index')
+        .select('user_id, status, current_route_id')
         .in('user_id', userIds)
         .gte('created_at', monthStart.toISOString())
         .lte('created_at', monthEnd.toISOString());
+
+      // Get machines for those sessions to calculate items picked
+      const routeIds = sessions?.map(s => s.current_route_id).filter(Boolean) || [];
+      const { data: machines } = routeIds.length > 0 ? await supabase
+        .from('machines')
+        .select('route_id, completed_items, status')
+        .in('route_id', routeIds)
+        : { data: [] };
+
+      // Create route-to-user mapping
+      const routeUserMap: Record<string, string> = {};
+      sessions?.forEach((session: any) => {
+        if (session.current_route_id) {
+          routeUserMap[session.current_route_id] = session.user_id;
+        }
+      });
 
       // Aggregate stats per driver
       const statsMap: Record<string, { routes: number; items: number; machines: number; days: Set<string> }> = {};
@@ -215,10 +240,17 @@ const Usage = () => {
         if (session.status === 'completed') {
           statsMap[session.user_id].routes += 1;
         }
-        // Use current_item_index as proxy for items picked
-        statsMap[session.user_id].items += session.current_item_index || 0;
-        // Estimate machines from routes (will be more accurate when proper tracking is added)
-        statsMap[session.user_id].machines += session.status === 'completed' ? 1 : 0;
+      });
+
+      // Add machine data to stats
+      machines?.forEach((machine: any) => {
+        const userId = routeUserMap[machine.route_id];
+        if (userId && statsMap[userId]) {
+          statsMap[userId].items += machine.completed_items || 0;
+          if (machine.status === 'completed') {
+            statsMap[userId].machines += 1;
+          }
+        }
       });
 
       return teamMembers.map((member: any) => {

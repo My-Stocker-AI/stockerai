@@ -92,7 +92,7 @@ export interface ItemContract {
  * Contract Rules:
  * - Session tracks POSITION, not structure
  * - current_machine_id MUST exist in route's machines
- * - current_item_index resets to 1 when moving to new machine
+ * - Progress tracked via machines.completed_items (not session)
  * - NEVER store aggregate counters (derive from machines[])
  */
 export interface SessionContract {
@@ -101,7 +101,7 @@ export interface SessionContract {
   route_id: string;
   current_machine_id: string;
   current_machine_index: number; // 1-based
-  current_item_index: number; // Within current machine
+  // REMOVED: current_item_index (migrated to machines.completed_items - 2026-01-31)
   completed: boolean;
   created_at: string;
   updated_at: string;

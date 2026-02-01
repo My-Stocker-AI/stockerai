@@ -459,7 +459,6 @@ export type Database = {
         Row: {
           completed_at: string | null
           created_at: string | null
-          current_item_index: number | null
           current_machine_id: string | null
           current_route_id: string | null
           delivery_date: string | null
@@ -474,7 +473,6 @@ export type Database = {
         Insert: {
           completed_at?: string | null
           created_at?: string | null
-          current_item_index?: number | null
           current_machine_id?: string | null
           current_route_id?: string | null
           delivery_date?: string | null
@@ -489,7 +487,6 @@ export type Database = {
         Update: {
           completed_at?: string | null
           created_at?: string | null
-          current_item_index?: number | null
           current_machine_id?: string | null
           current_route_id?: string | null
           delivery_date?: string | null

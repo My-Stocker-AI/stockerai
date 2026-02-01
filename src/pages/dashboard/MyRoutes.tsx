@@ -32,7 +32,12 @@ interface Session {
   id: string;
   current_route_id: string | null;
   status: string | null;
-  current_item_index: number | null;
+  // REMOVED: current_item_index (migrated to machines.completed_items - 2026-01-31)
+}
+
+interface RouteMachine {
+  route_id: string;
+  completed_items: number | null;
 }
 
 const MyRoutes = () => {
@@ -88,29 +93,57 @@ const MyRoutes = () => {
     enabled: !!user,
   });
 
-  // Fetch sessions to get progress
+  // Fetch sessions to get route status
   const { data: sessions = [] } = useQuery({
     queryKey: ['sessions', user?.id],
     queryFn: async () => {
       if (!user) return [];
       const { data, error } = await supabase
         .from('sessions')
-        .select('id, current_route_id, status, current_item_index')
+        .select('id, current_route_id, status')
         .eq('user_id', user.id);
-      
+
       if (error) throw error;
       return data as Session[];
     },
     enabled: !!user,
   });
 
+  // Fetch machines to calculate progress
+  const { data: machines = [] } = useQuery({
+    queryKey: ['route-machines', user?.id, sessions],
+    queryFn: async () => {
+      if (!user || sessions.length === 0) return [];
+
+      // Get all machines for routes with active sessions
+      const sessionRouteIds = sessions
+        .map(s => s.current_route_id)
+        .filter((id): id is string => id !== null);
+
+      if (sessionRouteIds.length === 0) return [];
+
+      const { data, error } = await supabase
+        .from('machines')
+        .select('route_id, completed_items')
+        .in('route_id', sessionRouteIds);
+
+      if (error) throw error;
+      return data as RouteMachine[];
+    },
+    enabled: !!user && sessions.length > 0,
+  });
+
   const getRouteStatus = (route: RouteData) => {
     const session = sessions.find(s => s.current_route_id === route.id);
     if (!session) return { status: 'not_started', progress: 0 };
     if (session.status === 'completed') return { status: 'completed', progress: 100 };
-    if (session.status === 'in_progress') {
-      const progress = route.total_items 
-        ? Math.round(((session.current_item_index || 0) / route.total_items) * 100)
+    if (session.status === 'in_progress' || session.status === 'stocking') {
+      // Calculate progress from machines.completed_items
+      const routeMachines = machines.filter(m => m.route_id === route.id);
+      const totalCompleted = routeMachines.reduce((sum, m) => sum + (m.completed_items || 0), 0);
+
+      const progress = route.total_items
+        ? Math.round((totalCompleted / route.total_items) * 100)
         : 0;
       return { status: 'in_progress', progress };
     }
