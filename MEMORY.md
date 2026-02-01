@@ -8,13 +8,195 @@
 
 # CURRENT STATE
 
-**Date:** 2026-01-26
-**Phase:** Phase 2 - Workflow Fixes (IN PROGRESS)
-**Status:** Edge Function fixed, ready for testing
+**Date:** 2026-01-31
+**Phase:** CRITICAL - Systemic Fix Deployment (INCOMPLETE)
+**Status:** ⚠️ SYSTEM BROKEN - Migration deployed but workflows not fully updated
 
 ---
 
-## ACTIVE WORK (Session 50 - 2026-01-26)
+## 🔥 SESSION 51 (2026-01-31): SYSTEMIC FIX BROKE EVERYTHING - RECOVERY IN PROGRESS
+
+### THE CATASTROPHIC FAILURE
+
+**What happened:**
+1. Deployed "systemic fix" commit 345fc92 to eliminate dual-counter architecture
+2. Migration ran successfully: Removed `sessions.current_item_index` column from database ✓
+3. Updated ONLY 2 of 9 workflows before deployment ✗
+4. System completely broken - cannot start routes ✗
+
+**Root cause of failure:**
+- **Violated System Impact Audit Protocol** - Did not check ALL affected workflows before deployment
+- **Incomplete fix deployment** - Changed database schema without updating all dependent code
+- **No validation** - Deployed without testing complete system
+
+### THE PROBLEM
+
+**Database state:**
+- ✓ Migration ran: `sessions.current_item_index` column removed
+- ✓ Unique constraints intact: `(user_id, session_key)`
+
+**Broken workflows (7+ workflows still reference current_item_index):**
+- set_route_sequence - Trying to SELECT/UPDATE removed column → "column does not exist" error
+- start_machine - Same issue
+- skip_current_machine - Unknown
+- get_next_item - Unknown
+- update_session_state - Unknown
+- get_current_status - Unknown
+- go_back_to_skipped - Unknown
+
+**Broken frontend:**
+- `src/pages/dashboard/MyRoutes.tsx` - Queries current_item_index for progress
+- `src/pages/dashboard/Usage.tsx` - Queries current_item_index for stats
+- Type definitions still reference removed column
+
+**User impact:** Cannot start routes, cannot work, cannot make money
+
+### THE FIX PATTERN DISCOVERED
+
+**Using XF Framework (manual MECE decomposition), identified 3-fix pattern:**
+
+Every workflow that touches sessions needs the same fixes:
+
+**Pattern 1: HTTP Request SELECT queries**
+- Find: `select=id,current_machine_id,current_item_index,status`
+- Fix: Remove `current_item_index,` from select clause
+
+**Pattern 2: Code nodes setting current_item_index**
+- Find: `current_item_index: 1` or `current_item_index: itemIndex`
+- Fix: Delete the entire line
+
+**Pattern 3: HTTP Request UPDATE/PATCH**
+- Find: `{{ JSON.stringify({ current_machine_id: ..., current_item_index: ... }) }}`
+- Fix: Remove `current_item_index: ...` from JSON object
+
+### FIXES APPLIED (2026-01-31)
+
+**✅ FIXED:**
+1. **set_route_sequence (46lMRdxTgD1E3WFz)** - 3 fixes applied by user:
+   - Find Session node: Removed current_item_index from SELECT
+   - Prep Machine Update node: Removed `current_item_index: 1` line
+   - Update Session Machine node: Removed current_item_index from PATCH body
+
+2. **start_machine (JbKdJuKgGbyvzlF0)** - 3 fixes applied by user:
+   - Get Session node: Removed current_item_index from SELECT
+   - Select Item node: Removed `current_item_index: itemIndex` line
+   - Update Session node: Removed current_item_index from PATCH body
+
+**❌ STILL NEED TO FIX:**
+3. skip_current_machine (ElCSMeguJNxwp0HO) - Same 3-fix pattern
+4. get_next_item (iykbFj7f9222PF7r) - Same 3-fix pattern
+5. update_session_state (ueDSi9SDBZ5jMwpO) - Same 3-fix pattern
+6. get_current_status (PD3ErCuxWBWLFXIq) - Likely just SELECT (lower priority)
+7. go_back_to_skipped (rpNfINhjbFCuFrlZ) - Same 3-fix pattern
+8. switch_route (3G01u7N9REhrC9tn) - Unknown
+9. delete_route (zmgTBX1w1rc5bOpO) - Unknown
+
+**Frontend (non-blocking but needs fixing):**
+- MyRoutes.tsx - Remove current_item_index queries, use machines.completed_items
+- Usage.tsx - Same
+- Type definitions - Remove current_item_index from interfaces
+
+### HIERARCHICAL FIX STRATEGY
+
+**Layer 1: Get routes starting** ← USER IS HERE
+- ✅ Fix set_route_sequence
+- ✅ Fix start_machine
+- 🧪 TEST: Can routes start now?
+
+**Layer 2: Get routes completing**
+- Fix skip_current_machine
+- Fix get_next_item
+- Fix go_back_to_skipped
+- 🧪 TEST: Can routes complete?
+
+**Layer 3: State management**
+- Fix update_session_state
+- Fix other workflows
+
+**Layer 4: Polish**
+- Fix frontend dashboard
+- Update type definitions
+
+### ALTERNATIVE APPROACH: Synta.io
+
+**User signed up for Synta.io AI workflow builder**
+
+**Why Synta might be better for this:**
+- Purpose-built for n8n workflows (vs general-purpose Claude)
+- Has self-healing capabilities - auto-tests and fixes workflows
+- Deep knowledge of n8n nodes and validation
+- Can scan all workflows systematically
+- Outputs production-ready workflows
+
+**Synta.io prompt prepared:**
+```
+Full context provided including:
+- System overview (StockerAI voice-first vending system)
+- The problem (current_item_index column removed)
+- Workflows to fix (9 workflows listed with IDs)
+- Fix pattern (3-point pattern documented)
+- Expected behavior after fix
+- Supabase connection details
+```
+
+**User decision:** Try Synta.io for systematic workflow fixing
+
+### KEY LESSONS
+
+**What went wrong:**
+1. ❌ **Violated System Impact Audit Protocol** - Changed database without checking ALL affected code
+2. ❌ **Incomplete deployment** - Updated 2 workflows out of 9+
+3. ❌ **No validation** - Didn't test before declaring "systemic fix" complete
+4. ❌ **Overconfidence** - Assumed fix was simple, didn't do full MECE analysis upfront
+
+**What should have happened:**
+1. ✅ Run MECE decomposition FIRST - Find ALL code that references current_item_index
+2. ✅ Create complete checklist - Document every file/workflow that needs changes
+3. ✅ Fix ALL code BEFORE running migration - Database change is last step, not first
+4. ✅ Test thoroughly - Validate each layer works before moving to next
+5. ✅ Deploy atomically - All changes at once, not piecemeal
+
+**XF Framework worked when applied manually:**
+- MECE decomposition found the 3-fix pattern
+- Hierarchical approach (Layer 1, 2, 3) provides clear path forward
+- Boundary analysis identified what's critical vs nice-to-have
+
+**User insight:** "Shouldn't we be able to identify the prompts XF would use for MECE discovery specific to the system?"
+- ✅ Yes - focused queries work better than broad "analyze everything"
+- Example: "Which workflows SELECT current_item_index?" (specific, bounded)
+- vs "Analyze systemic fix impact" (too broad, XF timed out)
+
+### NEXT ACTIONS
+
+**Option 1: Continue with Claude using hierarchical approach**
+1. Test if routes start now (2 workflows fixed)
+2. If yes: Apply 3-fix pattern to remaining 5-7 workflows
+3. Test after each layer
+4. Fix frontend last
+
+**Option 2: Use Synta.io for systematic fix**
+1. Provide full context prompt (prepared above)
+2. Let Synta scan all workflows
+3. Apply fixes systematically
+4. Validate complete solution
+
+**User chose:** Option 2 (Synta.io)
+
+### FILES CHANGED THIS SESSION
+
+**Database:**
+- Migration already ran (commit 345fc92)
+
+**Workflows (manually updated in n8n UI):**
+- set_route_sequence: Find Session, Prep Machine Update, Update Session Machine nodes
+- start_machine: Get Session, Select Item, Update Session nodes
+
+**Git commits:**
+- None yet (changes made in n8n UI, not committed)
+
+---
+
+## PREVIOUS WORK (Session 50 - 2026-01-26)
 
 ### 🔥 CRITICAL BUG FIXED: Machine Completing at 3/5 Instead of 5/5
 
