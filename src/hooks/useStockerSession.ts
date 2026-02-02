@@ -314,7 +314,10 @@ export function useStockerSession(userId: string | null) {
               // Workflow increments database by items_to_increment (based on count param)
               // Frontend MUST use same value to stay in sync
               // Using newItems.length (deduplicated) can cause divergence on retries
-              const workflowIncrement = result.items_to_increment || newItems.length;
+              // CRITICAL: Use !== undefined check (not ||) to allow items_to_increment=0
+              const workflowIncrement = result.items_to_increment !== undefined
+                ? result.items_to_increment
+                : newItems.length;
 
               // Update machine's completedItems count
               if (prev.currentMachineId) {
