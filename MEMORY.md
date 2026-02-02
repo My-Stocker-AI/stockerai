@@ -111,7 +111,7 @@
 - No crashes, no schema errors
 - Core data flow intact
 
-**⚠️ 5 EDGE CASES DISCOVERED (Non-blocking, need fixes):**
+**✅ 4/5 EDGE CASES FIXED (2026-02-01):**
 
 ---
 
@@ -307,10 +307,10 @@ status: m.status || 'pending'  // Use DB value
 
 ---
 
-### Edge Case 5: Completion Detection Wrong
+### Edge Case 5: Completion Detection Wrong ✅ FIXED
 
 **Severity:** MEDIUM
-**Status:** Reproducible
+**Status:** ✅ FIXED (2026-02-01)
 
 **Symptom:**
 - After resuming skipped machine with state issues (Edge Case 4)
@@ -318,10 +318,11 @@ status: m.status || 'pending'  // Use DB value
 - Moved to ALREADY COMPLETED machine (should skip completed machines)
 
 **Root Cause:**
-Either:
-- Completion check logic broken (doesn't verify all items picked)
-- OR state corruption from Edge Case 4 caused wrong machine selection
-- OR completed machine detection not working (should skip to next incomplete)
+Two related issues:
+1. **Edge Case 4 state corruption:** Skipped machine `completed_items` reset to 0 on resume, then inflated incorrectly
+2. **Missing completion check:** Next machine selection only checked `status !== 'skipped'`, NOT `completed_items < total_items`
+
+Result: Even if a machine had `completed_items >= total_items`, it could still be selected as "next machine"
 
 **Expected Behavior:**
 - Detect all items in machine completed (completed_items = total_items)
@@ -331,11 +332,41 @@ Either:
 **Impact:**
 User sent to wrong machine, wastes time, route completion detection unreliable
 
-**Fix Location:**
-- File: `src/hooks/useStockerSession.ts`
-- Component: Machine completion detection + next machine selection
-- Workflow: `get_current_status` or machine transition logic
-- Solution: Verify completion check logic, ensure completed machines are skipped
+**The Fix (Workflow: get_next_item - iykbFj7f9222PF7r):**
+
+**Updated "Determine Next State" node - Added defensive completion checks:**
+
+**1. Sequential machine selection (lines ~70-85):**
+- Before:
+```javascript
+if (machines[i].sequence === currentMachineSeq + 1 &&
+    machines[i].status !== 'skipped') {
+```
+- After:
+```javascript
+if (machines[i].sequence === currentMachineSeq + 1 &&
+    machines[i].status !== 'skipped' &&
+    (machines[i].completed_items || 0) < machines[i].total_items) {
+```
+
+**2. Skipped machine selection (lines ~95-105):**
+- Before:
+```javascript
+if (machines[i].status === 'skipped') {
+```
+- After:
+```javascript
+if (machines[i].status === 'skipped' &&
+    (machines[i].completed_items || 0) < machines[i].total_items) {
+```
+
+**Result:**
+- Next machine selection now verifies machine is INCOMPLETE
+- Skips any machine where `completed_items >= total_items`
+- Even if Edge Case 4 state corruption occurs again, won't select completed machines
+- Route completion only when ALL machines have `completed_items >= total_items`
+
+**Note:** Edge Case 5 likely already resolved by Edge Case 4 fix (preserves `completed_items` state). This adds defensive logic to prevent similar issues even if state corruption occurs elsewhere.
 
 ---
 
@@ -353,28 +384,34 @@ User sent to wrong machine, wastes time, route completion detection unreliable
 - Machine transitions (basic)
 - Skip functionality (basic)
 
-**Edge Cases Broken:** ⚠️ 5 ISSUES
-- Semantic confusion (transition context)
-- Prompt timing (direction before items)
-- Item counting (last machine + done card)
-- State persistence (skipped machine resume)
-- Completion detection (wrong machine selection)
+**Edge Cases Status (2026-02-01):** ✅ 4/5 FIXED
+- ✅ Edge Case 1: Machine Transition Semantic Confusion (AI prompt enhanced)
+- ✅ Edge Case 2: Direction Prompt Timing Wrong (workflow fixed)
+- ⚠️ Edge Case 3: Item count wrong on final machine (diagnostic logging in place, needs testing)
+- ✅ Edge Case 4: Resume Skipped Machine State Lost (workflow + state persistence fixed)
+- ✅ Edge Case 5: Completion Detection Wrong (defensive logic added)
 
-**Production Readiness:** ⚠️ NOT READY
+**Production Readiness:** ⚠️ TESTING REQUIRED
 - Core migration: Complete ✓
-- User experience: Broken edge cases ❌
-- Recommendation: Fix 5 edge cases before production use
+- Edge cases: 4/5 fixed, 1 has diagnostic logging ✓
+- Recommendation: Manual testing to verify fixes and reproduce Edge Case 3
 
-**User Quote:** "We're getting MUCH closer. BUT WE'RE CLOSE!"
+**User Quote (from initial testing):** "We're getting MUCH closer. BUT WE'RE CLOSE!"
 
 ---
 
-### Next Steps
+### Next Steps (2026-02-01)
 
-1. **Capture learnings** - Document bidirectional XF architecture, hybrid Synta+XF approach ✓
-2. **Debug edge cases** - Use hybrid Synta+XF approach to systematically fix 5 issues
-3. **Re-test** - Complete manual testing checklist again
-4. **Deploy** - Push to production when all edge cases fixed
+1. ✅ **Capture learnings** - Document bidirectional XF architecture, hybrid Synta+XF approach
+2. ✅ **Debug edge cases** - Fixed 4/5 edge cases systematically from code analysis
+3. **Manual testing** - Test fixes and attempt to reproduce Edge Case 3 with diagnostic logging
+4. **Deploy to production** - Once Edge Case 3 is verified/fixed
+
+**Fixes deployed:**
+- Commit e17dc56: Edge Cases 1 & 4 (AI prompt + workflow state preservation)
+- Commit bbe79b3: Edge Case 2 (skip_current_machine workflow timing)
+- Commit d1ca44d: Edge Case 5 (defensive completion detection)
+- Frontend changes: Auto-deployed via Cloudflare Pages (2-3 minutes)
 
 ### THE ORIGINAL CATASTROPHIC FAILURE
 
