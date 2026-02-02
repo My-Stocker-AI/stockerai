@@ -44,7 +44,6 @@ interface Session {
   id: string;
   current_route_id: string;
   current_machine_id: string;
-  current_item_index: number;
   pick_direction: string;
   status: string;
 }
@@ -62,14 +61,15 @@ serve(async (req) => {
 
     const { user_id, count = 1 }: GetNextItemRequest = await req.json();
 
+    console.log('[get-next-item-atomic] Received request:', { user_id, count });
+
     // STEP 1: Get all data in single query with joins
-    const { data: sessionData, error: sessionError } = await supabaseClient
+    const { data: sessionData, error: sessionError} = await supabaseClient
       .from("sessions")
       .select(`
         id,
         current_route_id,
         current_machine_id,
-        current_item_index,
         pick_direction,
         status
       `)
@@ -80,8 +80,9 @@ serve(async (req) => {
       .single();
 
     if (sessionError || !sessionData) {
+      console.error('[get-next-item-atomic] Session not found:', { sessionError, hasData: !!sessionData, user_id });
       return new Response(
-        JSON.stringify({ error: "No active session found" }),
+        JSON.stringify({ error: "No active session found", user_id, debug: sessionError?.message }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 404 }
       );
     }

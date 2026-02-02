@@ -196,7 +196,7 @@ const TOOLS = [
 const WEBHOOK_MAP: Record<string, string> = {
   'get_routes_for_date': '/get-routes',
   'set_route_sequence': '/set-sequence',
-  'get_next_item': 'https://wvtkuposrlvadyeixlke.supabase.co/functions/v1/get-next-item-atomic', // Edge Function - 50-70% faster (verify_jwt disabled)
+  'get_next_item': '/next-item-optimized', // n8n workflow (Edge Function needs rewrite for new schema)
   'get_current_status': 'https://wvtkuposrlvadyeixlke.supabase.co/functions/v1/get-current-status-optimized', // Edge Function - 60-75% faster (verify_jwt disabled)
   'update_session_state': '/update-state',
   'start_machine': '/start-machine',
