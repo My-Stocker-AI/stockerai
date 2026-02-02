@@ -213,13 +213,13 @@ const TOOLS = [
 const WEBHOOK_MAP: Record<string, string> = {
   'get_routes_for_date': '/get-routes',
   'set_route_sequence': '/set-sequence',
-  'get_next_item': '/next-item-optimized', // Edge Function version - 400-600ms faster
+  'get_next_item': 'https://wvtkuposrlvadyeixlke.supabase.co/functions/v1/get-next-item-atomic', // Edge Function - 50-70% faster
   'get_current_status': '/status',
   'update_session_state': '/update-state',
   'start_machine': '/start-machine',
   'skip_current_machine': '/skip-machine',
   'go_back_to_skipped': '/back-to-skipped',
-  'switch_route': '/switch-route'
+  'switch_route': 'https://wvtkuposrlvadyeixlke.supabase.co/functions/v1/switch-route-atomic' // Edge Function - transaction safety
 };
 
 export function useStockerAI() {
@@ -727,7 +727,9 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
       lastCommandRef.current = { name, timestamp: now };
 
       try {
-        console.log(`[Tools] Calling ${name}:`, { args, endpoint: `${N8N_BASE}${path}` });
+        // Construct endpoint URL (full URL if path starts with http, otherwise prepend N8N_BASE)
+        const endpoint = path.startsWith('http') ? path : `${N8N_BASE}${path}`;
+        console.log(`[Tools] Calling ${name}:`, { args, endpoint });
 
         // Check if 2-item mode is enabled
         const callTwoItems = localStorage.getItem('stocker-call-two-items') === 'true';
@@ -736,7 +738,7 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
         const shouldAddCount = callTwoItems && (name === 'start_machine' || name === 'get_next_item');
 
         // PRIORITY 1.3: Use retry logic for webhook calls
-        const resp = await fetchWithRetry(`${N8N_BASE}${path}`, {
+        const resp = await fetchWithRetry(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
