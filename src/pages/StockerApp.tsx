@@ -345,12 +345,29 @@ export default function StockerApp() {
       return;
     }
 
+    // PHONETIC CORRECTION: Fix common mishearings when awaiting direction
+    // Problem: Deepgram transcribes "bottom" as "bam", "bomb", etc.
+    // Solution: Client-side phonetic matching - ZERO LATENCY
+    let correctedTranscript = transcript;
+    if (routeState.pendingMachineTransition) {
+      const { detectDirection } = await import('../utils/phoneticCorrection');
+      const detectedDirection = detectDirection(transcript);
+      if (detectedDirection) {
+        correctedTranscript = detectedDirection;
+        console.log('[PhoneticCorrection] 🔧 Corrected transcript:', {
+          original: transcript,
+          corrected: correctedTranscript,
+          direction: detectedDirection
+        });
+      }
+    }
+
     // COMMAND RECOGNITION LAYER: Pattern matching for high-frequency commands
     // This bypasses AI for 90% of commands, achieving <1s response time and 99.9% accuracy
     // Only active when user is on a route (not during route selection)
     if (routeState.routeName) {
       console.log('[CommandRecognizer] 🎤 Transcript received:', transcript);
-      const commandMatch = commandRecognizer.recognize(transcript);
+      const commandMatch = commandRecognizer.recognize(correctedTranscript);
       console.log('[CommandRecognizer] 🔍 Recognition result:', {
         command: commandMatch.command,
         confidence: commandMatch.confidence,
@@ -604,7 +621,8 @@ export default function StockerApp() {
     v.setThinking();
 
     try {
-      addMessage({ role: 'user', content: transcript });
+      // Use corrected transcript (with phonetic fixes) for AI
+      addMessage({ role: 'user', content: correctedTranscript });
       // Use messagesRef.current to avoid stale closure (ref is updated immediately by addMessage)
       const allMessages = trimConversationHistory(sanitizeConversationHistory([...messagesRef.current]));
 

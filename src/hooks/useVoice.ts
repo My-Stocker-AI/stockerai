@@ -536,9 +536,11 @@ export function useVoice(options: UseVoiceOptions = {}) {
     if (!token) throw new Error('No token available');
 
     // Build keywords list: common commands + dynamic route names + products
+    // CRITICAL: top/bottom are highest priority (3x boost via separate parameter)
+    const criticalKeywords = ['top', 'bottom', 'beginning', 'end'];
     const baseKeywords = [
       // Directions and positions
-      'south', 'north', 'east', 'west', 'top', 'bottom', 'beginning', 'end',
+      'south', 'north', 'east', 'west',
       // Commands
       'next', 'done', 'skip', 'yes', 'no', 'start', 'stop', 'continue',
       'undo', 'back', 'go back', 'switch', 'route', 'machine', 'progress',
@@ -557,14 +559,24 @@ export function useVoice(options: UseVoiceOptions = {}) {
 
     // Combine base keywords with dynamic route names
     const allKeywords = [...baseKeywords, ...keywordsRef.current];
-    const keywordsParam = allKeywords.length > 0
-      ? `&keywords=${encodeURIComponent(allKeywords.join(','))}`
+
+    // Build keyword parameters with different boost levels
+    // Critical keywords (top/bottom) get 3x boost for better mishearing prevention
+    const criticalParam = criticalKeywords.length > 0
+      ? `&keywords=${encodeURIComponent(criticalKeywords.join(','))}&keywords_boost=3.0`
       : '';
 
-    // Add keywords boost parameter for 1.5x priority on these words
-    const boostParam = allKeywords.length > 0 ? '&keywords_boost=1.5' : '';
+    // Other keywords get standard 1.5x boost
+    const keywordsParam = allKeywords.length > 0
+      ? `&keywords=${encodeURIComponent(allKeywords.join(','))}&keywords_boost=1.5`
+      : '';
 
-    console.log('[Voice] Deepgram keywords:', { count: allKeywords.length, boost: 1.5 });
+    console.log('[Voice] Deepgram keywords:', {
+      critical: criticalKeywords.length,
+      criticalBoost: 3.0,
+      standard: allKeywords.length,
+      standardBoost: 1.5
+    });
 
     // Use environment-specific endpointing value (from environment detection) or default to 100ms
     const endpointingMs = environmentEndpointing || 100;
@@ -578,8 +590,8 @@ export function useVoice(options: UseVoiceOptions = {}) {
       'interim_results=true&' +
       'vad_events=true&' +
       `endpointing=${endpointingMs}` +  // Environment-adaptive endpointing
-      keywordsParam +
-      boostParam;
+      criticalParam +  // Critical keywords (top/bottom) with 3x boost
+      keywordsParam;  // Standard keywords with 1.5x boost
 
     return new Promise<void>((resolve, reject) => {
       const socket = new WebSocket(wsUrl, ['token', token]);
