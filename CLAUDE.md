@@ -513,18 +513,22 @@ git diff 52e9508 HEAD -- src/hooks/useStockerSession.ts
 
 ## How to Use XF (Hidden from User)
 
-**⚠️ CRITICAL: Use the CLI wrapper, NOT MCP**
+**⚠️ CRITICAL: Use the `xf` wrapper (available globally)**
 
 ```bash
-./xpansion.py analyze "problem description"
-./xpansion.py decompose "intent description"
-./xpansion.py design "process description"
-./xpansion.py validate "problem" "solution"
+# System analysis (DATA/NODES/FLOW/ERRORS)
+xf system "problem description"
+
+# Intent decomposition (WHAT/WHO/HOW)
+xf analyze "intent description"
+
+# Process design (INPUTS/STEPS/OUTPUTS)
+xf process "goal description"
 ```
 
 **Quick summary:**
 1. User describes problem conversationally
-2. You run `./xpansion.py analyze "problem"` (automatic, user doesn't see this)
+2. You run `xf system "problem"` (automatic, user doesn't see this)
 3. You discover DATA/NODES/FLOW/ERRORS boundaries
 4. You show user plain-English summary of what's affected
 5. You implement the solution properly
