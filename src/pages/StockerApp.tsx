@@ -12,6 +12,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { HelpSheet } from '@/components/stocker/HelpSheet';
+import { useEnvironmentDetection } from '@/hooks/useEnvironmentDetection';
 import { RouteSelectionCard } from '@/components/stocker/RouteSelectionCard';
 import { MachineListPanel } from '@/components/stocker/MachineListPanel';
 import { DiagnosticOverlay } from '@/components/DiagnosticOverlay';
