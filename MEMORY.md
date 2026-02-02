@@ -115,10 +115,10 @@
 
 ---
 
-### Edge Case 1: Machine Transition Semantic Confusion
+### Edge Case 1: Machine Transition Semantic Confusion ✅ FIXED
 
 **Severity:** MEDIUM
-**Status:** Reproducible
+**Status:** ✅ FIXED (2026-02-01)
 
 **Symptom:**
 - User finished Machine 1
@@ -128,7 +128,11 @@
 - But user wasn't ON Machine 2 yet (just finished Machine 1)
 
 **Root Cause:**
-AI misunderstood context - interpreted "bottom" as current position instead of next machine direction
+AI misunderstood context - interpreted "bottom" as current position instead of next machine direction:
+- `awaitingDirection` context didn't clarify this is the NEXT machine
+- No explicit statement that previous machine is COMPLETE
+- No explanation that user is choosing direction for NEW machine (not current position)
+- STATE 1 repeat question was ambiguous
 
 **Expected Behavior:**
 AI should understand "start at the bottom" means "begin Machine 2 from the last item"
@@ -136,10 +140,24 @@ AI should understand "start at the bottom" means "begin Machine 2 from the last 
 **Impact:**
 Confuses users, requires clarification exchange
 
-**Fix Location:**
-- File: `src/hooks/useStockerAI.ts`
-- Component: AI prompt context for machine transitions
-- Solution: Add explicit "NEXT machine" context when asking direction
+**The Fix (File: src/hooks/useStockerAI.ts):**
+
+**1. Enhanced awaitingDirection context (lines 296-306):**
+- Added: "CONTEXT: Previous machine is COMPLETE. You are about to START the NEXT machine."
+- Added: "USER IS CHOOSING: Direction to begin THIS NEW MACHINE (not their current position)."
+- Added: "When user says 'start at the bottom', they mean 'BEGIN this new machine from the last item'."
+- Added: "Do NOT say 'you're already at...' (they haven't started this machine yet!)"
+
+**2. Updated STATE 1 prompt (lines 364-377):**
+- Added: "CRITICAL CONTEXT: User just FINISHED previous machine and is about to START the NEXT machine."
+- Changed repeat question: "Do you want to start [machine name] from the top or bottom?"
+- Added: "NEVER say 'you're already at...' (they haven't started this machine yet!)"
+
+**Result:**
+- AI now understands user is choosing direction for NEW machine
+- Clear context about machine transition state (finished → about to start)
+- No more "you're already at..." confusion
+- Proper semantic interpretation of "start at bottom" = "begin new machine from end"
 
 ---
 
