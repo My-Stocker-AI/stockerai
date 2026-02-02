@@ -190,23 +190,6 @@ const TOOLS = [
         required: ["session_id", "direction"]
       }
     }
-  },
-  {
-    type: "function",
-    function: {
-      name: "switch_route",
-      description: "Switch to a different route, with option to preserve or reset progress on current route",
-      parameters: {
-        type: "object",
-        properties: {
-          session_id: { type: "string", description: "Session ID" },
-          target_route: { type: "string", description: "Name of route to switch to" },
-          date: { type: "string", description: "Delivery date in YYYY-MM-DD format" },
-          preserve_progress: { type: "boolean", description: "True to save progress, false to reset" }
-        },
-        required: ["session_id", "target_route", "date", "preserve_progress"]
-      }
-    }
   }
 ];
 
@@ -218,8 +201,7 @@ const WEBHOOK_MAP: Record<string, string> = {
   'update_session_state': '/update-state',
   'start_machine': '/start-machine',
   'skip_current_machine': '/skip-machine',
-  'go_back_to_skipped': '/back-to-skipped',
-  'switch_route': 'https://wvtkuposrlvadyeixlke.supabase.co/functions/v1/switch-route-atomic' // Edge Function - transaction safety
+  'go_back_to_skipped': '/back-to-skipped'
 };
 
 export function useStockerAI() {
@@ -533,7 +515,7 @@ SPECIAL FEATURES & EDGE CASES
 → If suspected: "Did you mean [likely word]?"
 
 ⚠️ Sanity Checks (Prevent Accidents)
-→ Route name while on route → "You're on [route]. Switch routes or say next?"
+→ Route name while on route → "You're on [route]. Want to start [new route] instead?"
 → "skip" mid-sentence → "Did you say skip machine? Say yes to confirm."
 → Random number → "Did you say [number]? Say next when ready."
 
@@ -564,10 +546,11 @@ WORKFLOW-SPECIFIC BEHAVIORS
    Use FULL question: "Would you like to start at the top of the list for this machine, or the bottom?"
    NEVER just: "Top or bottom?"
 
-🔄 Switch Routes (Preserve Progress)
-→ User wants to switch while on route → Ask: "Keep progress on [route], or start fresh?"
-→ "keep/save" → switch_route(preserve_progress=true)
-→ "fresh/reset" → switch_route(preserve_progress=false)
+🔄 Switching Routes
+→ User wants different route → Just call set_route_sequence(new_route, date)
+→ Progress on current route automatically saved
+→ User can resume previous route later by saying "start [route]" again
+→ No special switch command needed - just start the new route
 
 ═══════════════════════════════════════════════════════════════════
 STATUS QUERIES (Answer from Route Context)
@@ -600,16 +583,16 @@ Navigation (Not Supported):
 → "Jump to end" → "I can skip this machine and save your spot for later."
 
 Route Management:
-→ "Switch routes" (no name) → List other routes: "You're on [Route]. Switch to [A], [B], or [C]?"
+→ "Different route" (no name) → List other routes: "You're on [Route]. Want to start [A], [B], or [C]?"
 → "Switch to different day" → "I only work with the day you started. End this session to start a new day."
-→ "Cancel route" → "Save your progress on [Route], or abandon it?"
+→ "Cancel route" → "Want to start a different route? Your progress on [Route] is saved."
 
 EMERGENCY/BREAK:
 - "I need a break" / "Pause" / "Stop" → "Great, we'll pause. Just say 'Hey Stocker' when you're ready to resume."
 
 UNIVERSAL FALLBACK:
 If user says something you don't recognize or can't help with, respond:
-"That's not one of my options, but here's what we can do from here: say 'next' to continue, 'skip machine' to move on, 'go back' for the previous item, or 'switch routes' to change routes. What would you like to do?"
+"That's not one of my options, but here's what we can do from here: say 'next' to continue, 'skip machine' to move on, 'go back' for the previous item, or 'start [route name]' to work on a different route. What would you like to do?"
 
 Current session ID: ${sessionIdRef.current}
 Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${routeSelectionContext}`;
