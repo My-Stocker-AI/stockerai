@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, CheckCircle, Mic, MicOff, Pause, Play, Square, AlertTriangle, Settings, RefreshCw, HelpCircle, Zap, MapPin, Package, Truck, RotateCcw } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import { useVoice } from '@/hooks/useVoice';
 import { useStockerAI } from '@/hooks/useStockerAI';
@@ -128,6 +129,7 @@ const commandRecognizer = new CommandRecognizer();
 export default function StockerApp() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const queryClient = useQueryClient();
   const routeIdFromUrl = searchParams.get('route'); // Get route ID from URL
   const { user, userProfile, loading } = useAuth();
   const [aiResponse, setAiResponse] = useState('');
@@ -1416,6 +1418,12 @@ export default function StockerApp() {
   const handleBackToDashboard = () => {
     voice.stopAudio();      // Stop any speaking immediately
     voice.stopListening();  // Stop microphone
+
+    // Invalidate cache so dashboard shows current progress
+    queryClient.invalidateQueries({ queryKey: ['sessions'] });
+    queryClient.invalidateQueries({ queryKey: ['route-machines'] });
+    queryClient.invalidateQueries({ queryKey: ['my-routes'] });
+
     navigate('/dashboard');
   };
 
@@ -1524,11 +1532,17 @@ export default function StockerApp() {
       await sessionPersistence.clear(userId);
       console.log('[Reset] Session cleared from IndexedDB and Supabase');
 
-      // Step 4: Wait for clear to propagate
+      // Step 4: Invalidate React Query cache so dashboard shows fresh state
+      queryClient.invalidateQueries({ queryKey: ['sessions'] });
+      queryClient.invalidateQueries({ queryKey: ['route-machines'] });
+      queryClient.invalidateQueries({ queryKey: ['my-routes'] });
+      console.log('[Reset] Dashboard cache invalidated');
+
+      // Step 5: Wait for clear to propagate
       await new Promise(resolve => setTimeout(resolve, 300));
       console.log('[Reset] Verified clear completed');
 
-      // Step 5: Reload page to get clean state
+      // Step 6: Reload page to get clean state
       console.log('[Reset] Reloading page...');
       window.location.reload();
     } catch (error) {
