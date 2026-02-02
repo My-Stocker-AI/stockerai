@@ -88,6 +88,61 @@ git push origin main  # Cloudflare Pages auto-deploys
 
 ---
 
+## 🔥 Incident: Edge Function "Invalid JWT" - Bandaid Hell (2026-02-01)
+
+**What happened:**
+- User tested route starting after systematic fixes
+- Got past "yes" (set_route_sequence worked) ✅
+- First item displayed (start_machine worked) ✅
+- Said "next" → **401 Invalid JWT error** ❌
+- Tried 4 bandaid fixes before finding root cause
+
+**The bandaid spiral:**
+1. ❌ Added Authorization header with user JWT (not needed)
+2. ❌ Switched back to n8n workflow (avoiding the problem)
+3. ❌ Added debug logging (still not root cause)
+4. ❌ User demanded: "can't you just look at what was working before and fucking compare?"
+
+**Root cause (found by comparing):**
+- Edge Functions default to JWT verification **ON**
+- Billing functions in `config.toml` had `verify_jwt = false`
+- **StockerAI Edge Functions were MISSING from config.toml**
+- Functions use SERVICE_ROLE_KEY (don't need user JWT anyway)
+
+**The actual fix:**
+```toml
+# supabase/config.toml
+[functions.get-next-item-atomic]
+verify_jwt = false
+
+[functions.get-current-status-optimized]
+verify_jwt = false
+```
+
+**Deploy:**
+```bash
+supabase functions deploy get-next-item-atomic --no-verify-jwt
+supabase functions deploy get-current-status-optimized --no-verify-jwt
+```
+
+**Lesson learned:**
+- **STOP BAND-AIDING SYMPTOMS**
+- **Compare working vs broken state FIRST** (git log, git diff)
+- **Find when it broke** (commit history)
+- **Check config differences** (especially for 3rd party services)
+- **Fix root cause, not symptoms**
+
+**Correct debugging order:**
+1. Compare current to last known working (`git diff <commit> HEAD`)
+2. Find when feature was added (`git log -S "search_term"`)
+3. Check if feature ever worked or was broken from start
+4. Look for config differences (environment, .toml, .env, etc.)
+5. Fix root cause
+
+**Files:** `supabase/config.toml`, `src/hooks/useStockerAI.ts`
+
+---
+
 ## 🔥 Incident: Machine Transition Bug - ACTUAL FIX (2026-01-25)
 
 **What happened:**
