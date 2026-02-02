@@ -212,7 +212,7 @@ const TOOLS = [
 
 const WEBHOOK_MAP: Record<string, string> = {
   'get_routes_for_date': '/get-routes',
-  'set_route_sequence': 'https://wvtkuposrlvadyeixlke.supabase.co/functions/v1/set-route-sequence-optimized', // Edge Function - 30-40% faster
+  'set_route_sequence': '/set-sequence', // Temporarily back to n8n while fixing bug
   'get_next_item': 'https://wvtkuposrlvadyeixlke.supabase.co/functions/v1/get-next-item-atomic', // Edge Function - 50-70% faster
   'get_current_status': 'https://wvtkuposrlvadyeixlke.supabase.co/functions/v1/get-current-status-optimized', // Edge Function - 60-75% faster
   'update_session_state': '/update-state',
