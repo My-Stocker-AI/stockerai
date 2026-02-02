@@ -8,9 +8,127 @@
 
 # CURRENT STATE
 
-**Date:** 2026-02-01
-**Phase:** ✅ TIER 1 FIXES DEPLOYED & DEBUGGED
-**Status:** ✅ ALL WORKFLOW BUGS FIXED - Testing route starting now
+**Date:** 2026-02-02
+**Phase:** ✅ MACHINE COUNTING FIX DEPLOYED
+**Status:** ✅ skip_machine workflow fixed - Ready for user testing
+
+---
+
+## ✅ SESSION 52: MACHINE COUNTING FIX (2026-02-02)
+
+**Problem:** skip_machine workflow not preserving progress when machines are skipped
+
+**User Request:** "Fix the StockerAI machine counting and transition system. Use synta-mcp tools."
+
+### Bug Analysis
+
+**Bug 1: skip_machine NOT preserving completed_items** ❌ FIXED
+- **Location:** skip_current_machine workflow (ElCSMeguJNxwp0HO), "Get Current Machine" node
+- **Issue:** Query missing `completed_items` and `total_items` from SELECT clause
+- **Impact:** `skipped_at_item` always set to 0 instead of actual progress
+- **Fix:** Added `completed_items,total_items` to SELECT query
+
+**Bug 2: start_machine completed_items** ✅ VERIFIED WORKING
+- "Update Machine" node correctly sets `completed_items = count`
+- No fix needed
+
+**Bug 3: get_next_item increment logic** ✅ VERIFIED WORKING
+- "Increment Completed Items" node correctly increments counter
+- No fix needed
+
+### The Fix
+
+**Workflow:** skip_current_machine (ElCSMeguJNxwp0HO)
+**Node:** get_current_machine
+**Change:** Updated parameters.url
+
+**Before:**
+```
+select=id,machine_name,location_name,machine_number,sequence,route_id,status
+```
+
+**After:**
+```
+select=id,machine_name,location_name,machine_number,sequence,route_id,status,completed_items,total_items
+```
+
+**Deployment:**
+- Used synta-mcp `n8n_update_partial_workflow` tool
+- Applied successfully
+- Workflow validated (no critical errors)
+
+### Impact
+
+**Before Fix:**
+1. User picks 4 items from Machine 2 (5 total)
+2. User says "skip machine"
+3. `skipped_at_item` set to 0 (losing progress)
+4. Returns to Machine 2 later
+5. Starts from beginning (all 5 items again) ❌
+
+**After Fix:**
+1. User picks 4 items from Machine 2 (5 total)
+2. User says "skip machine"
+3. `skipped_at_item` correctly set to 4 ✅
+4. Returns to Machine 2 later
+5. Resumes from item 5 (only 1 remaining) ✅
+
+### System Impact Audit
+
+**Upstream (who calls skip_machine):**
+- Frontend: `useStockerSession.ts` - No changes required (response format unchanged)
+
+**Downstream (what skip_machine calls):**
+- Database: machines table - Already has columns, just populating correctly now
+
+**Side Effects:**
+- ✅ Positive: Correct skip progress tracking
+- ✅ Positive: Better user experience (resume from progress)
+- ✅ No breaking changes to API contracts
+
+### Verification Tests Required
+
+**Test 1: Skip with Partial Progress**
+1. Start Machine 1 (5 items), pick 2 items
+2. Say "skip machine"
+3. Check database: `machines.skipped_at_item` should be 2 (not 0)
+4. Complete remaining machines
+5. Return to Machine 1
+6. Should present items 3,4,5 (not 1,2,3,4,5)
+
+**Test 2: Three Sync Points**
+- Progress Bar: Reads `machines.completed_items`
+- Done Card: Frontend state (items confirmed by "next")
+- Machine Dropdown: Reads `machines.completed_items`
+- All three should show same count at all times
+
+### Files Changed
+
+**Documentation:**
+- `/docs/MACHINE_COUNTING_FIX_2026-02-02.md` (new)
+- `/docs/MACHINE_COUNTING_COMPLETE_FIX_REPORT.md` (new, 1068 lines)
+- `/MEMORY.md` (updated)
+
+**Workflows (n8n Cloud):**
+- skip_current_machine (ElCSMeguJNxwp0HO) - get_current_machine node updated
+
+**Commits:**
+- `73c0ebe` - Fix: Add completed_items to skip_machine query
+
+### Key Insights
+
+1. **Used synta-mcp systematically:** Read all 3 workflows before making changes
+2. **System Impact Audit applied:** Verified upstream/downstream dependencies
+3. **Single-line fix solved root cause:** Missing SELECT field, not logic error
+4. **Complete documentation:** Full fix report with verification tests
+5. **No breaking changes:** Response format unchanged, safe deployment
+
+### Status
+
+- ✅ Fix deployed to n8n workflow
+- ✅ Documentation complete
+- ✅ Committed and pushed to GitHub
+- ⏳ User testing required in production
 
 ---
 
