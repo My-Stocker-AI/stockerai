@@ -1420,9 +1420,14 @@ export default function StockerApp() {
     voice.stopListening();  // Stop microphone
 
     // Invalidate cache so dashboard shows current progress
-    queryClient.invalidateQueries({ queryKey: ['sessions'] });
-    queryClient.invalidateQueries({ queryKey: ['route-machines'] });
-    queryClient.invalidateQueries({ queryKey: ['my-routes'] });
+    try {
+      queryClient.invalidateQueries({ queryKey: ['sessions'] });
+      queryClient.invalidateQueries({ queryKey: ['route-machines'] });
+      queryClient.invalidateQueries({ queryKey: ['my-routes'] });
+    } catch (error) {
+      console.error('[Dashboard] Cache invalidation failed, continuing anyway:', error);
+      // Continue - dashboard will refetch on mount anyway
+    }
 
     navigate('/dashboard');
   };
@@ -1533,10 +1538,15 @@ export default function StockerApp() {
       console.log('[Reset] Session cleared from IndexedDB and Supabase');
 
       // Step 4: Invalidate React Query cache so dashboard shows fresh state
-      queryClient.invalidateQueries({ queryKey: ['sessions'] });
-      queryClient.invalidateQueries({ queryKey: ['route-machines'] });
-      queryClient.invalidateQueries({ queryKey: ['my-routes'] });
-      console.log('[Reset] Dashboard cache invalidated');
+      try {
+        queryClient.invalidateQueries({ queryKey: ['sessions'] });
+        queryClient.invalidateQueries({ queryKey: ['route-machines'] });
+        queryClient.invalidateQueries({ queryKey: ['my-routes'] });
+        console.log('[Reset] Dashboard cache invalidated');
+      } catch (error) {
+        console.error('[Reset] Cache invalidation failed, continuing anyway:', error);
+        // Continue - page reload will clear state anyway
+      }
 
       // Step 5: Wait for clear to propagate
       await new Promise(resolve => setTimeout(resolve, 300));
