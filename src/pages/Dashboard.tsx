@@ -1,6 +1,6 @@
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { Card, CardContent } from "@/components/ui/card";
-import { Mic, Upload, Route, Users, BarChart3, CreditCard, Settings, LogOut } from "lucide-react";
+import { Upload, Route, Users, BarChart3, CreditCard, Settings, LogOut } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -20,15 +20,6 @@ const Dashboard = () => {
   };
 
   const quickActions = [
-    {
-      label: "Voice App",
-      description: "Start stocking with voice",
-      href: "/app",
-      icon: Mic,
-      color: "bg-primary",
-      visible: true,
-      primary: true
-    },
     {
       label: "Upload Routes",
       description: "Upload route PDFs",
@@ -89,32 +80,13 @@ const Dashboard = () => {
   ];
 
   const visibleActions = quickActions.filter(a => a.visible);
-  const primaryAction = visibleActions.find(a => a.primary);
-  const otherActions = visibleActions.filter(a => !a.primary);
 
   return (
     <DashboardLayout title="Dashboard">
       <div className="space-y-6">
-        {/* Primary Action - Voice App */}
-        {primaryAction && (
-          <Link to={primaryAction.href}>
-            <Card className="bg-primary hover:bg-primary/90 border-0 transition-colors cursor-pointer">
-              <CardContent className="flex items-center gap-4 p-6">
-                <div className="p-4 bg-white/20 rounded-xl">
-                  <primaryAction.icon className="h-8 w-8 text-white" />
-                </div>
-                <div>
-                  <h2 className="text-xl font-bold text-white">{primaryAction.label}</h2>
-                  <p className="text-white/80">{primaryAction.description}</p>
-                </div>
-              </CardContent>
-            </Card>
-          </Link>
-        )}
-
-        {/* Other Actions Grid */}
+        {/* Quick Actions Grid */}
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-          {otherActions.map((action) => {
+          {visibleActions.map((action) => {
             const Icon = action.icon;
             const cardContent = (
               <CardContent className="flex flex-col items-center text-center p-4 gap-3">
