@@ -295,7 +295,15 @@ export function useStockerAI() {
 
       // CRITICAL FIX: Add direction awaiting flag
       const awaitingDirection = routeContext.pendingMachineTransition ?
-        `\n⚠️ AWAITING DIRECTION RESPONSE FOR: ${routeContext.pendingMachineTransition.nextMachineName}\n- Next user input is DIRECTION ONLY (top/bottom)\n- Do NOT interpret as any other command\n- Call start_machine immediately with user's direction choice` : '';
+        `\n⚠️ AWAITING DIRECTION RESPONSE FOR: ${routeContext.pendingMachineTransition.nextMachineName}
+- CONTEXT: Previous machine is COMPLETE. You are about to START the NEXT machine (${routeContext.pendingMachineTransition.nextMachineName}).
+- USER IS CHOOSING: Direction to begin THIS NEW MACHINE (not their current position).
+- When user says "start at the bottom" or "from the bottom", they mean "BEGIN this new machine from the last item".
+- When user says "start at the top" or "from the top", they mean "BEGIN this new machine from the first item".
+- Next user input is DIRECTION ONLY (top/bottom/beginning/end/start/last/first)
+- Do NOT interpret as any other command
+- Do NOT say "you're already at..." (they haven't started this machine yet!)
+- Call start_machine immediately with user's direction choice` : '';
 
       routeStateContext = `
 ROUTE PROGRESS (for status queries):
@@ -364,11 +372,15 @@ Check state markers in route context below, then follow state-specific rules.
 🔴 STATE 1: AWAITING DIRECTION (Highest Priority)
 Active when: "⚠️ AWAITING DIRECTION RESPONSE" appears in route context
 
+CRITICAL CONTEXT: User just FINISHED previous machine and is about to START the NEXT machine.
+They are choosing direction to BEGIN this NEW machine (not their current position).
+
 OVERRIDE EVERYTHING ELSE:
 → ANY input with "top/beginning/start/first" → call start_machine(direction="beginning")
 → ANY input with "bottom/end/last/reverse" → call start_machine(direction="end")
-→ Unclear/garbled input → Repeat: "Top or bottom for [machine]?"
+→ Unclear/garbled input → Repeat: "Do you want to start [machine name] from the top or bottom?"
 → IGNORE all other commands ("skip", "yes", "next") - ONLY direction matters
+→ NEVER say "you're already at..." (they haven't started this machine yet!)
 
 Exit: After calling start_machine
 

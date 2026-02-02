@@ -204,10 +204,10 @@ Progress tracking incorrect, done card missing items, wrong items announced
 
 ---
 
-### Edge Case 4: Resume Skipped Machine State Lost
+### Edge Case 4: Resume Skipped Machine State Lost ✅ FIXED
 
 **Severity:** HIGH
-**Status:** Reproducible
+**Status:** ✅ FIXED (2026-02-01)
 
 **Symptom:**
 - Skipped Machine 2 after picking 2 items
@@ -219,10 +219,10 @@ Progress tracking incorrect, done card missing items, wrong items announced
 - Didn't give final 5th item
 
 **Root Cause:**
-Skipped machine state not preserved:
-- Direction lost (top/bottom)
-- Progress lost (completed_items count)
-- Position lost (current item index within machine)
+`set_route_sequence` workflow wasn't querying `status` and `completed_items` from database:
+- "Get All Machines" node missing `status` and `completed_items` in SELECT query
+- "Prep Machine Update" node hard-coding values: `completedItems: 0`, `status: i === 0 ? 'in_progress' : 'pending'`
+- Result: Skipped machine state lost on page reload/resume
 
 **Expected Behavior:**
 When resuming skipped machine:
@@ -233,11 +233,36 @@ When resuming skipped machine:
 **Impact:**
 User re-picks same items, loses time, wrong completion count
 
-**Fix Location:**
-- File: `src/hooks/useStockerSession.ts`
-- Component: Skip machine state persistence
-- Database: May need to store machine state (direction, position) in sessions or machines table
-- Solution: Persist direction + progress when skipping, restore when resuming
+**The Fix (Workflow: set_route_sequence - 46lMRdxTgD1E3WFz):**
+
+**1. "Get All Machines" node (id: "get_machine"):**
+- Added `status,completed_items` to SELECT query
+- Before: `select=id,machine_name,location_name,machine_number,sequence,total_items`
+- After: `select=id,machine_name,location_name,machine_number,sequence,total_items,status,completed_items`
+
+**2. "Prep Machine Update" node (id: "prep_machine"):**
+- Use database values instead of hard-coding
+- Before:
+```javascript
+completedItems: 0,  // Hard-coded!
+status: i === 0 ? 'in_progress' : 'pending'  // Hard-coded logic!
+```
+- After:
+```javascript
+completedItems: m.completed_items || 0,  // Use DB value
+status: m.status || 'pending'  // Use DB value
+```
+
+**3. "Needs Create?" IF node (id: "if_needs_create"):**
+- Downgraded from typeVersion 2.2 to 1 (v2.2 validation error)
+- Changed from complex conditions.options structure to simple string comparison
+
+**Result:**
+- Skipped machines now preserve `status='skipped'` and `completed_items` count
+- Resume flow uses actual database state
+- No more asking "top or bottom" again
+- Progress counter shows correct N/total
+- Continues from where user left off
 
 ---
 
