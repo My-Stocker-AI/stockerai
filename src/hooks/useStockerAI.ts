@@ -727,8 +727,17 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
         // Add auth header if calling Supabase Edge Function
         if (endpoint.includes('supabase.co/functions')) {
           const { data: { session } } = await supabase.auth.getSession();
+          console.log('[Auth] Session check:', {
+            hasSession: !!session,
+            hasToken: !!session?.access_token,
+            userId: session?.user?.id,
+            expiresAt: session?.expires_at
+          });
           if (session?.access_token) {
             headers['Authorization'] = `Bearer ${session.access_token}`;
+            console.log('[Auth] Added Authorization header (token length:', session.access_token.length, ')');
+          } else {
+            console.error('[Auth] No access token available!');
           }
         }
 
