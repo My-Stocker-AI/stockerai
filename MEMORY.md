@@ -9,8 +9,66 @@
 # CURRENT STATE
 
 **Date:** 2026-02-02
-**Phase:** ✅ SESSION 53 COMPLETE - COMPREHENSIVE FIX DEPLOYED
-**Status:** ✅ All enhancements + counting fixes deployed - Ready for full testing
+**Phase:** ✅ SESSION 54 COMPLETE - DASHBOARD SYNC FIX DEPLOYED
+**Status:** ✅ Dashboard now syncs correctly with route state on reset and resume
+
+---
+
+## ✅ SESSION 54: DASHBOARD-ROUTE SYNC FIX (2026-02-02)
+
+**Problem:** Dashboard showing stale completion data not matching actual route state
+
+**User report:**
+- Dashboard shows route as partially completed
+- Opening route starts from scratch (should resume where left off)
+- OR: User reset route, dashboard still shows partial (should show fresh)
+
+**Analysis approach:**
+1. Manual analysis identified React Query cache issue
+2. Synta validation PROVED workflow already working correctly
+3. Eliminated workflow changes from scope (avoided unnecessary work)
+
+**Synta findings:**
+- ✅ `set_route_sequence` workflow queries actual database state
+- ✅ Returns `machines.completed_items` and `status` correctly
+- ✅ Frontend receives accurate data from workflow
+- ❌ **Problem:** React Query cache not invalidated on reset or navigation
+
+**Root cause:**
+- Dashboard queries cached by React Query: `['sessions']`, `['route-machines']`, `['my-routes']`
+- Cache NEVER invalidated when:
+  1. User resets route → Database updated but cache stale
+  2. User navigates to dashboard → Progress updated but cache stale
+
+**The fix:**
+```typescript
+// After reset (before page reload)
+queryClient.invalidateQueries({ queryKey: ['sessions'] });
+queryClient.invalidateQueries({ queryKey: ['route-machines'] });
+queryClient.invalidateQueries({ queryKey: ['my-routes'] });
+
+// When navigating back to dashboard
+queryClient.invalidateQueries({ queryKey: ['sessions'] });
+queryClient.invalidateQueries({ queryKey: ['route-machines'] });
+queryClient.invalidateQueries({ queryKey: ['my-routes'] });
+```
+
+**Impact:**
+- **Scenario 1 (stop mid-route):** Dashboard shows partial progress, resume continues ✅
+- **Scenario 2 (reset after start):** Dashboard shows fresh route, starts from beginning ✅
+
+**Files changed:**
+- `src/pages/StockerApp.tsx`: Added useQueryClient import + cache invalidation
+
+**Commits:**
+- `bd52404` - Fix: Dashboard-route sync via React Query cache invalidation
+
+**Deployed:** Auto-deploy via GitHub → Cloudflare Pages (2-3 minutes)
+
+**Key lesson:**
+- Synta systematic analysis saved time by proving workflow was already correct
+- Prevented "fixing" working code (workflow changes)
+- Reduced scope to frontend-only fix (simpler, safer)
 
 ---
 
