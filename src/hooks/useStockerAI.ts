@@ -1,5 +1,4 @@
 import { useCallback, useRef } from 'react';
-import { supabase } from '@/integrations/supabase/client';
 
 const N8N_BASE = 'https://visionairy.app.n8n.cloud/webhook';
 
@@ -197,8 +196,8 @@ const TOOLS = [
 const WEBHOOK_MAP: Record<string, string> = {
   'get_routes_for_date': '/get-routes',
   'set_route_sequence': '/set-sequence',
-  'get_next_item': '/next-item-optimized', // Back to n8n while debugging Edge Function JWT issue
-  'get_current_status': 'https://wvtkuposrlvadyeixlke.supabase.co/functions/v1/get-current-status-optimized', // Edge Function - 60-75% faster
+  'get_next_item': 'https://wvtkuposrlvadyeixlke.supabase.co/functions/v1/get-next-item-atomic', // Edge Function - 50-70% faster (verify_jwt disabled)
+  'get_current_status': 'https://wvtkuposrlvadyeixlke.supabase.co/functions/v1/get-current-status-optimized', // Edge Function - 60-75% faster (verify_jwt disabled)
   'update_session_state': '/update-state',
   'start_machine': '/start-machine',
   'skip_current_machine': '/skip-machine',
@@ -721,25 +720,8 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
         // Add count parameter for workflows that support it
         const shouldAddCount = callTwoItems && (name === 'start_machine' || name === 'get_next_item');
 
-        // Get Authorization header for Supabase Edge Functions
+        // Edge Functions have verify_jwt=false, no auth header needed
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-
-        // Add auth header if calling Supabase Edge Function
-        if (endpoint.includes('supabase.co/functions')) {
-          const { data: { session } } = await supabase.auth.getSession();
-          console.log('[Auth] Session check:', {
-            hasSession: !!session,
-            hasToken: !!session?.access_token,
-            userId: session?.user?.id,
-            expiresAt: session?.expires_at
-          });
-          if (session?.access_token) {
-            headers['Authorization'] = `Bearer ${session.access_token}`;
-            console.log('[Auth] Added Authorization header (token length:', session.access_token.length, ')');
-          } else {
-            console.error('[Auth] No access token available!');
-          }
-        }
 
         // PRIORITY 1.3: Use retry logic for webhook calls
         const resp = await fetchWithRetry(endpoint, {
