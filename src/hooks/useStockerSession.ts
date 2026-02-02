@@ -274,13 +274,40 @@ export function useStockerSession(userId: string | null) {
             itemsToAdd.push(prev.currentItem2);
           }
 
+          // DIAGNOSTIC: Log what we're trying to add
+          console.log('[Session] 📝 Completing items:', {
+            action,
+            itemsToAdd: itemsToAdd.map(i => ({ slot: i.slot, machine: i.machineName, product: i.product })),
+            prevCompletedCount: prev.completedItems.length,
+            currentMachine: prev.currentMachineName
+          });
+
+          if (itemsToAdd.length === 0) {
+            console.warn('[Session] ⚠️  No items to add!', {
+              hasCurrentItem: !!prev.currentItem,
+              currentItemSlot: prev.currentItem?.slot,
+              hasCurrentItem2: !!prev.currentItem2,
+              currentItem2Slot: prev.currentItem2?.slot
+            });
+          }
+
           if (itemsToAdd.length > 0) {
             // CATASTROPHIC FAILURE FIX: Deduplicate items to prevent duplicate logging
             // Check if items are already in the completed list by BOTH slot AND machine name
             const existingKeys = new Set(prev.completedItems.map(item => `${item.machineName}:${item.slot}`));
             const newItems = itemsToAdd.filter(item => !existingKeys.has(`${item.machineName}:${item.slot}`));
 
+            console.log('[Session] 🔍 Deduplication check:', {
+              itemsToAdd: itemsToAdd.length,
+              newItems: newItems.length,
+              filtered: itemsToAdd.length - newItems.length,
+              existingKeys: Array.from(existingKeys)
+            });
+
             if (newItems.length > 0) {
+              const currentMachine = prev.machines.find(m => m.id === prev.currentMachineId);
+              const oldCount = currentMachine?.completedItems || 0;
+
               next.completedItems = [...prev.completedItems, ...newItems];
 
               // Update machine's completedItems count (only for genuinely new items)
@@ -290,9 +317,19 @@ export function useStockerSession(userId: string | null) {
                     ? { ...m, completedItems: m.completedItems + newItems.length }
                     : m
                 );
+
+                console.log('[Session] ✅ Updated counts:', {
+                  machine: prev.currentMachineName,
+                  oldCount,
+                  increment: newItems.length,
+                  newCount: oldCount + newItems.length,
+                  totalCompleted: prev.completedItems.length + newItems.length
+                });
+              } else {
+                console.warn('[Session] ⚠️  No currentMachineId - count not updated!');
               }
             } else {
-              console.warn('[Session] Attempted to add duplicate items:', itemsToAdd.map(i => i.slot));
+              console.warn('[Session] ⚠️  All items filtered as duplicates:', itemsToAdd.map(i => `${i.machineName}:${i.slot}`));
             }
           }
         }
