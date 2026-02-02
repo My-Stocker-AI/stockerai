@@ -1,4 +1,5 @@
 import { useCallback, useRef } from 'react';
+import { supabase } from '@/integrations/supabase/client';
 
 const N8N_BASE = 'https://visionairy.app.n8n.cloud/webhook';
 
@@ -720,10 +721,21 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
         // Add count parameter for workflows that support it
         const shouldAddCount = callTwoItems && (name === 'start_machine' || name === 'get_next_item');
 
+        // Get Authorization header for Supabase Edge Functions
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+
+        // Add auth header if calling Supabase Edge Function
+        if (endpoint.includes('supabase.co/functions')) {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session?.access_token) {
+            headers['Authorization'] = `Bearer ${session.access_token}`;
+          }
+        }
+
         // PRIORITY 1.3: Use retry logic for webhook calls
         const resp = await fetchWithRetry(endpoint, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify({
             session_id: sessionIdRef.current,
             user_id: userIdRef.current,
