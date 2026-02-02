@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, CheckCircle, Mic, MicOff, Pause, Play, Square, AlertTriangle, Settings, RefreshCw, HelpCircle, Zap, MapPin, Package, Truck, RotateCcw } from 'lucide-react';
+import { ArrowLeft, CheckCircle, Mic, MicOff, Pause, Play, Square, AlertTriangle, RefreshCw, HelpCircle, Zap, MapPin, Package, Truck, RotateCcw } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import { useVoice } from '@/hooks/useVoice';
@@ -12,8 +12,6 @@ import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { HelpSheet } from '@/components/stocker/HelpSheet';
-import { SettingsSheet } from '@/components/stocker/SettingsSheet';
-import { useEnvironmentDetection, EnvironmentType } from '@/hooks/useEnvironmentDetection';
 import { RouteSelectionCard } from '@/components/stocker/RouteSelectionCard';
 import { MachineListPanel } from '@/components/stocker/MachineListPanel';
 import { DiagnosticOverlay } from '@/components/DiagnosticOverlay';
@@ -146,7 +144,6 @@ export default function StockerApp() {
   const [isClearing, setIsClearing] = useState(false);
   const [showMicHelp, setShowMicHelp] = useState(false);
   const [showHelpSheet, setShowHelpSheet] = useState(false);
-  const [showSettingsSheet, setShowSettingsSheet] = useState(false);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [savedSession, setSavedSession] = useState<any>(null);
@@ -1929,9 +1926,6 @@ export default function StockerApp() {
               Machine {routeState.currentMachineIndex}/{routeState.totalMachines}
             </span>
           )}
-          <Button variant="ghost" size="icon" onClick={() => setShowSettingsSheet(true)} title="Settings">
-            <Settings className="h-5 w-5 text-gray-400" />
-          </Button>
           <Button variant="ghost" size="icon" onClick={() => setShowHelpSheet(true)} title="Voice Commands Help">
             <HelpCircle className="h-5 w-5 text-gray-400" />
           </Button>
@@ -2000,16 +1994,6 @@ export default function StockerApp() {
 
       {/* Help Sheet */}
       <HelpSheet isOpen={showHelpSheet} onClose={() => setShowHelpSheet(false)} />
-
-      {/* Settings Sheet */}
-      <SettingsSheet
-        isOpen={showSettingsSheet}
-        onClose={() => setShowSettingsSheet(false)}
-        currentEnvironment={environment.type}
-        onDetectEnvironment={handleDetectEnvironment}
-        onSetEnvironment={setEnvironmentManual}
-        isDetecting={isDetectingEnvironment}
-      />
 
       {/* Diagnostic Overlay - Triple-tap to reveal */}
       <DiagnosticOverlay

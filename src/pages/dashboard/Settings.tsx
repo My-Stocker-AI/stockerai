@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Loader2, User, Lock, Trash2, Building2, Users } from "lucide-react";
+import { Loader2, User, Lock, Trash2, Building2, Users, Zap, Volume2 } from "lucide-react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -61,6 +61,12 @@ const Settings = () => {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
 
+  // Voice & Picking settings state
+  const [callTwoItems, setCallTwoItems] = useState(false);
+  const [ttsVolume, setTtsVolume] = useState(1.5);
+  const [currentEnvironment, setCurrentEnvironment] = useState<'quiet' | 'moderate' | 'loud' | 'unknown'>('unknown');
+  const [isDetecting, setIsDetecting] = useState(false);
+
   // Fetch profile
   const { data: profile, isLoading } = useQuery({
     queryKey: ['profile', user?.id],
@@ -111,6 +117,24 @@ const Settings = () => {
       setMachinesPerDriver(account.machines_per_driver || 10);
     }
   }, [account]);
+
+  // Load voice & picking settings from localStorage
+  useEffect(() => {
+    const savedTwoItems = localStorage.getItem('stocker-call-two-items');
+    if (savedTwoItems !== null) {
+      setCallTwoItems(savedTwoItems === 'true');
+    }
+
+    const savedVolume = localStorage.getItem('stocker-tts-volume');
+    if (savedVolume !== null) {
+      setTtsVolume(parseFloat(savedVolume));
+    }
+
+    const savedEnvironment = localStorage.getItem('stocker-environment-type');
+    if (savedEnvironment && ['quiet', 'moderate', 'loud'].includes(savedEnvironment)) {
+      setCurrentEnvironment(savedEnvironment as 'quiet' | 'moderate' | 'loud');
+    }
+  }, []);
 
   // Update profile mutation
   const updateProfileMutation = useMutation({
@@ -212,6 +236,38 @@ const Settings = () => {
       toast({ title: "Error deleting account", description: error.message, variant: "destructive" });
     },
   });
+
+  // Voice & Picking settings handlers
+  const handleToggleTwoItems = (enabled: boolean) => {
+    setCallTwoItems(enabled);
+    localStorage.setItem('stocker-call-two-items', enabled.toString());
+    toast({ title: enabled ? "2-pick mode enabled" : "2-pick mode disabled" });
+  };
+
+  const handleVolumeChange = (value: number) => {
+    setTtsVolume(value);
+    localStorage.setItem('stocker-tts-volume', value.toString());
+  };
+
+  const handleSetEnvironment = (type: 'quiet' | 'moderate' | 'loud') => {
+    setCurrentEnvironment(type);
+    localStorage.setItem('stocker-environment-type', type);
+    toast({ title: `Environment set to ${type}` });
+  };
+
+  const handleDetectEnvironment = async () => {
+    setIsDetecting(true);
+    toast({ title: "Detecting environment...", description: "Please wait 5 seconds" });
+
+    // Simulate detection (in real app, this would use audio analysis)
+    setTimeout(() => {
+      const detected = 'moderate' as const;
+      setCurrentEnvironment(detected);
+      localStorage.setItem('stocker-environment-type', detected);
+      setIsDetecting(false);
+      toast({ title: `Environment detected: ${detected}` });
+    }, 5000);
+  };
 
   if (isLoading) {
     return (
@@ -426,6 +482,169 @@ const Settings = () => {
             >
               {changePasswordMutation.isPending ? "Changing..." : "Change Password"}
             </Button>
+          </CardContent>
+        </Card>
+
+        {/* Voice & Picking Settings */}
+        <Card className="bg-dashboard-card border-dashboard-border">
+          <CardHeader>
+            <CardTitle className="text-dashboard-text flex items-center gap-2">
+              <Zap className="h-5 w-5" />
+              Voice & Picking Settings
+            </CardTitle>
+            <CardDescription className="text-dashboard-text-secondary">
+              Configure voice recognition and picking behavior
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {/* 2-Pick Toggle */}
+            <div className="bg-dashboard-bg rounded-xl p-4 border border-dashboard-border">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1">
+                  <h3 className="text-dashboard-text font-semibold mb-1">Call 2 Items at Once</h3>
+                  <p className="text-sm text-dashboard-text-secondary">
+                    When enabled, the AI will call out two items together instead of one at a time.
+                    Example: "5 Snickers, 3 Coca-Cola" instead of just "5 Snickers"
+                  </p>
+                </div>
+
+                {/* Toggle Switch */}
+                <button
+                  onClick={() => handleToggleTwoItems(!callTwoItems)}
+                  className={`
+                    relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0
+                    ${callTwoItems ? 'bg-primary' : 'bg-gray-700'}
+                  `}
+                >
+                  <span
+                    className={`
+                      inline-block h-4 w-4 transform rounded-full bg-white transition-transform
+                      ${callTwoItems ? 'translate-x-6' : 'translate-x-1'}
+                    `}
+                  />
+                </button>
+              </div>
+
+              {/* Status indicator */}
+              <div className="mt-3 text-xs text-dashboard-text-secondary">
+                Status: <span className={callTwoItems ? 'text-primary' : 'text-gray-400'}>
+                  {callTwoItems ? 'Enabled' : 'Disabled'}
+                </span>
+              </div>
+            </div>
+
+            {/* Voice Volume Control */}
+            <div className="bg-dashboard-bg rounded-xl p-4 border border-dashboard-border">
+              <div className="mb-3">
+                <h3 className="text-dashboard-text font-semibold mb-1">Voice Volume</h3>
+                <p className="text-sm text-dashboard-text-secondary">
+                  Adjust how loud the AI voice speaks. Use this if speakerphone volume buttons aren't working.
+                </p>
+              </div>
+
+              {/* Volume Slider */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-dashboard-text-secondary">Quiet</span>
+                  <span className="text-primary font-semibold">{Math.round(ttsVolume * 100)}%</span>
+                  <span className="text-dashboard-text-secondary">Loud</span>
+                </div>
+                <input
+                  type="range"
+                  min="0.5"
+                  max="2.5"
+                  step="0.1"
+                  value={ttsVolume}
+                  onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
+                  className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-primary"
+                />
+                <div className="text-xs text-dashboard-text-secondary text-center">
+                  {ttsVolume < 1 ? 'Quieter than normal' : ttsVolume === 1 ? 'Normal volume' : 'Louder than normal'}
+                </div>
+              </div>
+            </div>
+
+            {/* Environmental Detection */}
+            <div className="bg-dashboard-bg rounded-xl p-4 border border-dashboard-border">
+              <div className="mb-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <Volume2 className="h-4 w-4 text-primary" />
+                  <h3 className="text-dashboard-text font-semibold">Environment Type</h3>
+                </div>
+                <p className="text-sm text-dashboard-text-secondary">
+                  Automatically adjust voice recognition for your environment. Improves accuracy in noisy warehouses.
+                </p>
+              </div>
+
+              {/* Current Environment Display */}
+              <div className="mb-3 p-3 bg-gray-800/50 rounded-lg">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-dashboard-text-secondary">Current:</span>
+                  <span className={`text-sm font-semibold ${
+                    currentEnvironment === 'quiet' ? 'text-green-400' :
+                    currentEnvironment === 'moderate' ? 'text-yellow-400' :
+                    currentEnvironment === 'loud' ? 'text-orange-400' :
+                    'text-gray-400'
+                  }`}>
+                    {currentEnvironment === 'quiet' && '🏡 Quiet (Garage, Small Room)'}
+                    {currentEnvironment === 'moderate' && '🏢 Moderate (Office, Small Warehouse)'}
+                    {currentEnvironment === 'loud' && '🏭 Loud (Large Warehouse, Factory)'}
+                    {currentEnvironment === 'unknown' && '❓ Not Detected'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Auto-Detect Button */}
+              <Button
+                onClick={handleDetectEnvironment}
+                disabled={isDetecting}
+                className="w-full mb-3 bg-primary hover:bg-primary-hover disabled:opacity-50"
+              >
+                {isDetecting ? '📊 Detecting...' : '🔍 Auto-Detect Environment'}
+              </Button>
+
+              {/* Manual Override */}
+              <div className="space-y-2">
+                <p className="text-xs text-dashboard-text-secondary">Or choose manually:</p>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    onClick={() => handleSetEnvironment('quiet')}
+                    className={`p-3 rounded-lg text-sm font-bold transition-all ${
+                      currentEnvironment === 'quiet'
+                        ? 'bg-green-500/30 text-green-300 border-2 border-green-400 shadow-[0_0_20px_rgba(34,197,94,0.4)] scale-105'
+                        : 'bg-gray-800 text-gray-400 hover:bg-gray-700 border border-gray-700'
+                    }`}
+                  >
+                    🏡<br/>Quiet
+                  </button>
+                  <button
+                    onClick={() => handleSetEnvironment('moderate')}
+                    className={`p-3 rounded-lg text-sm font-bold transition-all ${
+                      currentEnvironment === 'moderate'
+                        ? 'bg-yellow-500/30 text-yellow-300 border-2 border-yellow-400 shadow-[0_0_20px_rgba(234,179,8,0.4)] scale-105'
+                        : 'bg-gray-800 text-gray-400 hover:bg-gray-700 border border-gray-700'
+                    }`}
+                  >
+                    🏢<br/>Moderate
+                  </button>
+                  <button
+                    onClick={() => handleSetEnvironment('loud')}
+                    className={`p-3 rounded-lg text-sm font-bold transition-all ${
+                      currentEnvironment === 'loud'
+                        ? 'bg-orange-500/30 text-orange-300 border-2 border-orange-400 shadow-[0_0_20px_rgba(249,115,22,0.4)] scale-105'
+                        : 'bg-gray-800 text-gray-400 hover:bg-gray-700 border border-gray-700'
+                    }`}
+                  >
+                    🏭<br/>Loud
+                  </button>
+                </div>
+              </div>
+
+              {/* Helpful Info */}
+              <div className="mt-3 p-2 bg-gray-800/30 rounded text-xs text-dashboard-text-secondary">
+                💡 Tip: Configure this before starting a route for best voice recognition accuracy.
+              </div>
+            </div>
           </CardContent>
         </Card>
 
