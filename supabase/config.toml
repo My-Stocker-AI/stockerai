@@ -1,5 +1,11 @@
 project_id = "wvtkuposrlvadyeixlke"
 
+[functions.get-next-item-atomic]
+verify_jwt = false
+
+[functions.get-current-status-optimized]
+verify_jwt = false
+
 [functions.create-checkout]
 verify_jwt = false
 
