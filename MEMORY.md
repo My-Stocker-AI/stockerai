@@ -10,7 +10,42 @@
 
 **Date:** 2026-02-01
 **Phase:** ✅ SESSION 51 RECOVERY COMPLETE
-**Status:** ✅ SYSTEM RESTORED - All references removed, workflows fixed, frontend migrated
+**Status:** ⚠️ CRITICAL FIX APPLIED - Route start failure fixed (boolean/string type mismatch)
+
+---
+
+## 🔥 CRITICAL FIX: Route Start Failure (2026-02-01)
+
+**Problem:** User couldn't start any routes after Edge Case 4 fix
+**Error:** `"invalid input syntax for type uuid: \"\""`
+**Impact:** System completely broken - no routes could be started
+
+**Root Cause:**
+When I downgraded "Needs Create?" IF node from v2.2 to v1 (Edge Case 4 fix), I created a type mismatch:
+- "Check Session" node returned `needs_create: true` (boolean)
+- "Needs Create?" IF node checked `=== "true"` (string comparison)
+- Boolean `true` !== String `"true"` → Always evaluated to FALSE
+- Took UPDATE path when should take CREATE path
+- Tried to update session with `id: null` → UUID error
+
+**The Fix:**
+Changed "Check Session" node to return STRING values:
+```javascript
+var needsCreate = 'true';  // STRING not boolean
+if (sessionData && sessionData.id) {
+  needsCreate = 'false';  // STRING not boolean
+}
+```
+
+**Result:** IF node comparison now works correctly
+- When no session: `needs_create === 'true'` → CREATE path ✓
+- When session exists: `needs_create === 'false'` → UPDATE path ✓
+
+**Workflow:** set_route_sequence (46lMRdxTgD1E3WFz)
+**Node:** Check Session (check_session)
+**Status:** ✅ FIXED - Routes can start again
+
+**Lesson:** When downgrading n8n node versions, verify type compatibility. v2.2 IF node handles type coercion, v1 does strict string comparison.
 
 ---
 
