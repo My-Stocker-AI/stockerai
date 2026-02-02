@@ -16,6 +16,7 @@ export enum PickingCommand {
   REPEAT = 'repeat',
   DIRECTION_TOP = 'direction_top',
   DIRECTION_BOTTOM = 'direction_bottom',
+  AFFIRMATIVE = 'affirmative',  // For "yes/okay/ready" during transitions
   GO_BACK = 'go_back',
   UNDO = 'undo',
   UNKNOWN = 'unknown'
@@ -119,6 +120,19 @@ const UNDO_PATTERNS = [
   /^cancel that$/,
   /^wrong$/,
   /^that was wrong$/,
+];
+
+const AFFIRMATIVE_PATTERNS = [
+  /^yes$/,
+  /^yep$/,
+  /^yeah$/,
+  /^okay$/,
+  /^ok$/,
+  /^ready$/,
+  /^go$/,
+  /^sure$/,
+  /^let'?s go$/,
+  /^go ahead$/,
 ];
 
 /**
@@ -267,6 +281,14 @@ export class CommandRecognizer {
     if (UNDO_PATTERNS.some(p => p.test(text))) {
       return {
         command: PickingCommand.UNDO,
+        confidence: 1.0,
+        requiresConfirmation: false,
+      };
+    }
+
+    if (AFFIRMATIVE_PATTERNS.some(p => p.test(text))) {
+      return {
+        command: PickingCommand.AFFIRMATIVE,
         confidence: 1.0,
         requiresConfirmation: false,
       };

@@ -51,6 +51,7 @@ export interface RouteState {
     nextMachineName: string;
     nextMachineIndex: number;
   } | null;
+  pickDirection: string | null;  // Route-level direction preference: "forward" or "reverse"
 }
 
 const INITIAL_STATE: RouteState = {
@@ -68,7 +69,8 @@ const INITIAL_STATE: RouteState = {
   completedItems: [],
   machines: [],
   completed: false,
-  pendingMachineTransition: null
+  pendingMachineTransition: null,
+  pickDirection: null
 };
 
 // DEPRECATED: No longer used - totalItems loaded at route start
@@ -258,6 +260,13 @@ export function useStockerSession(userId: string | null) {
         // CRITICAL FIX: Clear pending direction flag after starting machine
         next.pendingMachineTransition = null;
         machineTransitionLockRef.current = false; // Release transition lock
+
+        // Store route-level direction preference (returned from workflow as "forward" or "reverse")
+        if (result.direction) {
+          next.pickDirection = result.direction;
+          console.log('[Session] 📍 Direction saved:', result.direction);
+        }
+
         console.log('[Session] ✅ DIRECTION ANSWERED - Lock released | Machine:', prev.currentMachineName, '| Item:', next.currentItem?.product);
       }
 

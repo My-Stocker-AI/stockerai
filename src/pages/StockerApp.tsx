@@ -211,7 +211,8 @@ export default function StockerApp() {
       machines: routeState.machines,  // CRITICAL FIX: Save per-machine progress
       completed: routeState.completed,
       conversationHistory: messages,
-      pendingMachineTransition: routeState.pendingMachineTransition
+      pendingMachineTransition: routeState.pendingMachineTransition,
+      pickDirection: routeState.pickDirection
     };
 
     await sessionPersistence.save(sessionData, userId);
@@ -381,7 +382,8 @@ export default function StockerApp() {
         if (routeState.pendingMachineTransition) {
           const isDirectionCommand =
             commandMatch.command === PickingCommand.DIRECTION_TOP ||
-            commandMatch.command === PickingCommand.DIRECTION_BOTTOM;
+            commandMatch.command === PickingCommand.DIRECTION_BOTTOM ||
+            commandMatch.command === PickingCommand.AFFIRMATIVE;
 
           console.log('[CommandRecognizer] 🚦 STATE CHECK: pendingMachineTransition exists', {
             command: commandMatch.command,
@@ -391,14 +393,14 @@ export default function StockerApp() {
 
           if (!isDirectionCommand) {
             console.log('[CommandRecognizer] ❌ BLOCKED - Non-direction command during transition:', commandMatch.command);
-            const msg = `Top or bottom for ${routeState.pendingMachineTransition.nextMachineName}?`;
+            const msg = `Ready to go for ${routeState.pendingMachineTransition.nextMachineName}?`;
             setAiResponse(msg);
             await v.speak(msg);
             processingRef.current = false;
             return;
           }
-          console.log('[CommandRecognizer] ✅ ALLOWED - Direction command:', commandMatch.command);
-          // Allow direction commands to proceed
+          console.log('[CommandRecognizer] ✅ ALLOWED - Direction/affirmative command:', commandMatch.command);
+          // Allow direction and affirmative commands to proceed
         }
 
         console.log('[CommandRecognizer] ✓ Matched:', commandMatch.command, 'confidence:', commandMatch.confidence, '(bypassing AI)');
@@ -497,6 +499,39 @@ export default function StockerApp() {
               await keywordLearning.trackKeywords(transcript, true); // Track as success (command recognized)
               processingRef.current = false;
               return;
+
+            case PickingCommand.AFFIRMATIVE:
+              // Affirmative response during machine transition - auto-call start_machine with saved direction
+              if (routeState.pendingMachineTransition && routeState.pickDirection) {
+                // Map database direction to workflow direction
+                const direction = routeState.pickDirection === 'reverse' ? 'end' : 'beginning';
+
+                // Check for 2-pick mode
+                const callTwoItems = localStorage.getItem('stocker-call-two-items') === 'true';
+
+                toolCalls = [{
+                  id: `cmd_${Date.now()}`,
+                  type: 'function',
+                  function: {
+                    name: 'start_machine',
+                    arguments: JSON.stringify({
+                      session_id: sessionId,
+                      direction: direction,
+                      ...(callTwoItems ? { count: 2 } : {})
+                    })
+                  }
+                }];
+
+                console.log('[CommandRecognizer] 🚀 AFFIRMATIVE - Auto-calling start_machine with saved direction:', direction);
+              } else if (routeState.pendingMachineTransition && !routeState.pickDirection) {
+                // First machine - no direction saved yet, prompt for it
+                const msg = `Start from the top or bottom for ${routeState.pendingMachineTransition.nextMachineName}?`;
+                setAiResponse(msg);
+                await v.speak(msg);
+                processingRef.current = false;
+                return;
+              }
+              break;
           }
 
           // Helper: Build display-friendly text (correct spelling) from tool result
@@ -1251,7 +1286,8 @@ export default function StockerApp() {
       completedItems: savedSession.completedItems || [],
       machines: savedSession.machines || [],
       completed: savedSession.completed || false,
-      pendingMachineTransition: savedSession.pendingMachineTransition || null
+      pendingMachineTransition: savedSession.pendingMachineTransition || null,
+      pickDirection: savedSession.pickDirection || null
     });
     // Restore saved session ID, or generate new one if missing
     if (savedSession.sessionId) {

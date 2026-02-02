@@ -30,6 +30,7 @@ interface SessionData {
     nextMachineName: string;
     nextMachineIndex: number;
   } | null;
+  pickDirection?: string | null;  // Route-level direction preference: "forward" or "reverse"
 }
 
 export function useSessionPersistence() {
@@ -139,6 +140,7 @@ export function useSessionPersistence() {
         user_id: userId,
         current_route_id: data.routeId,
         current_machine_id: data.currentMachineId,
+        pick_direction: data.pickDirection || null,
         // REMOVED: current_item_index - managed exclusively by n8n workflows
         // Frontend was incorrectly writing currentMachineIndex (machine number) to current_item_index (item sequence)
         // This caused machine to complete after only 2 items because index was corrupted to 1 instead of 24
@@ -220,6 +222,7 @@ export function useSessionPersistence() {
         completed: session.status === 'completed',
         conversationHistory: [],
         savedAt: new Date(session.updated_at || session.created_at).getTime(),
+        pickDirection: session.pick_direction || null,
       };
     } catch (e) {
       console.error('[Session] Server load error:', e);
