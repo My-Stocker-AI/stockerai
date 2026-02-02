@@ -161,10 +161,10 @@ Confuses users, requires clarification exchange
 
 ---
 
-### Edge Case 2: Direction Prompt Timing Wrong
+### Edge Case 2: Direction Prompt Timing Wrong ✅ FIXED
 
 **Severity:** MEDIUM
-**Status:** Reproducible
+**Status:** ✅ FIXED (2026-02-01)
 
 **Symptom:**
 - Skipped Machine 2
@@ -174,7 +174,11 @@ Confuses users, requires clarification exchange
 - Then system asked "top or bottom"
 
 **Root Cause:**
-Prompt sequence incorrect - should ask direction BEFORE giving first items
+`skip_current_machine` workflow (ElCSMeguJNxwp0HO) had "Get First Item" node that fetched items prematurely:
+- Flow was: Mark Skipped → Find Next Machine → Get First Item → Format Output
+- Workflow returned `action="next_machine"` BUT also included item data (first_item, first_quantity, first_slot)
+- Frontend received items before direction was chosen
+- Items were displayed to user before being asked "top or bottom"
 
 **Expected Behavior:**
 1. Detect new machine
@@ -185,10 +189,29 @@ Prompt sequence incorrect - should ask direction BEFORE giving first items
 **Impact:**
 User sees items they may not want (if they wanted to start from opposite end)
 
-**Fix Location:**
-- File: `src/hooks/useStockerSession.ts` and `src/pages/StockerApp.tsx`
-- Component: Machine transition flow control
-- Solution: Reorder: prompt → response → then get items
+**The Fix (Workflow: skip_current_machine - ElCSMeguJNxwp0HO):**
+
+**1. Removed "Get First Item" node:**
+- This node was fetching first item from next machine prematurely
+- Items should only be fetched AFTER direction is chosen
+
+**2. Rewired connections:**
+- Before: Update Session → Get First Item → Format Output
+- After: Update Session → Format Output (direct connection)
+
+**3. Updated "Format Output" node:**
+- Removed item data fields: `first_item`, `first_quantity`, `first_slot`
+- Now returns ONLY transition info: `action="next_machine"`, `next_machine`, `next_machine_id`, `next_location`
+- Updated comment to clarify: "Returns action='next_machine' WITHOUT items - direction must be chosen first"
+
+**Result:**
+- Skip machine now returns action="next_machine" with NO item data
+- Frontend sets pendingMachineTransition and waits
+- AI asks "Top or bottom for [machine]?"
+- User provides direction
+- start_machine called with direction
+- THEN get_next_item fetches first items
+- Items appear AFTER direction chosen, not before
 
 ---
 
