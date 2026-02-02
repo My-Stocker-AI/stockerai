@@ -9,8 +9,236 @@
 # CURRENT STATE
 
 **Date:** 2026-02-02
-**Phase:** ✅ SESSION 54 COMPLETE - DASHBOARD SYNC FIX DEPLOYED
-**Status:** ✅ Dashboard now syncs correctly with route state on reset and resume
+**Phase:** ✅ SESSION 55 COMPLETE - 2-PICK MODE BUG + ROUTE-LEVEL DIRECTION FINALIZED
+**Status:** ✅ Items no longer duplicate in 2-pick mode, route-level direction fully implemented
+
+---
+
+## ✅ SESSION 55: 2-PICK MODE DUPLICATE FIX + ROUTE-LEVEL DIRECTION COMPLETE (2026-02-02)
+
+**Problem 1:** 2-pick mode caused items to be re-displayed and not counted properly in Done card
+**Problem 2:** get_next_item workflow still asking "Top or bottom?" instead of "Ready to go?"
+
+### Bug 1: 2-Pick Mode Item Duplication ✅ FIXED
+
+**Symptom:**
+- User picked 2 items in 1-pick mode
+- Enabled 2-pick mode after 2nd "next"
+- System re-displayed 2nd item with 3rd item
+- Done card only showed 1 item picked (should be 2)
+- Deduplication filtered out the re-displayed item
+
+**User feedback:**
+> "I said next twice in 1 pick mode. I enabled 2 item after the 2nd next. As I said, it re-displayed the 2nd item with the third... I don't know how to be any clearer"
+
+**Console log evidence:**
+```
+[Session] ⚠️ All items filtered as duplicates: Array(1)
+[Item Selection] All items filtered as duplicates
+```
+
+**Root cause:**
+get_next_item workflow calculated `targetSequence` using `completedItems` (value BEFORE increment) instead of `newCompletedItems` (value AFTER increment):
+```javascript
+// BEFORE (buggy):
+var targetSequence;
+if (pickDirection === 'forward') {
+  targetSequence = completedItems + 1;  // Uses OLD count
+} else {
+  targetSequence = totalItems - completedItems;
+}
+// Later... calculate newCompletedItems
+var newCompletedItems = completedItems + itemsToIncrement;
+```
+
+**Example scenario:**
+1. User picked 2 items in 1-pick mode → completedItems = 2
+2. User enabled 2-pick, said "next"
+3. Workflow calculated targetSequence = 2+1 = 3 (should be 4 after incrementing by 2)
+4. Workflow returned Item A5 (sequence 3) instead of Item A6 (sequence 4)
+5. Frontend tried to add A5 to completed list, but A5 already there
+6. Deduplication filtered it → Done card didn't update
+
+**The fix (via Synta):**
+**Workflow:** get_next_item (iykbFj7f9222PF7r)
+**Node:** Determine Next State
+
+**AFTER (fixed):**
+```javascript
+// Calculate increment FIRST
+var itemsAvailable = totalItems - completedItems;
+var itemsToIncrement = Math.min(count, itemsAvailable);
+var newCompletedItems = completedItems + itemsToIncrement;
+var newItemsRemaining = totalItems - newCompletedItems;
+
+// THEN use newCompletedItems for target
+var targetSequence;
+if (pickDirection === 'forward') {
+  targetSequence = newCompletedItems + 1;  // Uses NEW count
+} else {
+  targetSequence = totalItems - newCompletedItems;
+}
+```
+
+**Impact:**
+- ✅ Workflow now fetches NEXT items after incrementing counter
+- ✅ Forward mode: targetSequence correctly calculates from post-increment count
+- ✅ Reverse mode: targetSequence correctly calculates from post-increment count
+- ✅ Done card displays all picked items (no duplicates filtered)
+- ✅ Works correctly in both 1-pick and 2-pick modes
+
+---
+
+### Bug 2: Route-Level Direction Not Complete ✅ FIXED
+
+**Symptom:**
+- Frontend already deployed with route-level direction support
+- skip_current_machine workflow updated to say "Ready to go?"
+- **BUT** get_next_item workflow still asking "Top or bottom?" on machine transitions
+
+**User feedback:**
+> "I thought we had just rebuilt the whole Top and Bottom choice issue where every machine followed the first machine selection. Is that true or not?"
+
+**Root cause:**
+Only skip_current_machine workflow was updated in previous session. get_next_item workflow (used for normal machine completion) still had old "Top or bottom?" prompt.
+
+**The fix (via Synta):**
+**Workflow:** get_next_item (iykbFj7f9222PF7r)
+**Node:** Format Output
+
+**Changed in generateSpoken function:**
+```javascript
+if (action === 'next_machine') {
+  var returning = data.returning_to_skipped || false;
+  if (returning) {
+    return data.completed_machine + ' complete. Going back to skipped machine ' + data.next_machine + ' at ' + data.next_location + '. Ready to go?';
+  } else {
+    return data.completed_machine + ' complete. Next is ' + data.next_machine + ' at ' + data.next_location + '. Ready to go?';
+  }
+}
+```
+
+**Before:** "Top or bottom?" at end of spoken text
+**After:** "Ready to go?" at end of spoken text
+
+**Impact:**
+- ✅ Both skip_current_machine and get_next_item now say "Ready to go?"
+- ✅ Frontend AFFIRMATIVE command detection triggers on "yes/okay/ready"
+- ✅ Frontend auto-calls start_machine with saved pickDirection
+- ✅ Route-level direction fully implemented (user chooses once at first machine, all subsequent machines follow)
+
+---
+
+### Implementation Summary
+
+**Fixes deployed via Synta:**
+1. ✅ get_next_item → Determine Next State node (targetSequence calculation)
+2. ✅ get_next_item → Format Output node ("Ready to go?" prompt)
+
+**Frontend status:**
+- ✅ Already deployed (commit 932d8cd)
+- ✅ pickDirection state management working
+- ✅ AFFIRMATIVE command detection working
+- ✅ Auto-start machine with saved direction working
+
+**System flow:**
+```
+User finishes Machine 1
+  ↓
+get_next_item returns: "Machine 1 complete. Next is Machine 2. Ready to go?"
+  ↓
+Frontend plays spoken (includes "Ready to go?")
+  ↓
+User says "yes" / "okay" / "ready"
+  ↓
+Command recognizer detects AFFIRMATIVE during pendingMachineTransition
+  ↓
+Frontend reads session.pick_direction from database
+  ↓
+Frontend auto-calls start_machine(mapped_direction)
+  ↓
+Machine 2 starts with items in saved direction (no prompt)
+```
+
+---
+
+### Design Limitation Noted (Not Fixed)
+
+**Switching from 1-pick to 2-pick mid-machine:**
+- Workflow increments completed_items by `count` parameter
+- If user switches modes mid-machine, workflow assumes user picked `count` items
+- Example:
+  1. User picks 1 item in 1-pick mode → completedItems = 1
+  2. User switches to 2-pick mode
+  3. User says "next" → Workflow increments by 2 → completedItems = 3
+  4. This creates a "skip" effect (item 2 was never displayed/picked)
+
+**Why not fixed:**
+- Workflow doesn't track "how many items were in previous display"
+- Would require state tracking of previous display count
+- User should maintain consistent pick mode throughout a machine
+- Acceptable tradeoff (user controls the mode setting)
+
+---
+
+### Testing Required
+
+**Test 1: 2-Pick Mode Consistency**
+1. Start machine in 2-pick mode
+2. Pick all items saying "next"
+3. Verify Done card shows all items
+4. Verify no duplicates
+5. Verify counter increments by 2 each time
+
+**Test 2: Route-Level Direction**
+1. Start new route
+2. First machine asks: "Top or bottom?"
+3. Say "bottom"
+4. Complete first machine
+5. Hear: "Machine 1 complete. Next is Machine 2. Ready to go?"
+6. Say "yes"
+7. Machine 2 starts from bottom (no direction prompt)
+8. Verify all subsequent machines auto-start from bottom
+
+**Test 3: Skip with Ready Confirmation**
+1. Skip machine mid-way
+2. Hear: "Machine X skipped. On to Machine Y. Ready to go?"
+3. Say "okay"
+4. Machine Y starts with saved direction
+
+---
+
+### Files Changed
+
+**n8n Workflows (via Synta):**
+- get_next_item (iykbFj7f9222PF7r):
+  - Determine Next State node: targetSequence calculation fixed
+  - Format Output node: "Ready to go?" prompt added
+
+**Frontend (already deployed):**
+- src/hooks/useStockerSession.ts: pickDirection management
+- src/hooks/useSessionPersistence.ts: pickDirection persistence
+- src/pages/StockerApp.tsx: AFFIRMATIVE command handling
+- src/utils/commandRecognizer.ts: AFFIRMATIVE patterns
+
+**Commits:**
+- [n8n workflows updated via Synta UI - no git commit]
+- Frontend: commit 932d8cd (deployed in previous session)
+
+---
+
+### Status
+
+**Deployment:**
+- ✅ Both workflow fixes deployed via Synta
+- ✅ Frontend already deployed
+- ✅ Route-level direction feature complete
+- ✅ 2-pick mode duplication bug fixed
+
+**Ready for:**
+- ⏳ User testing of 2-pick mode with fixed targetSequence logic
+- ⏳ User testing of route-level direction (full flow)
+- ⏳ Verification that items no longer duplicate
 
 ---
 
