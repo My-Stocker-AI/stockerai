@@ -9,8 +9,63 @@
 # CURRENT STATE
 
 **Date:** 2026-02-01
-**Phase:** ✅ SESSION 51 RECOVERY COMPLETE
-**Status:** ⚠️ CRITICAL FIX APPLIED - Route start failure fixed (boolean/string type mismatch)
+**Phase:** ✅ TIER 1 FIXES DEPLOYED & DEBUGGED
+**Status:** ✅ ALL WORKFLOW BUGS FIXED - Testing route starting now
+
+---
+
+## ✅ TIER 1 DEPLOYMENT DEBUG (2026-02-01 Evening)
+
+**Context:** User deployed Tier 1 performance fixes, tried to start a route, it failed.
+
+### Bug 1: set_route_sequence "Ensure Output" Node ✅ FIXED
+
+**Symptom:** Route starting fails after saying "yes"
+**Error:** `invalid input syntax for type uuid: ""`
+**Root Cause:** "Ensure Output" node wasn't handling Supabase array responses correctly
+
+**The Fix (Workflow: set_route_sequence - 46lMRdxTgD1E3WFz):**
+Updated "Ensure Output" node to handle both arrays and single objects:
+```javascript
+var sessionData = null;
+try {
+  var inputData = $input.first().json;
+  // Handle Supabase array response
+  if (Array.isArray(inputData) && inputData.length > 0) {
+    sessionData = inputData[0];
+  } else if (inputData && inputData.id) {
+    sessionData = inputData;
+  }
+} catch(e) {
+  // No session found
+}
+```
+
+**Status:** ✅ FIXED - Pasted into n8n workflow manually
+
+---
+
+### Bug 2: get_current_status Old Workflow Still Active ✅ FIXED
+
+**Symptom:** Error from old n8n workflow at `/webhook/status` with empty body
+**Error:** `user_id=eq.` (empty user_id causing UUID syntax error)
+**Root Cause:** Old n8n workflow (PD3ErCuxWBWLFXIq) still active at `/webhook/status`, conflicting with Edge Function
+
+**The Fix:**
+- Deactivated old workflow via n8n-mcp
+- Frontend already pointing to Edge Function URL ✓
+- Old workflow requests will now fail fast, forcing Edge Function usage
+
+**Status:** ✅ FIXED - Workflow deactivated
+
+---
+
+### Frontend Status
+- Rollback commit (7d6753d) already deployed to Cloudflare Pages ✓
+- set_route_sequence using old n8n endpoint temporarily (until workflow fully validated)
+- get_current_status, get_next_item, switch_route all using Edge Functions ✓
+
+**Next:** User testing route starting with fixed workflow
 
 ---
 
