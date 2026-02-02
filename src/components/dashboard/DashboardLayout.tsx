@@ -9,7 +9,6 @@ import {
   Settings,
   LogOut,
   ExternalLink,
-  Mic,
   Shield
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -42,13 +41,6 @@ const DashboardLayout = ({ children, title, breadcrumbs }: DashboardLayoutProps)
   const showAdminMenu = isPrimaryAdmin || isPlatformAdmin;
 
   const navItems = [
-    {
-      label: "Voice App",
-      href: "/app",
-      icon: Mic,
-      external: false,
-      visible: true
-    },
     {
       label: "Upload Routes",
       href: "/dashboard/upload-routes",
