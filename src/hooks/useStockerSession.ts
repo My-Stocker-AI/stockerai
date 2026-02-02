@@ -310,20 +310,28 @@ export function useStockerSession(userId: string | null) {
 
               next.completedItems = [...prev.completedItems, ...newItems];
 
-              // Update machine's completedItems count (only for genuinely new items)
+              // EDGE CASE 3 FIX: Use workflow's items_to_increment instead of newItems.length
+              // Workflow increments database by items_to_increment (based on count param)
+              // Frontend MUST use same value to stay in sync
+              // Using newItems.length (deduplicated) can cause divergence on retries
+              const workflowIncrement = result.items_to_increment || newItems.length;
+
+              // Update machine's completedItems count
               if (prev.currentMachineId) {
                 next.machines = prev.machines.map(m =>
                   m.id === prev.currentMachineId
-                    ? { ...m, completedItems: m.completedItems + newItems.length }
+                    ? { ...m, completedItems: m.completedItems + workflowIncrement }
                     : m
                 );
 
                 console.log('[Session] ✅ Updated counts:', {
                   machine: prev.currentMachineName,
                   oldCount,
-                  increment: newItems.length,
-                  newCount: oldCount + newItems.length,
-                  totalCompleted: prev.completedItems.length + newItems.length
+                  workflowIncrement,
+                  deduplicatedCount: newItems.length,
+                  newCount: oldCount + workflowIncrement,
+                  totalCompleted: prev.completedItems.length + newItems.length,
+                  usingWorkflowValue: result.items_to_increment !== undefined
                 });
               } else {
                 console.warn('[Session] ⚠️  No currentMachineId - count not updated!');
