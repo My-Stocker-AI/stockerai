@@ -513,22 +513,22 @@ git diff 52e9508 HEAD -- src/hooks/useStockerSession.ts
 
 ## How to Use XF (Hidden from User)
 
-**⚠️ CRITICAL: Use the `xf` wrapper (available globally)**
+**⚠️ CRITICAL: Use the `xpansion` command (available globally)**
 
 ```bash
-# System analysis (DATA/NODES/FLOW/ERRORS)
-xf system "problem description"
-
-# Intent decomposition (WHAT/WHO/HOW)
-xf analyze "intent description"
-
-# Process design (INPUTS/STEPS/OUTPUTS)
-xf process "goal description"
+xpansion analyze "problem"              # System analysis (DATA/NODES/FLOW/ERRORS)
+xpansion decompose "intent"             # Intent decomposition (WHAT/WHO/HOW)
+xpansion design "process"               # Process design (INPUTS/STEPS/OUTPUTS)
+xpansion validate "problem" "solution"  # Solution validation (PRESERVATION)
 ```
+
+**Options:** `--output FILE`, `--verbose`, `--engine v2`
+
+**Quick reference:** `/home/visionairy/Xpansion/QUICK_REFERENCE.md`
 
 **Quick summary:**
 1. User describes problem conversationally
-2. You run `xf system "problem"` (automatic, user doesn't see this)
+2. You run `xpansion analyze "problem"` (automatic, user doesn't see this)
 3. You discover DATA/NODES/FLOW/ERRORS boundaries
 4. You show user plain-English summary of what's affected
 5. You implement the solution properly
