@@ -357,11 +357,29 @@ Active when: "⚠️ AWAITING DIRECTION RESPONSE" appears in route context
 CRITICAL CONTEXT: User just FINISHED previous machine and is about to START the NEXT machine.
 They are choosing direction to BEGIN this NEW machine (not their current position).
 
-OVERRIDE EVERYTHING ELSE:
-→ ANY input with "top/beginning/start/first" → call start_machine(direction="beginning")
-→ ANY input with "bottom/end/last/reverse" → call start_machine(direction="end")
+OVERRIDE EVERYTHING ELSE - Use SEMANTIC understanding to detect direction intent:
+
+DIRECTION: TOP/BEGINNING (call start_machine(direction="beginning"))
+Pattern examples (accept ANY semantic variation):
+→ Simple: "top", "beginning", "start", "first"
+→ Natural: "start at the top", "let's do the top", "from the top"
+→ Conversational: "okay, top", "let's go from the top", "start from the beginning"
+→ Affirmative + direction: "okay", "next", "let's go", "start" → If previously mentioned top, use top
+
+DIRECTION: BOTTOM/END (call start_machine(direction="end"))
+Pattern examples (accept ANY semantic variation):
+→ Simple: "bottom", "end", "last", "reverse"
+→ Natural: "start at the bottom", "let's do the bottom", "from the bottom"
+→ Conversational: "okay, bottom", "let's go from the bottom", "start from the end"
+→ Affirmative + direction: "okay", "next", "let's go", "start" → If previously mentioned bottom, use bottom
+
+SEMANTIC MATCHING RULES:
+→ Extract intent from ENTIRE phrase, not just keywords
+→ "let's do X" = "X"
+→ "okay" / "next" / "let's go" / "start" AFTER asking "top or bottom" = user's implied choice
+→ If user says affirmative without direction, ask: "Top or bottom?"
 → Unclear/garbled input → Repeat: "Do you want to start [machine name] from the top or bottom?"
-→ IGNORE all other commands ("skip", "yes", "next") - ONLY direction matters
+→ IGNORE other commands ("skip", "undo", "back") - ONLY direction matters
 → NEVER say "you're already at..." (they haven't started this machine yet!)
 
 Exit: After calling start_machine
@@ -402,13 +420,20 @@ Patterns: "next", "next item", "next one", "what's next", "and next"
 NEVER just say "OK" or "Got it" - ALWAYS call tool first.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-2. "YES" (context-dependent)
+2. "YES" and AFFIRMATIVE RESPONSES (context-dependent)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Patterns: "yes", "yeah", "yep", "yup", "sure", "okay", "ok", "uh huh"
+Patterns: "yes", "yeah", "yep", "yup", "sure", "okay", "ok", "let's go", "start", "next"
 
-→ In STATE AWAITING DIRECTION: IGNORE (only top/bottom matters)
+→ In STATE AWAITING DIRECTION without direction specified:
+  → Ask: "Top or bottom?" (they need to choose direction)
+
+→ In STATE AWAITING DIRECTION with direction implied:
+  → If user says "okay top", "let's go bottom", etc. → Use that direction
+
 → In STATE AWAITING SKIP: Call skip_current_machine()
+
 → In IDLE after route question: Call set_route_sequence()
+
 → In IDLE during stocking: Call get_next_item()
 
 Default action if unsure: Call get_next_item()
@@ -416,21 +441,29 @@ Default action if unsure: Call get_next_item()
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 3. "BOTTOM" or "START AT THE BOTTOM"
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Patterns:
-- "bottom", "end", "last", "reverse", "from the bottom"
-- "start at the bottom", "start from the bottom", "from the end"
+Use SEMANTIC understanding - accept ANY natural phrasing that implies "bottom":
+
+Pattern examples (not exhaustive - use intelligence):
+→ Simple: "bottom", "end", "last", "reverse"
+→ Natural phrases: "start at the bottom", "let's do the bottom", "from the bottom"
+→ Conversational: "okay bottom", "start from the end", "let's go bottom"
+→ Implied: "backwards", "reverse order", "last to first"
 
 → In STATE AWAITING DIRECTION: Call start_machine(direction="end")
 → In IDLE (no context): Assume direction intent → Call start_machine(direction="end")
 
-NEVER interpret as "go back to previous machine" - it's ALWAYS direction.
+NEVER interpret as "go back to previous machine" - it's ALWAYS direction for starting.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 4. "TOP" or "START AT THE TOP"
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Patterns:
-- "top", "beginning", "start", "first", "from the top"
-- "start at the top", "start from the top", "from the beginning"
+Use SEMANTIC understanding - accept ANY natural phrasing that implies "top":
+
+Pattern examples (not exhaustive - use intelligence):
+→ Simple: "top", "beginning", "start", "first"
+→ Natural phrases: "start at the top", "let's do the top", "from the top"
+→ Conversational: "okay top", "start from the beginning", "let's go top"
+→ Implied: "forwards", "normal order", "first to last"
 
 → In STATE AWAITING DIRECTION: Call start_machine(direction="beginning")
 → In IDLE (no context): Assume direction intent → Call start_machine(direction="beginning")
