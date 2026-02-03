@@ -1669,7 +1669,8 @@ export default function StockerApp() {
 
   // Resume dialog - SIMPLIFIED for 5-year-old proof UX
   if (showResumeDialog && savedSession) {
-    const progressPercent = Math.round((savedSession.currentMachineIndex / savedSession.totalMachines) * 100);
+    const completedCount = savedSession.machines?.filter((m: any) => m.status === 'completed').length || 0;
+    const progressPercent = Math.round((completedCount / savedSession.totalMachines) * 100);
     return (
       <div className="min-h-screen bg-[#0d1117] flex flex-col items-center justify-center p-6">
         {/* Logo */}
@@ -1681,7 +1682,7 @@ export default function StockerApp() {
         <div className="bg-[#161b22] rounded-2xl border border-gray-700 p-6 max-w-sm w-full mb-6">
           <h2 className="text-2xl font-bold text-white text-center mb-2">{savedSession.routeName}</h2>
           <p className="text-gray-400 text-center mb-4">
-            Machine {savedSession.currentMachineIndex} of {savedSession.totalMachines}
+            Machine {completedCount} of {savedSession.totalMachines}
           </p>
           {/* Progress bar */}
           <div className="h-3 bg-gray-800 rounded-full overflow-hidden mb-2">
@@ -1924,7 +1925,7 @@ export default function StockerApp() {
         <div className="flex-1 flex items-center justify-end gap-2">
           {routeState.routeName && (
             <span className="text-sm text-gray-400">
-              Machine {routeState.currentMachineIndex}/{routeState.totalMachines}
+              Machine {routeState.machines.filter(m => m.status === 'completed').length}/{routeState.totalMachines}
             </span>
           )}
           <Button variant="ghost" size="icon" onClick={() => setShowHelpSheet(true)} title="Voice Commands Help">
@@ -1946,12 +1947,12 @@ export default function StockerApp() {
                 <Zap className="h-3 w-3 text-emerald-400" />
                 {routeState.completedItems.length} items picked
               </span>
-              <span>Machine {routeState.currentMachineIndex} of {routeState.totalMachines}</span>
+              <span>Machine {routeState.machines.filter(m => m.status === 'completed').length} of {routeState.totalMachines}</span>
             </div>
             <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
               <div
                 className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full transition-all duration-500"
-                style={{ width: `${Math.max(5, (routeState.currentMachineIndex / routeState.totalMachines) * 100)}%` }}
+                style={{ width: `${Math.max(5, (routeState.machines.filter(m => m.status === 'completed').length / routeState.totalMachines) * 100)}%` }}
               />
             </div>
           </div>
