@@ -9,8 +9,59 @@
 # CURRENT STATE
 
 **Date:** 2026-02-02
-**Phase:** ✅ SESSION 55 COMPLETE - 2-PICK MODE BUG + ROUTE-LEVEL DIRECTION FINALIZED
-**Status:** ✅ Items no longer duplicate in 2-pick mode, route-level direction fully implemented
+**Phase:** ✅ SESSION 56 COMPLETE - DIRECTION REVERSAL BUG FIXED
+**Status:** ✅ CommandRecognizer now strips punctuation, "next item." routes correctly
+
+---
+
+## ✅ SESSION 56: DIRECTION REVERSAL BUG - PUNCTUATION IN TRANSCRIPTS (2026-02-02)
+
+**Problem:** User started machine with "top" (reverse direction), got A5, A4 correctly, then said "next item." and got A1, A2 (forward direction) instead of expected A3, A2.
+
+### Root Cause
+
+**File:** `src/utils/commandRecognizer.ts:195`
+
+**Bug:** CommandRecognizer only did `toLowerCase().trim()` but didn't strip punctuation. When Deepgram transcribed "Next item." (with period), the pattern `/^next item$/` failed to match "next item." (with period).
+
+**Cascade failure:**
+1. User says "Next item."
+2. Deepgram transcribes as "next item." (includes period)
+3. Pattern `/^next item$/` doesn't match → Returns UNKNOWN
+4. Routes to AI fallback
+5. AI misinterprets as machine transition → Calls `start_machine`
+6. `start_machine` updates `session.pick_direction` from "reverse" to "forward"
+7. Next call uses forward direction → Returns A1, A2 instead of A3, A2
+
+**Console log evidence:**
+```
+[CommandRecognizer] No match or low confidence, routing to AI
+[AI] Response received
+[Tools] Calling start_machine  ← WRONG (should be get_next_item)
+[Session] Direction saved: forward  ← Overwrites "reverse"
+```
+
+### The Fix
+
+**File:** `src/utils/commandRecognizer.ts:195-196`
+
+**Changed:**
+```javascript
+recognize(transcript: string): CommandMatch {
+  // Strip trailing punctuation before matching (Deepgram includes periods, commas, etc.)
+  const lower = transcript.toLowerCase().trim().replace(/[.!?,;:]+$/g, '');
+```
+
+**Impact:**
+- ✅ "next item." → "next item" (period stripped)
+- ✅ Pattern `/^next item$/` matches successfully
+- ✅ CommandRecognizer returns NEXT_ITEM with confidence 1.0
+- ✅ Bypasses AI → Calls `get_next_item` directly
+- ✅ Direction persists correctly
+- ✅ Fix applies to ALL command patterns (they all use same `lower` variable)
+
+**Commit:** (pending)
+**Deployment:** Auto-deploy via GitHub push to main
 
 ---
 

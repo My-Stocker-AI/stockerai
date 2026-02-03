@@ -192,7 +192,8 @@ export class CommandRecognizer {
    * Recognize a command from transcript text
    */
   recognize(transcript: string): CommandMatch {
-    const lower = transcript.toLowerCase().trim();
+    // Strip trailing punctuation before matching (Deepgram includes periods, commas, etc.)
+    const lower = transcript.toLowerCase().trim().replace(/[.!?,;:]+$/g, '');
 
     // First, check for common STT error corrections
     const corrected = COMMON_STT_ERRORS[lower] || lower;
