@@ -11,7 +11,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 
 interface RouteData {
@@ -45,7 +45,6 @@ const MyRoutes = () => {
   const [pastRoutesOpen, setPastRoutesOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [routeToDelete, setRouteToDelete] = useState<RouteData | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -166,42 +165,83 @@ const MyRoutes = () => {
     setDeleteDialogOpen(true);
   };
 
-  const handleDeleteConfirm = async () => {
-    if (!routeToDelete || !user) return;
+  // Delete route mutation with active session protection
+  const deleteRouteMutation = useMutation({
+    mutationFn: async (routeId: string) => {
+      // CRITICAL: Check for active sessions FIRST
+      const { data: activeSessions, error: sessionError } = await supabase
+        .from('sessions')
+        .select('id, status')
+        .eq('current_route_id', routeId)
+        .in('status', ['stocking', 'paused', 'in_progress']);
 
-    setIsDeleting(true);
-    try {
-      const response = await fetch('https://visionairy.app.n8n.cloud/webhook/delete-route', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          route_id: routeToDelete.id,
-          user_id: user.id
-        })
-      });
+      if (sessionError) throw sessionError;
 
-      if (!response.ok) throw new Error('Failed to delete route');
+      if (activeSessions && activeSessions.length > 0) {
+        throw new Error(
+          'Cannot delete active route. This route is currently being used in an active session. ' +
+          'Please complete or pause the session before deleting.'
+        );
+      }
 
+      // Delete items first (cascade should handle this, but being explicit)
+      const { data: machines } = await supabase
+        .from('machines')
+        .select('id')
+        .eq('route_id', routeId);
+
+      if (machines && machines.length > 0) {
+        const machineIds = machines.map(m => m.id);
+        const { error: itemsError } = await supabase
+          .from('items')
+          .delete()
+          .in('machine_id', machineIds);
+
+        if (itemsError) throw itemsError;
+      }
+
+      // Delete machines
+      const { error: machinesError } = await supabase
+        .from('machines')
+        .delete()
+        .eq('route_id', routeId);
+
+      if (machinesError) throw machinesError;
+
+      // Delete assignments
+      const { error: assignmentsError } = await supabase
+        .from('route_assignments')
+        .delete()
+        .eq('route_id', routeId);
+
+      if (assignmentsError) throw assignmentsError;
+
+      // Delete route
+      const { error } = await supabase
+        .from('routes')
+        .delete()
+        .eq('id', routeId);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['my-routes'] });
       toast({
         title: "Route deleted",
-        description: `${routeToDelete.route_name} has been removed.`,
+        description: `${routeToDelete?.route_name} has been removed.`,
       });
-
-      // Refresh the routes list
-      queryClient.invalidateQueries({ queryKey: ['my-routes'] });
-    } catch (error) {
+      setDeleteDialogOpen(false);
+      setRouteToDelete(null);
+    },
+    onError: (error: Error) => {
       console.error('Delete error:', error);
       toast({
         title: "Delete failed",
-        description: "Could not delete the route. Please try again.",
+        description: error.message || "Could not delete the route. Please try again.",
         variant: "destructive"
       });
-    } finally {
-      setIsDeleting(false);
-      setDeleteDialogOpen(false);
-      setRouteToDelete(null);
-    }
-  };
+    },
+  });
 
   // Group routes - parse dates as local dates (not UTC) to avoid timezone issues
   // delivery_date is stored as "YYYY-MM-DD" string, so we parse and compare at start of day
@@ -425,11 +465,11 @@ const MyRoutes = () => {
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction
-              onClick={handleDeleteConfirm}
-              disabled={isDeleting}
+              onClick={() => routeToDelete && deleteRouteMutation.mutate(routeToDelete.id)}
+              disabled={deleteRouteMutation.isPending}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {isDeleting ? (
+              {deleteRouteMutation.isPending ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   Deleting...
