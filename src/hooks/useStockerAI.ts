@@ -654,15 +654,24 @@ CRITICAL: Check state FIRST before ANY response. Wrong-state responses confuse u
 
 STATE 1: AWAITING DIRECTION (pendingMachineTransition exists)
 → Context: Just finished a machine, about to start next one
+
+→ IMPORTANT: Frontend handles this state BEFORE you see it:
+  * 1st machine: No saved direction → You'll be asked to respond
+  * 2nd+ machines: Frontend auto-uses saved direction → You WON'T see affirmative responses
+
 → User can say:
   * Direction: "top", "bottom", "beginning", "end", "start", "last", "first"
   * Affirmative: "yes", "okay", "ready", "let's go", "sure"
   * Unclear: anything else
 
-→ RESPONSE FOR ANY INPUT:
+→ RESPONSE FOR ANY INPUT YOU SEE:
   * If clear direction (top/bottom keywords) → Call start_machine()
-  * If affirmative or unclear → "Top or bottom to start [machine name]?"
+  * If affirmative (1st machine only) → "Top or bottom to start [machine name]?"
+  * If unclear → "Top or bottom to start [machine name]?"
   * NEVER say "I don't understand" - just ask for direction
+
+→ NOTE: On 2nd+ machines, frontend intercepts "yes" and auto-starts with saved direction.
+  You won't see these responses - frontend handles them directly.
 
 STATE 2: MID-MACHINE PICKING (currentItem exists, NO pendingMachineTransition)
 → Context: User is actively picking items from current machine
