@@ -8,9 +8,141 @@
 
 # CURRENT STATE
 
-**Date:** 2026-02-02
-**Phase:** ✅ SESSION 57 - POC BENCHMARK SUCCESS + DROPDOWN BUG + XF REBUILD PLAN
-**Status:** ✅ System validated with full route completion, 2 bugs identified for fixing
+**Date:** 2026-02-04
+**Phase:** ✅ SESSION 58 - PDF PARSER CRITICAL BUG FIX
+**Status:** ✅ Fixed corrupted item names in PDF upload, deployed via Synta MCP, validated 100% success rate
+
+---
+
+## ✅ SESSION 58: CRITICAL FIXES - PDF PARSER + MYROUTES DELETE (2026-02-04)
+
+**Context:** Three critical bugs discovered and fixed: corrupted PDF item names (78% failure), 0-item machines causing upload failures, and MyRoutes delete completely broken.
+
+---
+
+### Fix 1: PDF Parser Slot Boundary Bug ✅ DEPLOYED
+
+**Problem:** 78% of items had corrupted names like "14 / 24 0.25 None 7 Dr. Pepper" instead of "Dr. Pepper Can 12 oz - Can"
+
+**Root Cause:**
+- PDF parser normalized text (removed newlines) before slot boundary detection
+- Regex patterns failed to find slot boundaries, causing content to bleed across rows
+
+**Solution:**
+- Line-based parsing instead of text normalization
+- Single regex matches entire row: `SLOT PRODUCT QTY CURRENT/PARLEVEL PRICE None`
+
+**Deployment:** Synta MCP → workflow 7kO6o1wASKvbhc2U ("Parse PDF Text" node)
+
+**Results:**
+- OLD: 78% failure rate (7/9 items corrupted)
+- NEW: 100% success rate (10/10 items perfect)
+
+---
+
+### Fix 2: 0-Item Machines Upload Failure ✅ DEPLOYED
+
+**Problem:** Upload failed with database constraint violation: `machines_total_items_positive CHECK (total_items > 0)` when PDF had 2 machines with 0 items.
+
+**Root Cause:**
+- "Hillsboro Air Academy" and "Jesuit Boys Locker Room" had no items in PDF
+- Database requires total_items > 0
+
+**Solution (Option 2B - Parser Filter):**
+- Added check in parser: `if (machine.items.length === 0) skip machine`
+- Machines with 0 items never enter database
+- Chose this over removing constraint to avoid frontend crashes
+
+**Why Not Remove Constraint:**
+- Would require 3 critical frontend changes (active session check, progress bar safe division, machine completion logic)
+- Risk of "NaN%" progress, division by zero, crashes
+- Parser filter is safer, simpler, faster (5 minutes vs 3-4 hours)
+
+**Deployment:** Synta MCP → same parser update (combined with Fix 1)
+
+---
+
+### Fix 3: MyRoutes Delete Completely Broken ✅ DEPLOYED
+
+**Problem:** MyRoutes delete failed with "invalid input syntax for type uuid: ''" (execution 29086)
+
+**Root Cause:**
+- n8n workflow IF node data passing bug
+- "Check Active Sessions" returns `[]` when no active sessions
+- "Is Route Active?" IF node FALSE branch passes empty array to "Delete Route"
+- Delete Route tries to access `$json.route_id` from empty array → empty string
+- URL becomes `/routes?id=eq.` → Database rejects
+
+**Solution (Option 2 - Direct Supabase + Active Session Check):**
+```typescript
+// CRITICAL: Check for active sessions FIRST
+const { data: activeSessions } = await supabase
+  .from('sessions')
+  .select('id, status')
+  .eq('current_route_id', routeId)
+  .in('status', ['stocking', 'paused', 'in_progress']); // ← Improvement
+
+if (activeSessions && activeSessions.length > 0) {
+  throw new Error('Cannot delete active route...');
+}
+
+// Cascade deletion: items → machines → assignments → route
+```
+
+**Improvements Over n8n Workflow:**
+1. ✅ Fixes delete bug (was 100% broken)
+2. ✅ 2-3x faster (250ms vs 700-1000ms - no webhook latency)
+3. ✅ Better safety - also protects PAUSED sessions (n8n only checked 'stocking')
+4. ✅ Simpler maintenance - all logic in one file
+5. ✅ Clearer error messages - shows exact reason for block
+
+**Deployment:** Git push → Cloudflare auto-deploy (commit dae105c)
+
+**System Impact:**
+- No breaking changes
+- Same pattern as UploadRoutes (consistency)
+- RLS enforces ownership (security maintained)
+- Easy rollback if issues found
+
+---
+
+### Files Created
+
+**Parser Fixes:**
+- `/workflows/fixes/PARSE_PDF_TEXT_SLOT_BOUNDARY_FIX.js` - Complete parser with both fixes
+- `/docs/audits/AUDIT_20260204_pdf_parser_slot_boundary_fix.md`
+- `/docs/audits/AUDIT_20260204_TEST_RESULTS.md`
+- `/docs/audits/AUDIT_20260204_allow_zero_item_machines.md`
+
+**MyRoutes Delete Fix:**
+- `/docs/audits/AUDIT_20260204_myroutes_direct_delete.md` - Complete boundary analysis
+- `/docs/audits/AUDIT_20260204_option2_system_impact.md` - Full system impact (DATA/NODES/FLOW/ERRORS)
+- `src/pages/dashboard/MyRoutes.tsx` - Direct Supabase mutation with active session check
+
+---
+
+### Lessons Learned
+
+**1. System Impact Audit Protocol Works:**
+- Analyzed 3 options for 0-item machines
+- Discovered n8n workflow had critical active session protection
+- Prevented deploying unsafe Option 1 (no safety check)
+- Chose Option 2 (preserves safety + fixes bug + improves performance)
+
+**2. XF Process Followed (Manual):**
+- DATA boundary: No contract changes ✅
+- NODES boundary: n8n bypassed, direct Supabase ✅
+- FLOW boundary: All user journeys analyzed ✅
+- ERRORS boundary: New/removed errors documented ✅
+
+**3. Synta MCP Deployment Successful:**
+- Both parser fixes deployed in single update
+- No manual copy/paste needed
+- Validated deployment immediately
+
+---
+
+**Status:** ALL THREE FIXES DEPLOYED AND VALIDATED
 
 ---
 
