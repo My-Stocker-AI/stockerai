@@ -1094,9 +1094,15 @@ export default function StockerApp() {
         return; // This useEffect will re-run when audioUnlocked changes
       }
 
-      // If we have a route ID from URL, skip saved session and start that route directly
-      if (routeIdFromUrl && !urlRouteProcessed) {
-        console.log('[Stocker] Route ID from URL:', routeIdFromUrl);
+      // CRITICAL FIX: Detect page refresh BEFORE checking route ID in URL
+      // On F5, URL still has ?route=X, but we should resume, not start fresh
+      const isRefresh = performance.getEntriesByType &&
+                        performance.getEntriesByType('navigation').length > 0 &&
+                        (performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming).type === 'reload';
+
+      // If we have a route ID from URL AND it's NOT a page refresh, start that route directly
+      if (routeIdFromUrl && !urlRouteProcessed && !isRefresh) {
+        console.log('[Stocker] Route ID from URL (NEW navigation):', routeIdFromUrl);
         setUrlRouteProcessed(true);
 
         // Fetch route details from database
@@ -1158,11 +1164,7 @@ export default function StockerApp() {
         console.log('[Stocker] Route verification:', { routeName: saved.routeName, exists: routeExists });
 
         if (routeExists) {
-          // Detect if this is a page refresh vs new navigation
-          const isRefresh = performance.getEntriesByType &&
-                            performance.getEntriesByType('navigation').length > 0 &&
-                            (performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming).type === 'reload';
-
+          // Reuse isRefresh variable defined earlier
           console.log('[Stocker] Navigation type:', isRefresh ? 'refresh' : 'new');
 
           if (isRefresh) {
