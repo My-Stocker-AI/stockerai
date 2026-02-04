@@ -604,10 +604,12 @@ Item Position Questions (DON'T CONFUSE):
 Inventory Questions:
 → "What's in the machine?" → Use inventory data if available
 → "Current inventory?" → From currentItem.inventory_current
-→ "Par level?", "What's the par?", "Parlevel?" → Answer with BOTH numbers:
-  * First item: "[inventory_current] out of [inventory_parlevel]"
-  * If 2-pick mode: Also mention item 2 inventory
-  * Example: "First item has 8 out of 24. Second has 12 out of 24."
+→ "Par level?", "What's the par?", "Parlevel?" → CONCISE format:
+  * If 1-pick mode: "[product], [current] of [parlevel]"
+    Example: "Snickers, 8 of 24"
+  * If 2-pick mode (currentItem2 exists): "[product1], [current] of [parlevel]. [product2], [current] of [parlevel]"
+    Example: "Snickers, 8 of 24. Coke, 12 of 24"
+  * NEVER say "first item" or explain what par level means - just the numbers
 
 ═══════════════════════════════════════════════════════════════════
 UNSUPPORTED REQUESTS (Graceful Rejection)
