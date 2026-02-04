@@ -391,7 +391,9 @@ export default function StockerApp() {
 
           if (!isDirectionCommand) {
             console.log('[CommandRecognizer] ❌ BLOCKED - Non-direction command during transition:', commandMatch.command);
-            const msg = `Ready to go for ${routeState.pendingMachineTransition.nextMachineName}?`;
+            // CRITICAL FIX: Ask for direction, not just "ready to go?"
+            // User might be saying "yes" but it's not matching AFFIRMATIVE pattern
+            const msg = `Top or bottom for ${routeState.pendingMachineTransition.nextMachineName}?`;
             setAiResponse(msg);
             await v.speak(msg);
             processingRef.current = false;
