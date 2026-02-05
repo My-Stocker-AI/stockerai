@@ -406,7 +406,7 @@ export function useStockerSession(userId: string | null) {
           if (prev.currentMachineId) {
             next.machines = prev.machines.map(m =>
               m.id === prev.currentMachineId
-                ? { ...m, status: 'completed' as const }
+                ? { ...m, status: 'completed' as const, completedItems: m.totalItems }
                 : m
             );
           }
