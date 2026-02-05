@@ -207,6 +207,14 @@ export function useStockerSession(userId: string | null) {
         next.currentItem2 = null;
         next.completedItems = [];
         next.completed = false;
+        // CRITICAL FIX: Set pending direction flag when starting new route (machine_ready)
+        // User needs to choose top or bottom to start first machine
+        next.pendingMachineTransition = {
+          nextMachineId: result.machine_id || '',
+          nextMachineName: result.machine_name || '',
+          nextMachineIndex: result.machine_index || 1
+        };
+        console.log('[Session] ⏸️  AWAITING DIRECTION for first machine:', result.machine_name, '| pendingMachineTransition:', next.pendingMachineTransition);
         // Store machines list from workflow
         if (result.machines && Array.isArray(result.machines)) {
           next.machines = result.machines.map((m: any) => ({
