@@ -678,7 +678,8 @@ export default function StockerApp() {
         currentMachineIndex: routeState.currentMachineIndex,
         completedItemsCount: routeState.completedItems.length,
         totalItems: routeState.machines.reduce((sum, m) => sum + (m.totalItems || 0), 0),
-        machines: routeState.machines // For skipped machine tracking
+        machines: routeState.machines, // For skipped machine tracking
+        currentItem2: routeState.currentItem2 // CRITICAL FIX: For 2-pick mode par level
       } : undefined);
 
       let response = await sendToAI(allMessages, userName, routeState.currentItem, routeContext);
