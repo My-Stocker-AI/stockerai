@@ -122,7 +122,7 @@ export function useSessionPersistence() {
     }
   }, [openDB]);
 
-  // Save session to Supabase sessions table for cross-device sync
+  // Save minimal session metadata to Supabase sessions table for backend workflow tracking
   const saveToServer = useCallback(async (data: SessionData, userId: string): Promise<void> => {
     try {
       const sessionKey = `${userId}-${data.routeId || 'active'}`;
@@ -167,7 +167,7 @@ export function useSessionPersistence() {
           });
       }
       
-      console.log('[Session] Saved to server for cross-device sync');
+      console.log('[Session] Saved to server for workflow tracking');
     } catch (e) {
       console.error('[Session] Server save error:', e);
     }
@@ -307,7 +307,7 @@ export function useSessionPersistence() {
   const save = useCallback(async (data: SessionData, userId: string | null): Promise<void> => {
     await saveLocal(data);
     if (userId) {
-      // Non-blocking server save for cross-device sync
+      // Non-blocking server save for backend workflow tracking
       saveToServer(data, userId);
     }
   }, [saveLocal, saveToServer]);
