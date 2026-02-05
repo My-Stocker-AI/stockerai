@@ -313,17 +313,12 @@ export function useSessionPersistence() {
   }, [saveLocal, saveToServer]);
 
   const load = useCallback(async (userId: string | null): Promise<SessionData | null> => {
-    // Try server first (allows cross-device sync)
-    if (userId) {
-      const serverData = await loadFromServer(userId);
-      if (serverData && serverData.routeId) {
-        console.log('[Session] Loaded from server (cross-device sync)');
-        return serverData;
-      }
-    }
-    // Fallback to IndexedDB
+    // CRITICAL FIX: IndexedDB is single source of truth for F5 refresh
+    // loadFromServer() returns hardcoded empty arrays for completedItems/machines
+    // which causes Done card and progress bar to be empty after F5
+    // IndexedDB has ALL the data (completedItems, machines, currentItem, conversationHistory)
     return loadLocal();
-  }, [loadFromServer, loadLocal]);
+  }, [loadLocal]);
 
   const clear = useCallback(async (userId: string | null): Promise<void> => {
     await clearLocal();
