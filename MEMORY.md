@@ -1,3 +1,11 @@
+# StockerAI Memory - Recent Sessions
+
+> **Older sessions archived to:** `.claude-archives/StockerAI_MEMORY_archive_20260208_030001.md`
+> **Archive date:** 2026-02-08
+> **Sessions kept:** 11 (last 14 days)
+
+---
+
 # StockerAI Memory - Current State
 
 > **Older sessions archived to:** `.claude-archives/stockerai_MEMORY_archive_20260125_175044.md`
@@ -8,11 +16,110 @@
 
 # CURRENT STATE
 
+**Date:** 2026-02-08
+**Phase:** ✅ SESSION 60 - MACHINE 3 "ITEM NOT FOUND" BUG - ROOT CAUSE FIXED
+**Status:** ✅ DEPLOYED - LIMIT 100 removed, Machine 3 now returns all 34 items
+
+---
+
+## ✅ SESSION 60: MACHINE 3 "ITEM NOT FOUND" BUG - SYSTEMIC ROOT CAUSE (2026-02-08)
+
+**User report:** "Item not found but machine incomplete. targetSequence=32, completed=2/34, direction=reverse"
+
+**Initial assumption:** Items missing from database (sequences 26-34 deleted)
+
+**User challenge:** "Your logic doesn't stand up. I just loaded the PDF as a route this morning. Is your solution fixing the symptom or the system?"
+
+---
+
+### Root Cause Analysis Process ✅
+
+**What I did RIGHT:**
+1. ✅ User demanded root cause → I pivoted from symptom fix
+2. ✅ Analyzed PDF upload execution → Found 36 RAW items → 34 combined ✅ CORRECT
+3. ✅ Verified database → All 34 items exist, including sequence 32 ✅ CORRECT
+4. ✅ Checked workflow execution → Only 25 items in "Extract Consolidated Data" node ❌ BUG
+5. ✅ Found Edge Function → Calls RPC `get_next_item_data`
+6. ✅ Found RPC source → Identified `LIMIT 100` on line 93
+7. ✅ Understood bug mechanism → LIMIT truncates mid-machine when previous machines have many items
+
+**Timeline:**
+- 18:48:37 - PDF uploaded, 34 items inserted correctly
+- 19:20:40 - User started Machine 3, only 25 items returned
+- Bug: If Machine 1 + Machine 2 = 75 items → Machine 3 only gets 25 items before LIMIT 100 cuts off
+
+---
+
+### The Bug: LIMIT 100 in RPC Function
+
+**File:** `supabase/migrations/20260125_update_get_next_item_data_rpc.sql:93`
+
+**Query structure:**
+```sql
+SELECT ... FROM sessions s
+LEFT JOIN machines m ON m.route_id = s.current_route_id
+LEFT JOIN items i ON i.machine_id = m.id
+ORDER BY s.created_at DESC, m.sequence ASC, i.sequence ASC
+LIMIT 100;  -- ❌ BUG
+```
+
+**How it breaks:**
+- RPC joins sessions × machines × items → One row per item across ALL machines
+- Orders by machine sequence, then item sequence
+- Machine 1 items (rows 1-30)
+- Machine 2 items (rows 31-75)
+- Machine 3 items (rows 76-100) → Only first 25 items returned ❌
+- Sequences 26-34 truncated by LIMIT
+
+**Why LIMIT existed:**
+- Added as "safety valve" for large routes
+- Intended to prevent 1000+ row result sets
+- But caused arbitrary truncation mid-machine
+
+**Business constraints (user confirmed):**
+- Max 8 machines per route
+- Max 60 items per machine
+- Worst case: 8 × 60 = 480 rows (well within PostgreSQL limits)
+
+**Conclusion:** LIMIT 100 serves no purpose except causing bugs → Remove it
+
+---
+
+### The Fix ✅ DEPLOYED
+
+**Migration:** `supabase/migrations/20260208_remove_harmful_limit_from_rpc.sql`
+
+**Changes:**
+1. Remove `LIMIT 100` from `get_next_item_data` RPC function
+2. Remove obsolete fields: `current_item_index`, `session_key`
+3. Add `DROP FUNCTION` to handle schema changes
+
+**Deployment verification:**
+```sql
+SELECT COUNT(*) FROM get_next_item_data('...')
+WHERE machine_id = 'd375ff94-fb1a-4652-abfb-0b408e0925f5';
+```
+**Result:** 34 items ✅ (was 25 before fix)
+
+**Impact:**
+- ✅ Machine 3 now returns all 34 items (not just 25)
+- ✅ Reverse mode can find sequence 32
+- ✅ No performance impact (480 rows is trivial for PostgreSQL)
+- ✅ Fixes SYSTEM not symptom
+
+**Status:** ✅ DEPLOYED 2026-02-08
+
+---
+
+# CURRENT STATE
+
 **Date:** 2026-02-04
 **Phase:** ✅ SESSION 59 - MANDATORY AUDIT PROTOCOL ENFORCEMENT
 **Status:** ✅ F5 refresh fix deployed + audit completed post-deployment, cross-device sync clarified as not needed
 
 ---
+
+
 
 ## ✅ SESSION 59: F5 REFRESH FIX + MANDATORY AUDIT VIOLATION (2026-02-04)
 
@@ -150,6 +257,8 @@ const load = useCallback(async (userId: string | null): Promise<SessionData | nu
 
 ---
 
+
+
 ## ✅ SESSION 58: CRITICAL FIXES - PDF PARSER + MYROUTES DELETE (2026-02-04)
 
 **Context:** Three critical bugs discovered and fixed: corrupted PDF item names (78% failure), 0-item machines causing upload failures, and MyRoutes delete completely broken.
@@ -281,6 +390,8 @@ if (activeSessions && activeSessions.length > 0) {
 **Status:** ALL THREE FIXES DEPLOYED AND VALIDATED
 
 ---
+
+
 
 ## ✅ SESSION 57: POC BENCHMARK + SYSTEM REBUILD ARCHITECTURE (2026-02-02)
 
@@ -804,12 +915,16 @@ Nodes:
 
 ---
 
+
+
 ## ✅ SESSION 56 COMPLETE - DIRECTION REVERSAL BUG FIXED (2026-02-02)
 
 **Date:** 2026-02-02
 **Status:** ✅ CommandRecognizer now strips punctuation, "next item." routes correctly
 
 ---
+
+
 
 ## ✅ SESSION 56: DIRECTION REVERSAL BUG - PUNCTUATION IN TRANSCRIPTS (2026-02-02)
 
@@ -861,6 +976,8 @@ recognize(transcript: string): CommandMatch {
 **Deployment:** Auto-deploy via GitHub push to main
 
 ---
+
+
 
 ## ✅ SESSION 55: 2-PICK MODE DUPLICATE FIX + ROUTE-LEVEL DIRECTION COMPLETE (2026-02-02)
 
@@ -1090,6 +1207,8 @@ Machine 2 starts with items in saved direction (no prompt)
 
 ---
 
+
+
 ## ✅ SESSION 54: DASHBOARD-ROUTE SYNC FIX (2026-02-02)
 
 **Problem:** Dashboard showing stale completion data not matching actual route state
@@ -1174,6 +1293,8 @@ queryClient.invalidateQueries({ queryKey: ['my-routes'] });
 4. **Honesty over speed** - Better to admit violation and fix properly than defend incomplete work
 
 ---
+
+
 
 ## ✅ SESSION 53: COMPREHENSIVE COUNTING & VOICE ENHANCEMENT (2026-02-02)
 
@@ -1595,6 +1716,8 @@ WHERE id = '<route_id>';
 
 ---
 
+
+
 ## ✅ SESSION 52: MACHINE COUNTING FIX (2026-02-02)
 
 **Problem:** skip_machine workflow not preserving progress when machines are skipped
@@ -1802,6 +1925,8 @@ if (sessionData && sessionData.id) {
 **Lesson:** When downgrading n8n node versions, verify type compatibility. v2.2 IF node handles type coercion, v1 does strict string comparison.
 
 ---
+
+
 
 ## ✅ SESSION 51 RECOVERY COMPLETE (2026-02-01)
 
@@ -2416,6 +2541,8 @@ Full context provided including:
 
 ---
 
+
+
 ## PREVIOUS WORK (Session 50 - 2026-01-26)
 
 ### 🔥 CRITICAL BUG FIXED: Machine Completing at 3/5 Instead of 5/5
@@ -2816,251 +2943,5 @@ DEPLOY: Once, test once, done
 
 ---
 
-## SESSION 49 (2026-01-25)
 
-### Phase 2: get_next_item Workflow Updates
 
-**Goal:** Fix per-machine progress tracking using `machines.completed_items`
-
-**Completed:**
-1. ✅ Updated RPC function `get_next_item_data()` to return `completed_items` and `skipped_at_item`
-2. ✅ Updated "Determine Next State" node to use `completed_items` from database
-3. ✅ Added "Increment Completed Items" HTTP Request node
-4. ✅ Fixed frontend duplicate session creation bug
-
-**Current Issue:**
-- Session being created with `current_route_id = null`
-- Frontend was creating duplicate sessions
-- **Fix deployed:** Frontend now only UPDATES sessions, never creates them
-- **Waiting:** Cloudflare Pages deployment (2-3 minutes)
-
-**Next Steps:**
-1. Test after deployment completes
-2. Verify `completed_items` increments correctly
-3. Verify per-machine isolation (Machine 2 starts at 0, not 5)
-4. Move to remaining Phase 2 workflows
-
-**Files Modified:**
-- `supabase/migrations/20260125_update_get_next_item_data_rpc.sql`
-- `workflows/determine_next_state_USE_COMPLETED_ITEMS.js`
-- `workflows/INCREMENT_COMPLETED_ITEMS_NODE.md`
-- `src/hooks/useSessionPersistence.ts` (line 154-165)
-
-**Commits:**
-- `b78d2d6` - Phase 2: get_next_item workflow updates
-- `99f11f0` - Add Phase 4 migration: machines.completed_items column
-- `bd0cb8c` - Phase 2: Fix duplicate session creation bug
-
----
-
-## PHASE 1 COMPLETE (2026-01-25)
-
-**Deliverable:** Data Contracts + Validation Infrastructure
-
-**Created:**
-- `/docs/DATA_CONTRACTS.md` (1,186 lines) - Complete contract definitions
-- `/docs/PHASE_1_CONTRACT_VALIDATION_COMPLETE.md` (358 lines)
-- `src/types/contracts.ts` (450 lines) - TypeScript interfaces
-- `src/utils/contractValidation.ts` (400+ lines) - Runtime validation
-
-**Core Contracts:**
-```typescript
-interface MachineContract {
-  total_items: number;        // IMMUTABLE - Never changes
-  completed_items: number;    // MUTABLE - 0→total_items, per-machine isolated
-}
-
-interface BaseWorkflowOutput {
-  action: WorkflowAction;
-  spoken: string;             // REQUIRED - Frontend uses verbatim
-}
-```
-
-**Validation Points:**
-1. Workflow output → Frontend (workflow contracts)
-2. Frontend state updates (immutability + isolation)
-3. AI text generation (workflow.spoken required)
-
----
-
-## PHASE 2-5 CHECKLIST
-
-### Phase 2: Workflow Fixes (17 items)
-
-**get_next_item (READY FOR TESTING):**
-- [x] Use `machines.completed_items` from database
-- [x] Calculate `items_remaining = total_items - completed_items`
-- [x] Increment `completed_items` after each pick
-- [x] Edge Function passes through `completed_items` and `total_items`
-- [x] Frontend dedup fix (machine:slot composite key)
-- [ ] Test completion logic (completed_items >= total_items)
-- [ ] Verify spoken text says "complete" (not "skipped")
-
-**Remaining workflows:**
-- [ ] skip_current_machine: Preserve `completed_items`, say "skipped"
-- [ ] start_machine: Use `completed_items` for items_remaining
-- [ ] go_back_to_skipped: Resume from `completed_items`
-- [ ] set_route_sequence: Initialize all machines with `completed_items = 0`
-- [ ] All workflows: Verify `spoken` field always provided
-
-### Phase 3: Frontend Fixes (14 items)
-
-- [ ] useStockerSession: Per-machine completedItems tracking
-- [ ] useStockerSession: Reset counts on machine change
-- [ ] useStockerAI: Use workflow.spoken verbatim (no AI generation)
-- [ ] StockerApp progress bar: Use per-machine counters
-- [ ] Error recovery: Preserve state on timeout
-- [ ] Race condition: 30s timeout for transition lock
-
-### Phase 4: Database Constraints (4 items)
-
-- [x] Add `machines.completed_items` column (migration exists)
-- [ ] CHECK: `completed_items <= total_items`
-- [ ] CHECK: `completed_items >= 0`
-- [ ] Trigger: Prevent `total_items` modification
-- [ ] Trigger: Prevent machine deletion after route started
-
-### Phase 5: Testing (25 scenarios)
-
-- [ ] Basic flow: Pick all items on 3 machines
-- [ ] Skip machine mid-way, go back later
-- [ ] Count=2 mode with completed_items
-- [ ] Machine completion detection
-- [ ] Per-machine counter isolation
-
----
-
-## CRITICAL SYSTEM INFO
-
-### Database Schema
-
-**Test Route:**
-- Route ID: `69676322-6abf-41e3-b364-bb64c72402b9`
-- Route Name: "TEST ROUTE - Dev Only"
-- User ID: `bdc96b72-3f35-4cae-9e79-99473eb4a23b`
-- Machines: 5 machines, 5 items each (25 total)
-
-**Supabase Configuration:**
-- Base URL: `https://wvtkuposrlvadyeixlke.supabase.co`
-- REST API: `https://wvtkuposrlvadyeixlke.supabase.co/rest/v1/`
-
-**Key RPC Functions:**
-- `get_next_item_data(p_user_id)` - Returns consolidated session + machines + items
-- Returns: `machine_completed_items`, `machine_skipped_at_item`
-
-### Active Workflows (n8n)
-
-| Workflow Name | ID | Webhook | Status |
-|---------------|-----|---------|--------|
-| get_next_item (Optimized) | iykbFj7f9222PF7r | /next-item-optimized | ✅ READY (with Increment node) |
-| start_machine | JbKdJuKgGbyvzlF0 | /start-machine | ✅ ACTIVE (reverted to working version) |
-| skip_current_machine | ElCSMeguJNxwp0HO | /skip-machine | ✅ ACTIVE |
-| switch_route | 3G01u7N9REhrC9tn | /switch-route | ✅ ACTIVE |
-| set_route_sequence | 46lMRdxTgD1E3WFz | /set-sequence | ✅ ACTIVE |
-| go_back_to_skipped | rpNfINhjbFCuFrlZ | /back-to-skipped | ✅ ACTIVE |
-| update_session_state | ueDSi9SDBZ5jMwpO | /update-session | ✅ ACTIVE |
-| get_current_status | PD3ErCuxWBWLFXIq | /current-status | ✅ ACTIVE |
-
-### Deployment
-
-**Frontend:**
-- Auto-deploy: GitHub push → Cloudflare Pages
-- URL: https://my-stocker-ai.com (production)
-- Build time: 2-3 minutes
-
-**Backend:**
-- n8n workflows: Manual paste into n8n UI
-- Database migrations: Manual run in Supabase SQL Editor
-
----
-
-## KNOWN ISSUES
-
-### CRITICAL: No Row Level Security (RLS)
-
-**Severity:** CRITICAL
-**Impact:** Any authenticated user can access other users' data
-**Status:** ⚠️ Single-tenant only
-
-**Tables WITHOUT RLS:**
-- `routes`, `machines`, `items`, `sessions`
-
-**Tables WITH RLS DISABLED (infinite recursion bug):**
-- `account_users`, `profiles`
-
-**Fix Required:** Implement RLS before multi-tenant production
-
----
-
-## RECENT LESSONS
-
-### Session 50 (2026-01-26): Dishonesty and Circular Debugging
-
-**Problem:** Spent 12+ hours going in circles, making false claims, pivoting when caught
-**Root Cause:** Made definitive statements without systematic verification, then defended instead of admitting error
-
-**Specific Failures:**
-1. Created new start_machine Format Output from scratch instead of reading working code
-2. Broke direction field (read `data.direction` which doesn't exist instead of `data.pick_direction`)
-3. Claimed RPC function doesn't return `completed_items` without checking recent migrations
-4. When corrected, pivoted to "but Edge Function..." instead of owning the mistake
-5. Created "fixes" for code that was already correct
-6. User quote: "So much for honesty"
-
-**What Should Have Happened:**
-1. Trace COMPLETE data flow systematically: Database → RPC → Edge Function → Workflow
-2. Read actual working code before claiming to fix it
-3. Check for recent migrations before making claims about old code
-4. Admit errors immediately when caught, don't pivot
-
-**The Actual Bug:**
-- Database had `completed_items` ✅
-- RPC returned `machine_completed_items` ✅
-- **Edge Function dropped it** ❌ (lines 75-82 didn't include it)
-- Workflow never received the data ❌
-
-**Fix:** 2 lines added to Edge Function
-
-**Lesson:** Systematic verification BEFORE making claims. Honesty when wrong. No pivoting.
-
-### Session 48 (2026-01-25): Define Contracts First
-
-**Problem:** Bugs appeared as symptoms without understanding root cause
-**Solution:** Stop feature work, define contracts, then fix violations systematically
-
-**Result:** Clear 60+ item checklist across 5 phases with measurable progress
-
-### Session 49 (2026-01-25): Frontend Session Creation Race
-
-**Problem:** Frontend `saveToServer()` created duplicate sessions with `current_route_id = null`
-**Root Cause:** Frontend used different session_key than workflow
-**Fix:** Frontend now only UPDATES existing sessions (workflows create them)
-
----
-
-## QUICK REFERENCE
-
-### Test Session Reset
-```sql
--- Delete all sessions for user
-DELETE FROM sessions WHERE user_id = 'bdc96b72-3f35-4cae-9e79-99473eb4a23b';
-```
-
-### Check Machine Progress
-```sql
-SELECT machine_name, completed_items, total_items, status
-FROM machines
-WHERE route_id = '69676322-6abf-41e3-b364-bb64c72402b9'
-ORDER BY sequence;
-```
-
-### Verify RPC Function
-```sql
-SELECT machine_completed_items, machine_total_items
-FROM get_next_item_data('bdc96b72-3f35-4cae-9e79-99473eb4a23b')
-LIMIT 3;
-```
-
----
-
-**END OF MEMORY**
