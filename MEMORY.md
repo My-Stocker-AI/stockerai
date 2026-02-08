@@ -3036,3 +3036,273 @@ DEPLOY: Once, test once, done
 
 
 
+
+---
+
+## ✅ SESSION 61: FUNCTIONAL AUDIT - RACE CONDITION & SECURITY FIX (2026-02-08)
+
+**Context:** Completed systematic functional audit of StockerAI workflows after fixing LIMIT 100 bug. Found critical race condition and security issues.
+
+**Audit Scope:** 11 active workflows (user functions: next, top/bottom, skip, go back, etc.)
+
+---
+
+### Workflows Audited (3/11 Complete)
+
+| Workflow | Status | Critical Issues | High Issues | Medium Issues |
+|----------|--------|----------------|-------------|---------------|
+| get_next_item | ✅ FIXED | 2 (FIXED) | 3 | 2 |
+| start_machine | ✅ AUDITED | 0 | 1 | 2 |
+| skip_current_machine | ✅ AUDITED | 0 | 0 | 1 |
+| go_back_to_skipped | ⏸️ IN PROGRESS | - | - | - |
+| set_route_sequence | ⏳ PENDING | - | - | - |
+| get_routes_for_date | ⏳ PENDING | - | - | - |
+| update_session_state | ⏳ PENDING | - | - | - |
+| delete_route | ⏳ PENDING | - | - | - |
+| get_current_status | ⏳ PENDING | - | - | - |
+| PDF Upload | ⏳ PENDING | - | - | - |
+
+---
+
+### 🔴 CRITICAL ISSUES FOUND & FIXED
+
+#### Issue #1: Machine Sequence Gap Bug (FALSE ALARM)
+**Status:** ❌ NOT A BUG - User correctly challenged
+
+**Initial finding:** get_next_item uses `sequence = current + 1`, fails if machines deleted
+**User question:** "Can machines be deleted? If 5 machines, they're 1-5, where's the issue?"
+**Research revealed:**
+- ✅ Only ROUTES can be deleted (not individual machines)
+- ✅ Routes CANNOT be deleted during active sessions (code protection verified)
+- ✅ Sequences assigned sequentially when route created (no gaps possible)
+
+**Conclusion:** Theoretical issue, not real. No fix needed.
+
+**Lesson:** Always verify assumptions before calling something "critical"
+
+---
+
+#### Issue #2: Race Condition - completed_items Counter ✅ FIXED
+**Status:** ✅ DEPLOYED (2026-02-08)
+
+**Problem:**
+```javascript
+// Workflow does Read → Calculate → Write (NOT atomic)
+var completed = 5;           // Read
+var newCompleted = 5 + 1;    // Calculate
+UPDATE completed_items = 6;  // Write
+```
+
+**Failure scenario:**
+- User says "next" twice rapidly (voice mishearing, double-tap, network retry)
+- Both requests read `completed_items = 5`
+- Both write `completed_items = 6`
+- Counter only increments once, but user picked 2 items
+- Result: Progress counter desync, machine never completes
+
+**Impact:** Conceded by user as possible, even if rare
+
+---
+
+#### Issue #3: Hardcoded API Keys ✅ FIXED
+**Status:** ✅ DEPLOYED (2026-02-08)
+
+**Problem:** "Increment Completed Items" node had literal Supabase service role keys
+**Security risk:** Keys visible in workflow export, execution logs, version control
+
+---
+
+### The Fix: Atomic Increment + Credential Security ✅
+
+**Files deployed:**
+1. **Migration:** `supabase/migrations/20260208_atomic_increment_machine_items.sql`
+2. **Workflow:** get_next_item → "Increment Completed Items" node updated
+
+**Database function created:**
+```sql
+CREATE FUNCTION increment_machine_items(
+  p_machine_id UUID,
+  p_increment INTEGER
+) RETURNS TABLE (
+  completed_items INTEGER,
+  total_items INTEGER,
+  items_remaining INTEGER
+)
+-- Atomic UPDATE with implicit row lock
+UPDATE machines 
+SET completed_items = completed_items + p_increment
+WHERE id = p_machine_id
+```
+
+**Workflow node updated:**
+```javascript
+// OLD (vulnerable):
+await this.helpers.httpRequest({
+  headers: {
+    'apikey': 'eyJhbGci...',  // Hardcoded
+    'Authorization': 'Bearer eyJhbGci...'
+  },
+  body: { completed_items: newCompletedItems }  // Read-then-write
+});
+
+// NEW (secure + atomic):
+var credentials = await this.getCredentials('supabaseApi');
+await this.helpers.httpRequest({
+  method: 'POST',
+  url: '.../rpc/increment_machine_items',
+  headers: {
+    'apikey': credentials.serviceRole,  // From n8n credentials
+    'Authorization': 'Bearer ' + credentials.serviceRole
+  },
+  body: { p_machine_id: machineId, p_increment: itemsToIncrement }
+});
+```
+
+**Benefits:**
+- ✅ Race condition eliminated (PostgreSQL row locking)
+- ✅ Hardcoded API keys removed (uses n8n credential store)
+- ✅ Zero breaking changes (same behavior)
+- ✅ Same performance (single DB operation)
+
+---
+
+### 🟡 REMAINING HIGH PRIORITY ISSUES (Unresolved)
+
+#### Issue #4: completed > total Not Validated
+**Workflow:** get_next_item
+**Problem:** If `completed_items > total_items` (data corruption), code continues silently
+**Should:** Throw error "Data corruption detected"
+**Priority:** HIGH
+
+#### Issue #5: Skipped Machine Not Validated
+**Workflow:** get_next_item (next_machine path)
+**Problem:** Returns to first skipped machine without checking if still incomplete
+**Scenario:** Another user completes skipped machine remotely, first user returns to it
+**Priority:** HIGH
+
+#### Issue #6: start_machine Sets completed_items Without Validation
+**Workflow:** start_machine
+**Problem:** Sets `completed_items = count` without checking current value is 0
+**Risk:** If called incorrectly mid-machine, resets counter (data loss)
+**Current protection:** AI prompt prevents this, but workflow has no safeguard
+**Priority:** HIGH
+
+---
+
+### 🟢 MEDIUM ISSUES (Unresolved)
+
+#### Issue #7: pick_direction Value Mismatch?
+**Workflow:** get_next_item
+**Problem:** Code uses `pickDirection === 'reverse'` but database might use 'backward'
+**Action needed:** Verify actual database values
+
+#### Issue #8: Completed Machine Validation Missing
+**Workflow:** skip_current_machine
+**Problem:** User can "skip" an already-completed machine
+**Impact:** LOW (user progresses correctly, just wrong status)
+
+#### Issue #9: Invalid Direction Handling
+**Workflow:** start_machine
+**Problem:** Invalid direction values (e.g., "middle") fall through to 'forward'
+**Should:** Validate direction, return error
+
+#### Issue #10: Dead Code
+**Workflow:** start_machine
+**Problem:** `itemIndex` variable declared but never used
+**Impact:** NONE (just cleanup)
+
+---
+
+### ✅ POSITIVE FINDINGS
+
+**skip_current_machine is EXCELLENT:**
+- Uses `sequence > current` (handles gaps correctly) ✅
+- Better than get_next_item's `sequence = current + 1`
+- Uses credentials (not hardcoded) ✅
+- Clean validation logic ✅
+- **Recommendation:** get_next_item should adopt this approach
+
+---
+
+### Code Pattern Research - n8n Credentials in Code Nodes
+
+**Question:** How to use credentials in Code nodes? (not HTTP Request nodes)
+
+**Research method:** Searched existing workflows for patterns
+**Answer found:** `INCREMENT_CODE_NODE_FINAL.js`
+
+**CORRECT pattern for Code nodes:**
+```javascript
+var credentials = await this.getCredentials('supabaseApi');
+await this.helpers.httpRequest({
+  headers: {
+    'apikey': credentials.serviceRole,
+    'Authorization': 'Bearer ' + credentials.serviceRole
+  }
+});
+```
+
+**WRONG pattern (doesn't work in Code nodes):**
+```javascript
+// This only works in HTTP Request nodes, NOT Code nodes:
+await this.helpers.httpRequest({
+  authentication: 'predefinedCredentialType',
+  nodeCredentialType: 'supabaseApi'
+});
+```
+
+**Lesson:** Always research existing patterns before providing code
+
+---
+
+### Audit Documents Created
+
+**Location:** `/home/visionairy/StockerAI/docs/audits/`
+
+1. `FUNCTIONAL_AUDIT_get_next_item.md` - 399 lines, comprehensive
+2. `FUNCTIONAL_AUDIT_start_machine.md` - Complete with dependency verification
+3. `FUNCTIONAL_AUDIT_skip_current_machine.md` - Best practices documented
+
+**Deployment guides:**
+- `DEPLOYMENT_GUIDE_atomic_increment.md` - Step-by-step fix deployment
+
+**Fix files:**
+- `supabase/migrations/20260208_atomic_increment_machine_items.sql` - ✅ DEPLOYED
+- `workflows/fixes/get_next_item_increment_completed_items_ATOMIC_FIX.js` - ✅ DEPLOYED
+
+---
+
+### Next Actions
+
+**Immediate (user paused here):**
+- Continue functional audit (8 workflows remaining)
+- Assess remaining HIGH priority issues (#4-6)
+- Validate pick_direction values in database (#7)
+
+**Future considerations:**
+- get_next_item should adopt skip_current_machine's sequence selection logic
+- Add defensive validations where identified
+- Document go_back_to_skipped resume behavior (restart vs resume from skipped_at_item)
+
+---
+
+### Key Learnings - Session 61
+
+**User feedback that improved quality:**
+1. "Can't you research to determine which is correct?" → Led to proper code pattern research
+2. "Is the perceived problem in how machines are entered?" → Challenged false assumption
+3. "One item at a time. Start with the first one." → Forced systematic validation
+
+**What I did RIGHT:**
+- ✅ Created comprehensive audit documents with examples
+- ✅ Researched actual patterns before providing code
+- ✅ Combined two fixes (race condition + security) in one deployment
+- ✅ Provided zero-impact fix with migration + workflow update
+
+**What I did WRONG:**
+- ❌ Called theoretical issue "CRITICAL" without verifying it could happen
+- ❌ Provided two code versions to "try" instead of researching first
+- ❌ Initial atomic increment code used wrong credential pattern
+
+**Lesson:** Validate assumptions. Research patterns. One verified solution beats two guesses.
+
