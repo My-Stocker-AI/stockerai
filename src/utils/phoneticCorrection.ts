@@ -57,7 +57,10 @@ function levenshteinDistance(s1: string, s2: string): number {
 const BOTTOM_MISHEARINGS = [
   'bottom', 'bam', 'bomb', 'batman', 'bom', 'bum', 'bim', 'bahn',
   'badam', 'bohm', 'balm', 'barn', 'bahm', 'botham', 'bottom up',
-  'from the bottom', 'at the bottom', 'the bottom', 'start at the bottom'
+  'from the bottom', 'at the bottom', 'the bottom', 'start at the bottom',
+  // Additional variations from production (2026-02-08)
+  'baram', 'barum', 'boddum', 'boddam', 'botam', 'bodam', 'botum', 'badam',
+  'baddam', 'baddum', 'batam', 'battam', 'batom', 'batoom'
 ];
 
 /**
@@ -91,16 +94,26 @@ export function detectDirection(transcript: string): 'top' | 'bottom' | null {
   const bottomScore = phoneticSimilarity(firstWord, 'bottom');
   const topScore = phoneticSimilarity(firstWord, 'top');
 
-  // Confidence threshold: 0.6 (60% similar)
-  const THRESHOLD = 0.6;
+  // Aggressive threshold: 0.4 (40% similar) - only 2 choices, be aggressive
+  const THRESHOLD = 0.4;
 
+  // If clearly "top", return top
+  if (topScore > 0.5 && topScore > bottomScore) {
+    console.log('[PhoneticCorrection] Detected "top" from:', transcript, { topScore, bottomScore });
+    return 'top';
+  }
+
+  // If clearly "bottom", return bottom
   if (bottomScore > THRESHOLD && bottomScore > topScore) {
     console.log('[PhoneticCorrection] Detected "bottom" from:', transcript, { bottomScore, topScore });
     return 'bottom';
   }
-  if (topScore > THRESHOLD && topScore > bottomScore) {
-    console.log('[PhoneticCorrection] Detected "top" from:', transcript, { topScore, bottomScore });
-    return 'top';
+
+  // Fallback: If awaiting direction and not clearly "top", assume "bottom"
+  // Rationale: "bottom" has more phonetic variations, users say it more often
+  if (bottomScore > topScore && bottomScore > 0.3) {
+    console.log('[PhoneticCorrection] Defaulting to "bottom" (weak match):', transcript, { bottomScore, topScore });
+    return 'bottom';
   }
 
   return null;
