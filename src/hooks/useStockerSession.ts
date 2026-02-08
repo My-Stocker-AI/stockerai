@@ -359,7 +359,18 @@ export function useStockerSession(userId: string | null) {
           next.currentMachineItemsRemaining = result.items_remaining || 0;
           console.log('[Session] next_item - Remaining:', result.items_remaining);
 
+          // FIX: Atomic machine state sync - update ID and name together
+          const machineId = result.machine_id || prev.currentMachineId || '';
           const machineName = result.machine_name || prev.currentMachineName || '';
+
+          // Validation: Warn if workflow returned one but not the other
+          if ((result.machine_id && !result.machine_name) || (!result.machine_id && result.machine_name)) {
+            console.warn('[Session] Partial machine data from workflow:', {
+              has_id: !!result.machine_id,
+              has_name: !!result.machine_name
+            });
+          }
+
           // Handle 2-pick mode: item1 and optionally item2
           const itemData = result.item1 || result;
           next.currentItem = {
@@ -390,6 +401,8 @@ export function useStockerSession(userId: string | null) {
           }
 
           next.currentMachineIndex = result.machine_index || prev.currentMachineIndex;
+          // ATOMIC UPDATE: Set both machine ID and name together
+          next.currentMachineId = machineId;
           next.currentMachineName = machineName;
         } else if (action === 'next_machine') {
           // CRITICAL FIX: Check if transition already in progress (prevent race condition)
