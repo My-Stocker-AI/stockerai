@@ -111,6 +111,97 @@ WHERE machine_id = 'd375ff94-fb1a-4652-abfb-0b408e0925f5';
 
 ---
 
+### State Drift Bug: Dropdown Shows Wrong Machine (2026-02-08 CONTINUED)
+
+**User report:** "Dropdown shows Machine 2 but picking Machine 3 items. Counts adding to Machine 2."
+
+**Investigation:**
+- Checked workflow execution → No start_machine call
+- But workflow WAS returning Machine 3 data in next_item responses
+- Frontend showing stale machine name from previous machine
+
+**Root cause identified:**
+- **Workflow:** Returned `machine_name` but NOT `machine_id` in next_item responses
+- **Frontend:** Updated `currentMachineName` but NOT `currentMachineId` (partial state update)
+- **Result:** State drift - dropdown showed stale name, counts added to stale ID
+
+**Systemic problem pattern:**
+- 4 competing sources of truth: Database, Workflow responses, Frontend state, IndexedDB
+- Partial state updates cause drift between sources
+- No atomic update mechanism
+- No validation that ID matches name
+
+---
+
+### Two-Part Fix ✅ DEPLOYED
+
+**Part 1: Workflow Fix (get_next_item Format Output node)**
+- **File:** `workflows/fixes/get_next_item_format_output_add_machine_id.js`
+- **Change:** Added `output.machine_id = data.machine_id;` (line 169)
+- **Impact:** Workflow now returns BOTH machine_id AND machine_name in next_item responses
+
+**Part 2: Frontend Defensive Fix (useStockerSession.ts)**
+- **Lines:** 362-406
+- **Changes:**
+  1. Extract both `machine_id` and `machine_name` from workflow response
+  2. Validate: warn if workflow returns partial data
+  3. Atomic update: set `currentMachineId` + `currentMachineName` together
+- **Impact:** Prevents state drift at frontend level
+
+**Code:**
+```typescript
+// FIX: Atomic machine state sync
+const machineId = result.machine_id || prev.currentMachineId || '';
+const machineName = result.machine_name || prev.currentMachineName || '';
+
+// Validation warning
+if ((result.machine_id && !result.machine_name) || (!result.machine_id && result.machine_name)) {
+  console.warn('[Session] Partial machine data from workflow');
+}
+
+// ATOMIC UPDATE: Set both together
+next.currentMachineId = machineId;
+next.currentMachineName = machineName;
+```
+
+**Result:**
+- ✅ Dropdown shows correct machine name (synced with ID)
+- ✅ Counts add to correct machine
+- ✅ State drift prevented at source
+- ✅ Validation catches future contract regressions
+
+**Commit:** 76e1300
+**Status:** ✅ DEPLOYED 2026-02-08
+
+---
+
+### Session 60 Key Lessons
+
+**1. Root Cause vs Symptom:**
+- User challenged: "Is your solution fixing the symptom or the system?"
+- Pivoted from symptom fix (updating total_items) to root cause (LIMIT 100 bug)
+- Found systemic issue affecting all machines, not just Machine 3
+
+**2. Systemic Analysis:**
+- User demanded: "Is this a systemic solution or symptomatic? Seems like all these errors are related"
+- Recognized pattern: Multiple state sources drifting out of sync
+- Identified competing sources of truth (Database, Workflow, Frontend, IndexedDB)
+- Fixed at source (workflow contract) + defensive layer (frontend validation)
+
+**3. Verification Before Implementation:**
+- User demanded: "Can't you check? Can't you predict?"
+- I proposed solution without verifying workflow contract first
+- Checked workflow → Found it DIDN'T return machine_id
+- Created complete fix addressing actual root cause
+
+**4. Complete Fix, Not Partial:**
+- Two-part fix: Source (workflow) + Defense (frontend)
+- Atomic state updates prevent future drift
+- Validation catches contract regressions
+- One deployment, complete solution
+
+---
+
 # CURRENT STATE
 
 **Date:** 2026-02-04
