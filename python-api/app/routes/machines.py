@@ -69,7 +69,7 @@ def skip_machine(req: SkipMachineRequest):
     if not machine_result.data:
         raise HTTPException(status_code=404, detail="Current machine not found")
 
-    current_machine = machine_result.data
+    current_machine = machine_result.data[0]
 
     if current_machine["status"] == "skipped":
         raise HTTPException(status_code=400, detail="Machine is already skipped")

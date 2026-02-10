@@ -224,7 +224,7 @@ def start_machine(req: StartMachineRequest):
     if not machine_result.data:
         raise HTTPException(status_code=404, detail="Machine not found")
 
-    machine = machine_result.data
+    machine = machine_result.data[0]
 
     # Step 3: Get items ordered by sequence
     items_result = (
