@@ -270,7 +270,7 @@ def start_machine(req: StartMachineRequest):
         "session_complete": False,
         "machine_id": machine_id,
         "machine_name": machine.get("machine_name", ""),
-        "items_remaining": machine["total_items"],
+        "items_remaining": machine["total_items"] - machine.get("completed_items", 0),
         "direction": pick_direction,
         "new_item_index": new_item_index,
         "item1": format_item_for_response(
