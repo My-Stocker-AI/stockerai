@@ -930,6 +930,14 @@ export default function StockerApp() {
     environmentEndpointing: environment.endpointing  // Adaptive endpointing based on environment
   });
 
+  // Expose transcript injection for Playwright E2E testing (no mic in headless)
+  useEffect(() => {
+    (window as any).__testInjectTranscript = (text: string) => {
+      handleTranscript(text, true);
+    };
+    return () => { delete (window as any).__testInjectTranscript; };
+  }, [handleTranscript]);
+
   // Handle environment auto-detection (requires microphone access)
   const handleDetectEnvironment = useCallback(async () => {
     // CRITICAL: Don't auto-detect while voice is active - causes mic conflict on Android
