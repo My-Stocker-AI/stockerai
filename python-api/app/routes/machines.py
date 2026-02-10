@@ -62,7 +62,7 @@ def skip_machine(req: SkipMachineRequest):
         db.table("machines")
         .select("id, machine_name, sequence, status, completed_items")
         .eq("id", machine_id)
-        .single()
+        .limit(1)
         .execute()
     )
 
@@ -289,7 +289,14 @@ def set_route_sequence(req: SetRouteSequenceRequest):
         )
         session_id = insert_result.data[0]["id"]
 
-    # Step 5: Get machines for this route
+    # Step 5: Reset all machines for this route to clean state
+    # set-route-sequence always starts from machine[0], so machine state must be consistent
+    db.table("machines").update({
+        "status": "pending",
+        "completed_items": 0,
+    }).eq("route_id", route_id).execute()
+
+    # Step 6: Get machines for this route (now all clean)
     machines_result = (
         db.table("machines")
         .select("id, machine_name, machine_number, location_name, sequence, total_items, completed_items, status")
@@ -302,13 +309,13 @@ def set_route_sequence(req: SetRouteSequenceRequest):
     if not machines:
         raise HTTPException(status_code=404, detail="No machines found for this route")
 
-    # Step 6: Set first machine as current
+    # Step 7: Set first machine as current
     first_machine = machines[0]
     db.table("sessions").update({
         "current_machine_id": first_machine["id"],
     }).eq("id", session_id).execute()
 
-    # Step 7: Build response
+    # Step 8: Build response
     machines_list = [
         {
             "id": m["id"],

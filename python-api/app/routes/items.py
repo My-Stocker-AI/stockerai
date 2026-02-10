@@ -217,7 +217,7 @@ def start_machine(req: StartMachineRequest):
         db.table("machines")
         .select("id, machine_name, machine_number, location_name, total_items, completed_items, status")
         .eq("id", machine_id)
-        .single()
+        .limit(1)
         .execute()
     )
 
