@@ -535,11 +535,15 @@ export function useStockerSession(userId: string | null) {
             nextMachineName: result.next_machine || '',
             nextMachineIndex: (prev.currentMachineIndex || 0) + 1
           };
+          // Fix: Update currentMachineId to next machine so server persistence
+          // doesn't overwrite the backend's session update with the stale machine id
+          next.currentMachineId = result.next_machine_id;
+          next.currentMachineName = result.next_machine || '';
+          next.currentMachineIndex = (prev.currentMachineIndex || 0) + 1;
           next.currentItem = null;
           next.currentItem2 = null;
 
-          console.log('[Session] Skip set pending transition:', next.pendingMachineTransition);
-          // Note: totalItems already in machines array from route load - no need to update
+          console.log('[Session] Skip set pending transition:', next.pendingMachineTransition, 'currentMachineId:', next.currentMachineId);
         } else if (action === 'route_complete') {
           // No more machines - route is done
           next.currentMachineIndex = (prev.currentMachineIndex || 0) + 1;
