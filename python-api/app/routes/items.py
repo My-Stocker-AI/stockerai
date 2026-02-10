@@ -63,14 +63,29 @@ def get_next_item(req: GetNextItemRequest):
     row = data[0]
     action = row["action"]
 
-    # Step 2: Update session current_machine_id if RPC indicates change
+    # Step 2: Mark completed machine as 'completed' in database
     db = get_client()
+    if row.get("machine_complete") and row.get("session_record_id"):
+        # Session still points to the completed machine — get its ID before updating
+        session_result = (
+            db.table("sessions")
+            .select("current_machine_id")
+            .eq("id", row["session_record_id"])
+            .limit(1)
+            .execute()
+        )
+        if session_result.data and session_result.data[0].get("current_machine_id"):
+            db.table("machines").update({
+                "status": "completed"
+            }).eq("id", session_result.data[0]["current_machine_id"]).execute()
+
+    # Step 3: Update session current_machine_id if RPC indicates change
     if row.get("new_machine_id") and row.get("session_record_id"):
         db.table("sessions").update({
             "current_machine_id": row["new_machine_id"],
         }).eq("id", row["session_record_id"]).execute()
 
-    # Step 3: Format output based on action type
+    # Step 4: Format output based on action type
     if action == "next_item":
         return _format_next_item(row, req.count)
     elif action == "next_machine":

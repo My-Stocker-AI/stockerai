@@ -123,6 +123,9 @@ BEGIN
 
   -- Step 3: Check if machine is complete (all items picked)
   IF v_current_machine.completed_items >= v_current_machine.total_items THEN
+    -- Mark current machine as completed
+    UPDATE machines SET status = 'completed' WHERE id = v_current_machine.id;
+
     -- Find next machine in sequence
     SELECT
       m.id,
