@@ -33,7 +33,7 @@ async def upload_pdf(
     if not text or len(text) < 50:
         raise HTTPException(status_code=400, detail="PDF appears empty or unreadable")
 
-    # Step 3: Parse PDF text into structured data
+    # Step 2: Parse PDF text into structured data
     parsed = parse_route_pdf(text, date)
 
     if not parsed["route_name"]:
@@ -44,7 +44,7 @@ async def upload_pdf(
 
     route_name = parsed["route_name"]
 
-    # Step 4: Delete existing route with same name+date for this user (if any)
+    # Step 3: Delete existing route with same name+date for this user (if any)
     existing_routes = (
         db.table("routes")
         .select("id")
@@ -57,20 +57,34 @@ async def upload_pdf(
     for existing in existing_routes.data or []:
         db.table("routes").delete().eq("id", existing["id"]).execute()
 
-    # Step 5: Insert route
+    # Step 4: Upload PDF to Supabase Storage and get URL
+    pdf_url = None
+    try:
+        storage_path = f"{user_id}/{date}/{route_name.replace(' ', '_')}.pdf"
+        db.storage.from_("route-pdfs").upload(storage_path, pdf_bytes, {
+            "content-type": "application/pdf",
+            "upsert": "true",
+        })
+        pdf_url = f"https://wvtkuposrlvadyeixlke.supabase.co/storage/v1/object/public/route-pdfs/{storage_path}"
+    except Exception:
+        # Storage upload is optional — don't fail the whole upload
+        pass
+
+    # Step 5: Insert route (with all schema columns)
     route_insert = (
         db.table("routes")
         .insert({
             "user_id": user_id,
             "route_name": route_name,
             "delivery_date": date,
+            "pdf_url": pdf_url,
         })
         .execute()
     )
 
     route_id = route_insert.data[0]["id"]
 
-    # Step 6: Insert machines and items
+    # Step 6: Insert machines and items (with denormalized fields)
     total_machines = 0
     total_items = 0
     machine_sequence = 0
@@ -78,18 +92,24 @@ async def upload_pdf(
     for location in parsed["locations"]:
         for machine_data in location["machines"]:
             machine_sequence += 1
-            items_list = machine_data["items"]
+            raw_items = machine_data["items"]
 
-            # Insert machine
+            # Combine adjacent same-product items (matches n8n behavior)
+            combined_items = _combine_adjacent_items(raw_items)
+
+            machine_name = machine_data["machine_name"]
+
+            # Insert machine (includes route_name for denormalized queries)
             machine_insert = (
                 db.table("machines")
                 .insert({
                     "route_id": route_id,
-                    "machine_name": machine_data["machine_name"],
+                    "route_name": route_name,
+                    "machine_name": machine_name,
                     "machine_number": machine_data.get("asset_number", 0),
                     "location_name": location["location_name"],
                     "sequence": machine_sequence,
-                    "total_items": len(items_list),
+                    "total_items": len(combined_items),
                     "completed_items": 0,
                     "status": "pending",
                 })
@@ -99,11 +119,12 @@ async def upload_pdf(
             machine_id = machine_insert.data[0]["id"]
             total_machines += 1
 
-            # Insert items with sequence numbers
+            # Insert items (includes machine_name for denormalized queries)
             items_to_insert = []
-            for idx, item in enumerate(items_list, start=1):
+            for idx, item in enumerate(combined_items, start=1):
                 items_to_insert.append({
                     "machine_id": machine_id,
+                    "machine_name": machine_name,
                     "product_name": item["product_name"],
                     "quantity": item["quantity"],
                     "slot": item["slot"],
@@ -127,4 +148,54 @@ async def upload_pdf(
         "machines": total_machines,
         "items": total_items,
         "date": date,
+        "pdf_url": pdf_url,
     }
+
+
+def _combine_adjacent_items(items: list[dict]) -> list[dict]:
+    """
+    Combine adjacent items with the same product_name into one row.
+    Matches n8n Flatten Data behavior: "slot 1 to 3" for multi-slot items.
+    """
+    if not items:
+        return []
+
+    combined = []
+    for item in items:
+        if (
+            combined
+            and combined[-1]["product_name"] == item["product_name"]
+        ):
+            # Same product as previous — merge
+            last = combined[-1]
+            last["quantity"] += item["quantity"]
+            last["slots"].append(item["slot"])
+            last["inventory_current"] += item.get("inventory_current", 0)
+            last["inventory_parlevel"] += item.get("inventory_parlevel", 0)
+        else:
+            combined.append({
+                "product_name": item["product_name"],
+                "quantity": item["quantity"],
+                "slots": [item["slot"]],
+                "inventory_current": item.get("inventory_current", 0),
+                "inventory_parlevel": item.get("inventory_parlevel", 0),
+            })
+
+    # Convert slots list to display string
+    result = []
+    for item in combined:
+        slots = item["slots"]
+        if len(slots) == 1:
+            slot_display = slots[0]
+        else:
+            slot_display = f"{slots[0]} to {slots[-1]}"
+
+        result.append({
+            "product_name": item["product_name"],
+            "quantity": item["quantity"],
+            "slot": slot_display,
+            "inventory_current": item["inventory_current"],
+            "inventory_parlevel": item["inventory_parlevel"],
+        })
+
+    return result
