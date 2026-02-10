@@ -16,6 +16,140 @@
 
 # CURRENT STATE
 
+**Date:** 2026-02-10
+**Phase:** ✅ SESSION 62 - N8N TO PYTHON MIGRATION PLANNING
+**Status:** ⏳ IN PROGRESS - Fixed immediate bug, planning complete migration
+
+---
+
+## ✅ SESSION 62: N8N TO PYTHON MIGRATION (2026-02-10)
+
+**Context:** Production bug → Strategic pivot to complete Python migration
+
+### Phase 1: Fixed Immediate Bug ✅
+
+**Error:** `this.getCredentials is not a function [line 19]` in n8n "Increment Completed Items" node
+
+**Root Cause:** n8n Code nodes don't have `this.getCredentials()` method
+
+**Solution:**
+1. Created atomic RPC `get_next_item_and_increment` (280 lines PL/pgSQL)
+   - Combines read + calculate + increment in ONE transaction
+   - Uses `FOR UPDATE` lock (eliminates TOCTOU race condition)
+   - File: `supabase/migrations/20260210_atomic_get_next_item_and_increment.sql`
+
+2. Updated Edge Function to call new RPC
+   - File: `supabase/functions/get-next-item-data/index.ts`
+   - Deployed ✅
+
+3. Simplified n8n workflow: 10 nodes → 4 nodes
+   - Workflow ID: iykbFj7f9222PF7r
+   - Deleted: Extract Data, Determine Next State, Increment Items (broken), Switch, Add First Item, Merge
+   - Kept: Webhook → Call Edge Function → Update Session → Format Output
+   - Deployed via Synta MCP ✅
+
+4. Committed & pushed (commit 38904f5) ✅
+
+### Phase 2: Strategic Migration Planning ⏳
+
+**User Question:** "Couldn't we build complete Python replacement and keep n8n as backup?"
+
+**Agreed Approach:** Parallel systems + environment variable switch
+
+**Architecture:**
+```
+Frontend (VITE_API_BACKEND env var)
+    ↓
+[n8n] ← backup  OR  [Python] ← new
+    ↓
+Database (same)
+```
+
+**Benefits:**
+- Zero downtime testing
+- Instant rollback
+- Complete validation before cutover
+- n8n stays as backup
+
+**5-Phase Plan:**
+1. **Documentation** (Today): Use Ralph Wiggum + Opus to document ALL 11 workflows, frontend, Edge Functions, database
+2. **Build Python API** (2-3 days): FastAPI with all 11 endpoints + tests
+3. **Frontend Switch** (1 day): Environment variable controls backend
+4. **Validation** (1 day): Prove equivalence
+5. **Cutover** (5 min): Flip environment variable
+
+### Tools & Methods
+
+**Ralph Wiggum Loop:**
+- Iterative analysis with Opus model
+- Ensures completeness through self-correction
+- Completion promise: `<promise>COMPLETE SYSTEM ANALYSIS</promise>`
+- Max 15 iterations
+
+**Synta MCP:**
+- Query all 11 n8n workflows completely
+- Get structure, code, connections
+
+**Documentation Layers:**
+1. Frontend: useStockerAI.ts, useStockerSession.ts, useVoice.ts, WEBHOOK_MAP
+2. n8n: All 11 workflows (inputs, outputs, logic, parsing, error handling)
+3. Edge Functions: Which exist, which are called, keep vs replace
+4. Database: RPCs, tables, schemas, contracts
+
+**Output:** `/home/visionairy/StockerAI/docs/N8N_TO_PYTHON_MIGRATION_SPEC.md`
+
+### 11 Active n8n Workflows to Migrate
+
+1. get_next_item (Optimized) - iykbFj7f9222PF7r
+2. start_machine - JbKdJuKgGbyvzlF0
+3. skip_current_machine - ElCSMeguJNxwp0HO
+4. set_route_sequence - 46lMRdxTgD1E3WFz
+5. go_back_to_skipped - rpNfINhjbFCuFrlZ
+6. get_routes_for_date - 4XS07THe1uGak7rk
+7. delete_route - zmgTBX1w1rc5bOpO
+8. update_session_state - ueDSi9SDBZ5jMwpO
+9. PDF Upload - 7kO6o1wASKvbhc2U
+10. Stocker Auth - cw0ERwaa1VXJ2Jah
+11. [One more to identify]
+
+### Why Python is Better (Evidence from CLAUDE.md)
+
+**n8n debugging pain:**
+- Machine Transition Bug: 2 hours, 6 wrong fixes, git diff solved it
+- this.getCredentials: Wasted hours on bug that shouldn't exist
+- Progress Bar: Stale closure, 3 partial fixes, no debugger to catch it
+
+**Pattern:** Git history solves problems, not n8n tools
+
+**Python advantages:**
+- Real debugger (breakpoints, variables, stack traces)
+- Everything in git (code review, version control)
+- Unit tests
+- Type safety
+- Modern language features
+- Single source of truth
+
+### Blocking Issue
+
+**Current:** Waiting for user to verify Opus usage status
+- User enabled $50 extra usage (promotion deadline: Feb 16, 2026)
+- Checking at: https://platform.claude.com/settings/limits
+- Need to confirm before running Ralph loop with Opus (~$5-10 cost)
+
+### XF Attempt Failed
+
+**Tried:** Use Xpansion for MECE analysis to ensure completeness
+**Error:** `ModuleNotFoundError: No module named 'core'` - XF has broken imports
+**Alternative:** Manual systematic approach achieves same goal
+
+### Full Details
+
+See: `/home/visionairy/StockerAI/docs/SESSION_62_N8N_TO_PYTHON_MIGRATION.md`
+
+---
+
+# PREVIOUS STATE
+
 **Date:** 2026-02-08
 **Phase:** ✅ SESSION 60 - MACHINE 3 "ITEM NOT FOUND" BUG - ROOT CAUSE FIXED
 **Status:** ✅ DEPLOYED - LIMIT 100 removed, Machine 3 now returns all 34 items
