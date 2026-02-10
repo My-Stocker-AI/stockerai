@@ -1,5 +1,7 @@
-from fastapi import FastAPI
+import traceback
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.routes import session, routes, proxy, items, machines, upload
 
@@ -19,6 +21,17 @@ app.include_router(proxy.router, prefix="/api")
 app.include_router(items.router, prefix="/api")
 app.include_router(machines.router, prefix="/api")
 app.include_router(upload.router, prefix="/api")
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Catch unhandled exceptions so CORS headers are still included."""
+    tb = traceback.format_exc()
+    print(f"[ERROR] {request.method} {request.url.path}: {exc}\n{tb}")
+    return JSONResponse(
+        status_code=500,
+        content={"error": str(exc), "detail": tb.split("\n")[-3].strip()},
+    )
 
 
 @app.get("/health")
