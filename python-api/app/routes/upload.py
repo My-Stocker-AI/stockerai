@@ -116,6 +116,12 @@ async def upload_pdf(
                 db.table("items").insert(items_to_insert).execute()
                 total_items += len(items_to_insert)
 
+    # Step 7: Update route totals
+    db.table("routes").update({
+        "total_machines": total_machines,
+        "total_items": total_items,
+    }).eq("id", route_id).execute()
+
     return {
         "route": route_name,
         "machines": total_machines,
