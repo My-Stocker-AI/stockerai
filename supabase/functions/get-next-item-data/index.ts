@@ -25,15 +25,18 @@ serve(async (req) => {
       { auth: { persistSession: false } }
     );
 
-    const { user_id } = await req.json();
+    const { user_id, count = 1 } = await req.json();
     if (!user_id) {
       throw new Error("user_id is required");
     }
-    logStep("Request validated", { user_id });
+    logStep("Request validated", { user_id, count });
 
-    // Single consolidated query (replaces Get Session + Get Items + Get Machines)
+    // Call atomic RPC that calculates next item AND increments counter
     const { data, error } = await supabaseClient
-      .rpc('get_next_item_data', { p_user_id: user_id });
+      .rpc('get_next_item_and_increment', {
+        p_user_id: user_id,
+        p_count: count
+      });
 
     if (error) {
       logStep("Database error", { error: error.message });
@@ -42,77 +45,18 @@ serve(async (req) => {
 
     if (!data || data.length === 0) {
       logStep("No active session found for user");
-      return new Response(JSON.stringify([]), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 200,
-      });
+      throw new Error("No active session found");
     }
 
-    // CRITICAL: Return structure that matches current workflow contract
-    // Current workflow expects:
-    // - Get Session returns: array with single session
-    // - Get Items returns: array of items
-    // - Get Machines returns: array of machines
-
-    // Extract session (first row has session data)
-    // SYSTEMIC FIX: Removed current_item_index (dual-counter eliminated)
-    // Progress now tracked via machines.completed_items only
-    const sessionArray = [{
-      id: data[0].session_id,
-      current_machine_id: data[0].current_machine_id,
-      current_route_id: data[0].current_route_id,
-      pick_direction: data[0].pick_direction
-    }];
-
-    // Extract unique machines from the result
-    // CRITICAL FIX: Return ALL machines in route (not just current + next 2)
-    // Bug: Route completion logic needs to see all remaining machines to decide next_machine vs complete
-    const currentMachineId = data[0].current_machine_id;
-
-    const machinesMap = new Map();
-    data.forEach((row: any) => {
-      if (row.machine_id && !machinesMap.has(row.machine_id)) {
-        // Include ALL machines in the route (workflow needs full list for completion logic)
-        machinesMap.set(row.machine_id, {
-          id: row.machine_id,
-          machine_name: row.machine_name,
-          location_name: row.location_name,
-          machine_number: row.machine_number,
-          sequence: row.machine_sequence,
-          status: row.machine_status,
-          completed_items: row.machine_completed_items || 0,
-          total_items: row.machine_total_items
-        });
-      }
+    // RPC returns single row with all calculated data
+    // No need to restructure - return directly
+    logStep("RPC successful", {
+      action: data[0].action,
+      machine_id: data[0].machine_id,
+      session_id: data[0].session_record_id
     });
 
-    // Extract items from the result (for current machine only)
-    const items = data
-      .filter((row: any) => row.item_id != null && row.machine_id === currentMachineId)
-      .map((row: any) => ({
-        id: row.item_id,
-        product_name: row.product_name,
-        quantity: row.quantity,
-        slot: row.slot,
-        sequence: row.item_sequence,
-        status: row.item_status,
-        inventory_current: row.inventory_current,
-        inventory_parlevel: row.inventory_parlevel
-      }));
-
-    logStep("Query successful (optimized: current + next + skipped only)", {
-      session_id: sessionArray[0].id,
-      machines_count: machinesMap.size,
-      items_count: items.length
-    });
-
-    // Return combined result with all three arrays
-    // n8n will receive this as single response that we'll split in workflow
-    return new Response(JSON.stringify({
-      session: sessionArray,
-      items: items,
-      machines: Array.from(machinesMap.values())
-    }), {
+    return new Response(JSON.stringify(data[0]), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 200,
     });
