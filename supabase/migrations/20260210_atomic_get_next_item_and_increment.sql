@@ -269,18 +269,17 @@ BEGIN
 
   -- Step 5: Get next item(s)
   SELECT
-    id,
-    product_name,
-    quantity,
-    slot,
-    slot_spoken,
-    sequence,
-    inventory_current,
-    inventory_parlevel
+    items.id,
+    items.product_name,
+    items.quantity,
+    items.slot,
+    items.sequence,
+    items.inventory_current,
+    items.inventory_parlevel
   INTO v_next_item
   FROM items
-  WHERE machine_id = v_current_machine.id
-    AND sequence = v_target_sequence
+  WHERE items.machine_id = v_current_machine.id
+    AND items.sequence = v_target_sequence
   LIMIT 1;
 
   IF NOT FOUND THEN
@@ -303,17 +302,17 @@ BEGIN
     END IF;
 
     SELECT
-      id,
-      product_name,
-      quantity,
-      slot,
-      slot_spoken,
-      inventory_current,
-      inventory_parlevel
+      items.id,
+      items.product_name,
+      items.quantity,
+      items.slot,
+      items.sequence,
+      items.inventory_current,
+      items.inventory_parlevel
     INTO v_item2
     FROM items
-    WHERE machine_id = v_current_machine.id
-      AND sequence = v_item2_sequence
+    WHERE items.machine_id = v_current_machine.id
+      AND items.sequence = v_item2_sequence
     LIMIT 1;
 
     IF FOUND THEN
@@ -333,43 +332,85 @@ BEGIN
   WHERE id = v_current_machine.id;
 
   -- Step 8: Return next_item data
-  RETURN QUERY SELECT
-    'next_item'::TEXT,
-    v_next_item.product_name,
-    v_next_item.quantity,
-    v_next_item.slot,
-    v_next_item.slot_spoken,
-    v_item2.product_name,
-    v_item2.quantity,
-    v_item2.slot,
-    v_item2.slot_spoken,
-    COALESCE(v_next_item.inventory_current, 0),
-    COALESCE(v_next_item.inventory_parlevel, 0),
-    COALESCE(v_item2.inventory_current, 0),
-    COALESCE(v_item2.inventory_parlevel, 0),
-    v_new_items_remaining,
-    v_current_machine.completed_items,
-    v_items_to_increment,
-    v_new_completed_items,
-    v_current_machine.total_items,
-    v_current_machine.id,
-    v_current_machine.machine_name,
-    v_new_index,
-    NULL::TEXT, NULL::INTEGER, NULL::TEXT,
-    NULL::UUID, NULL::TEXT, NULL::INTEGER, NULL::TEXT,
-    FALSE,
-    NULL::TEXT,
-    NULL::INTEGER,
-    v_new_index,
-    v_current_machine.id,
-    v_session.current_route_id,
-    v_session.id,
-    NULL::TEXT,
-    FALSE,
-    FALSE,
-    FALSE,
-    v_current_machine.completed_items,
-    v_current_machine.completed_items;
+  IF v_item2 IS NOT NULL THEN
+    -- 2-pick mode: both items available
+    RETURN QUERY SELECT
+      'next_item'::TEXT,
+      v_next_item.product_name,
+      v_next_item.quantity,
+      v_next_item.slot,
+      NULL::TEXT,
+      v_item2.product_name,
+      v_item2.quantity,
+      v_item2.slot,
+      NULL::TEXT,
+      COALESCE(v_next_item.inventory_current, 0),
+      COALESCE(v_next_item.inventory_parlevel, 0),
+      COALESCE(v_item2.inventory_current, 0),
+      COALESCE(v_item2.inventory_parlevel, 0),
+      v_new_items_remaining,
+      v_current_machine.completed_items,
+      v_items_to_increment,
+      v_new_completed_items,
+      v_current_machine.total_items,
+      v_current_machine.id,
+      v_current_machine.machine_name,
+      v_new_index,
+      NULL::TEXT, NULL::INTEGER, NULL::TEXT,
+      NULL::UUID, NULL::TEXT, NULL::INTEGER, NULL::TEXT,
+      FALSE,
+      NULL::TEXT,
+      NULL::INTEGER,
+      v_new_index,
+      v_current_machine.id,
+      v_session.current_route_id,
+      v_session.id,
+      NULL::TEXT,
+      FALSE,
+      FALSE,
+      FALSE,
+      v_current_machine.completed_items,
+      v_current_machine.completed_items;
+  ELSE
+    -- 1-pick mode: only item1, item2 fields are NULL
+    RETURN QUERY SELECT
+      'next_item'::TEXT,
+      v_next_item.product_name,
+      v_next_item.quantity,
+      v_next_item.slot,
+      NULL::TEXT,
+      NULL::TEXT,
+      NULL::INTEGER,
+      NULL::TEXT,
+      NULL::TEXT,
+      COALESCE(v_next_item.inventory_current, 0),
+      COALESCE(v_next_item.inventory_parlevel, 0),
+      0,
+      0,
+      v_new_items_remaining,
+      v_current_machine.completed_items,
+      v_items_to_increment,
+      v_new_completed_items,
+      v_current_machine.total_items,
+      v_current_machine.id,
+      v_current_machine.machine_name,
+      v_new_index,
+      NULL::TEXT, NULL::INTEGER, NULL::TEXT,
+      NULL::UUID, NULL::TEXT, NULL::INTEGER, NULL::TEXT,
+      FALSE,
+      NULL::TEXT,
+      NULL::INTEGER,
+      v_new_index,
+      v_current_machine.id,
+      v_session.current_route_id,
+      v_session.id,
+      NULL::TEXT,
+      FALSE,
+      FALSE,
+      FALSE,
+      v_current_machine.completed_items,
+      v_current_machine.completed_items;
+  END IF;
 END;
 $$;
 
