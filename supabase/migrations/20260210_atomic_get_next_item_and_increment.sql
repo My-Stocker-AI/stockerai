@@ -134,8 +134,8 @@ BEGIN
     INTO v_next_machine
     FROM machines m
     WHERE m.route_id = v_session.current_route_id
-      AND m.sequence = v_current_machine.sequence + 1
-      AND m.status != 'skipped'
+      AND m.sequence > v_current_machine.sequence
+      AND m.status NOT IN ('skipped', 'completed')
     ORDER BY m.sequence ASC
     LIMIT 1;
 

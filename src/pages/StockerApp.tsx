@@ -381,7 +381,8 @@ export default function StockerApp() {
           const isDirectionCommand =
             commandMatch.command === PickingCommand.DIRECTION_TOP ||
             commandMatch.command === PickingCommand.DIRECTION_BOTTOM ||
-            commandMatch.command === PickingCommand.AFFIRMATIVE;
+            commandMatch.command === PickingCommand.AFFIRMATIVE ||
+            commandMatch.command === PickingCommand.SKIP_MACHINE;
 
           console.log('[CommandRecognizer] 🚦 STATE CHECK: pendingMachineTransition exists', {
             command: commandMatch.command,
