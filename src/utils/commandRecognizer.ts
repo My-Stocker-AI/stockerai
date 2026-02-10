@@ -105,12 +105,19 @@ const DIRECTION_BOTTOM_PATTERNS = [
 ];
 
 const GO_BACK_PATTERNS = [
+  /^go back to skipped$/,
+  /^go back to the skipped$/,
+  /^go back to skipped machine$/,
+  /^go back to the skipped machine$/,
+  /^return to skipped$/,
+  /^back to skipped$/,
+  /^back to the skipped$/,
+  /^back to skipped machine$/,
   /^go back$/,
   /^back$/,
   /^previous$/,
   /^go to previous$/,
   /^previous machine$/,
-  /^back to skipped$/,
 ];
 
 const UNDO_PATTERNS = [

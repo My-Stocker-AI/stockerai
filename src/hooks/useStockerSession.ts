@@ -580,6 +580,18 @@ export function useStockerSession(userId: string | null) {
           );
           next.currentMachineId = result.machine_id;
           next.currentMachineName = result.machine_name || '';
+          // Fix: Update total items for the returned-to machine
+          const returnedMachine = prev.machines.find(m => m.id === result.machine_id);
+          if (returnedMachine) {
+            next.currentMachineTotalItems = returnedMachine.totalItems;
+            next.currentMachineItemsRemaining = returnedMachine.totalItems - (returnedMachine.completedItems || 0);
+          }
+          // Set pending transition so user is prompted for direction
+          next.pendingMachineTransition = {
+            nextMachineId: result.machine_id,
+            nextMachineName: result.machine_name || '',
+            nextMachineIndex: prev.currentMachineIndex || 0
+          };
         }
       }
 
