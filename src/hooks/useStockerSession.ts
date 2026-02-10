@@ -198,6 +198,7 @@ export function useStockerSession(userId: string | null) {
 
       if (toolName === 'set_route_sequence') {
         next.routeName = result.route_name || result.route || null;
+        next.routeId = result.route_id || null;
         next.routeDate = result.date || null;
         next.totalMachines = result.machines_count || result.total_machines || 0;
         next.currentMachineIndex = result.machine_index || 1;
@@ -218,6 +219,10 @@ export function useStockerSession(userId: string | null) {
             completedItems: m.completedItems || 0,
             status: m.status || 'pending'
           }));
+          // Fix: Set initial machine total from first machine
+          if (next.machines.length > 0) {
+            next.currentMachineTotalItems = next.machines[0].totalItems;
+          }
         }
       }
 
@@ -226,7 +231,21 @@ export function useStockerSession(userId: string | null) {
         const totalItems = getMachineTotalItems(result.machine_id);
         next.currentMachineTotalItems = totalItems;
         next.currentMachineItemsRemaining = result.items_remaining || 0;
-        console.log('[Session] start_machine - Total:', totalItems, 'Remaining:', result.items_remaining);
+
+        // Fix: Update current machine identity from API response
+        next.currentMachineId = result.machine_id || prev.currentMachineId;
+        next.currentMachineName = result.machine_name || prev.currentMachineName;
+
+        // Fix: Mark machine as in_progress in machines array
+        if (result.machine_id) {
+          next.machines = prev.machines.map(m =>
+            m.id === result.machine_id
+              ? { ...m, status: 'in_progress' as const }
+              : m
+          );
+        }
+
+        console.log('[Session] start_machine - Total:', totalItems, 'Remaining:', result.items_remaining, 'Machine:', next.currentMachineName);
 
         // Handle 2-pick mode: item1 and optionally item2
         const itemData = result.item1 || result;
@@ -237,7 +256,7 @@ export function useStockerSession(userId: string | null) {
           slot_spoken: itemData.slot_spoken || itemData.slot || '',
           inventory_current: itemData.inventory_current || result.inventory_current,
           inventory_parlevel: itemData.inventory_parlevel || result.inventory_parlevel,
-          machineName: prev.currentMachineName || '',
+          machineName: result.machine_name || prev.currentMachineName || '',
           items_remaining: result.items_remaining,
           item_index: result.new_item_index
         };
@@ -251,7 +270,7 @@ export function useStockerSession(userId: string | null) {
             slot_spoken: result.item2.slot_spoken || result.item2.slot || '',
             inventory_current: result.item2.inventory_current,
             inventory_parlevel: result.item2.inventory_parlevel,
-            machineName: prev.currentMachineName || ''
+            machineName: result.machine_name || prev.currentMachineName || ''
           };
         } else {
           next.currentItem2 = null;
@@ -350,6 +369,17 @@ export function useStockerSession(userId: string | null) {
               }
             } else {
               console.warn('[Session] ⚠️  All items filtered as duplicates:', itemsToAdd.map(i => `${i.machineName}:${i.slot}`));
+              // Fix: Still update machine completedItems count from backend increment
+              const workflowIncrement = result.items_to_increment !== undefined
+                ? result.items_to_increment : 0;
+              if (workflowIncrement > 0 && prev.currentMachineId) {
+                next.machines = (next.machines || prev.machines).map(m =>
+                  m.id === prev.currentMachineId
+                    ? { ...m, completedItems: m.completedItems + workflowIncrement }
+                    : m
+                );
+                console.log('[Session] Updated machine count despite dedup filter:', workflowIncrement);
+              }
             }
           }
         }
