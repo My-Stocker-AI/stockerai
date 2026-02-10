@@ -155,6 +155,7 @@ def _format_next_machine(row: dict) -> dict:
         "next_machine_id": row.get("next_machine_id"),
         "next_machine_number": row.get("next_machine_number"),
         "next_location": row.get("next_location"),
+        "returning_to_skipped": row.get("returning_to_skipped", False),
         "items_to_increment": row.get("items_to_increment"),
         "voice_text": generate_spoken_next_machine(voice_data),
         "spoken": generate_spoken_next_machine(voice_data),
