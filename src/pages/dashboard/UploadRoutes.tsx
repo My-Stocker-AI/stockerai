@@ -258,8 +258,11 @@ const UploadRoutes = () => {
       formData.append('date', format(deliveryDate, 'yyyy-MM-dd'));
       formData.append('user_id', driverId); // Use selected driver ID
 
-      // Send to n8n webhook for PDF parsing
-      const response = await fetch('https://visionairy.app.n8n.cloud/webhook/upload', {
+      // Send to API (Python or n8n based on env var)
+      const uploadUrl = import.meta.env.VITE_API_BACKEND === 'python'
+        ? 'https://stockerai-api.onrender.com/api/upload-pdf'
+        : 'https://visionairy.app.n8n.cloud/webhook/upload';
+      const response = await fetch(uploadUrl, {
         method: 'POST',
         body: formData,
       });

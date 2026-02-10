@@ -1,6 +1,9 @@
 import { useCallback, useRef } from 'react';
 
-const N8N_BASE = 'https://visionairy.app.n8n.cloud/webhook';
+const PYTHON_API_BASE = 'https://stockerai-api.onrender.com/api';
+const N8N_BASE_URL = 'https://visionairy.app.n8n.cloud/webhook';
+const USE_PYTHON = import.meta.env.VITE_API_BACKEND === 'python';
+const N8N_BASE = USE_PYTHON ? PYTHON_API_BASE : N8N_BASE_URL;
 
 // fetchWithTimeout - matches original PWA (30s default timeout)
 async function fetchWithTimeout(url: string, options: RequestInit, timeout = 30000): Promise<Response> {
@@ -193,11 +196,20 @@ const TOOLS = [
   }
 ];
 
-const WEBHOOK_MAP: Record<string, string> = {
+const WEBHOOK_MAP: Record<string, string> = USE_PYTHON ? {
+  'get_routes_for_date': '/get-routes',
+  'set_route_sequence': '/set-route-sequence',
+  'get_next_item': '/get-next-item',
+  'get_current_status': 'https://wvtkuposrlvadyeixlke.supabase.co/functions/v1/get-current-status-optimized',
+  'update_session_state': '/update-session',
+  'start_machine': '/start-machine',
+  'skip_current_machine': '/skip-machine',
+  'go_back_to_skipped': '/go-back-to-skipped'
+} : {
   'get_routes_for_date': '/get-routes',
   'set_route_sequence': '/set-sequence',
-  'get_next_item': '/next-item-optimized', // n8n workflow (Edge Function needs rewrite for new schema)
-  'get_current_status': 'https://wvtkuposrlvadyeixlke.supabase.co/functions/v1/get-current-status-optimized', // Edge Function - 60-75% faster (verify_jwt disabled)
+  'get_next_item': '/next-item-optimized',
+  'get_current_status': 'https://wvtkuposrlvadyeixlke.supabase.co/functions/v1/get-current-status-optimized',
   'update_session_state': '/update-state',
   'start_machine': '/start-machine',
   'skip_current_machine': '/skip-machine',
