@@ -211,25 +211,14 @@ def set_route_sequence(req: SetRouteSequenceRequest):
     """
     db = get_client()
 
-    # Step 1: Get user's account_id
-    account_user = (
-        db.table("account_users")
-        .select("account_id")
-        .eq("user_id", req.user_id)
-        .limit(1)
-        .execute()
-    )
-
-    if not account_user.data:
-        raise HTTPException(status_code=403, detail="User has no account access")
-
-    account_id = account_user.data[0]["account_id"]
+    # Step 1: Get all user_ids in the same account (team-scoped)
+    team_user_ids = _get_team_user_ids(db, req.user_id)
 
     # Step 2: Find route (exact match first, then partial)
     routes_result = (
         db.table("routes")
         .select("id, route_name, delivery_date")
-        .eq("account_id", account_id)
+        .in_("user_id", team_user_ids)
         .eq("delivery_date", req.date)
         .execute()
     )
@@ -350,6 +339,31 @@ def set_route_sequence(req: SetRouteSequenceRequest):
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
+
+
+def _get_team_user_ids(db, user_id: str) -> list[str]:
+    """Get all user_ids in the same account as the given user."""
+    account_user = (
+        db.table("account_users")
+        .select("account_id")
+        .eq("user_id", user_id)
+        .limit(1)
+        .execute()
+    )
+
+    if not account_user.data:
+        raise HTTPException(status_code=403, detail="User has no account access")
+
+    account_id = account_user.data[0]["account_id"]
+
+    team_members = (
+        db.table("account_users")
+        .select("user_id")
+        .eq("account_id", account_id)
+        .execute()
+    )
+
+    return [m["user_id"] for m in team_members.data]
 
 
 def _get_active_session(db, user_id: str) -> dict:

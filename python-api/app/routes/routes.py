@@ -20,25 +20,14 @@ class DeleteRouteRequest(BaseModel):
 def get_routes(req: GetRoutesRequest):
     db = get_client()
 
-    # Get user's account_id for permission check
-    account_user = (
-        db.table("account_users")
-        .select("account_id")
-        .eq("user_id", req.user_id)
-        .limit(1)
-        .execute()
-    )
-
-    if not account_user.data:
-        raise HTTPException(status_code=403, detail="User has no account access")
-
-    account_id = account_user.data[0]["account_id"]
+    # Get all user_ids in the same account (team-scoped)
+    team_user_ids = _get_team_user_ids(db, req.user_id)
 
     # Get routes for date with nested machine data
     routes_result = (
         db.table("routes")
         .select("id, route_name, delivery_date, machines(id, machine_name, items(id))")
-        .eq("account_id", account_id)
+        .in_("user_id", team_user_ids)
         .eq("delivery_date", req.date)
         .execute()
     )
@@ -68,10 +57,10 @@ def get_routes(req: GetRoutesRequest):
 def delete_route(req: DeleteRouteRequest):
     db = get_client()
 
-    # Get route and verify ownership
+    # Get route
     route_result = (
         db.table("routes")
-        .select("id, route_name, account_id")
+        .select("id, route_name, user_id")
         .eq("id", req.route_id)
         .single()
         .execute()
@@ -82,17 +71,9 @@ def delete_route(req: DeleteRouteRequest):
 
     route = route_result.data
 
-    # Verify user has access to this account
-    access_check = (
-        db.table("account_users")
-        .select("id")
-        .eq("user_id", req.user_id)
-        .eq("account_id", route["account_id"])
-        .limit(1)
-        .execute()
-    )
-
-    if not access_check.data:
+    # Verify requesting user is in the same account as route owner
+    team_user_ids = _get_team_user_ids(db, req.user_id)
+    if route["user_id"] not in team_user_ids:
         raise HTTPException(status_code=403, detail="Not authorized to delete this route")
 
     # Check for active sessions using this route
@@ -121,3 +102,28 @@ def delete_route(req: DeleteRouteRequest):
         "deleted_route": route_name,
         "message": f"Route '{route_name}' and all associated data deleted.",
     }
+
+
+def _get_team_user_ids(db, user_id: str) -> list[str]:
+    """Get all user_ids in the same account as the given user."""
+    account_user = (
+        db.table("account_users")
+        .select("account_id")
+        .eq("user_id", user_id)
+        .limit(1)
+        .execute()
+    )
+
+    if not account_user.data:
+        raise HTTPException(status_code=403, detail="User has no account access")
+
+    account_id = account_user.data[0]["account_id"]
+
+    team_members = (
+        db.table("account_users")
+        .select("user_id")
+        .eq("account_id", account_id)
+        .execute()
+    )
+
+    return [m["user_id"] for m in team_members.data]

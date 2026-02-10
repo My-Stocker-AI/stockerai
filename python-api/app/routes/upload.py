@@ -22,21 +22,7 @@ async def upload_pdf(
     """
     db = get_client()
 
-    # Step 1: Get user's account_id
-    account_user = (
-        db.table("account_users")
-        .select("account_id")
-        .eq("user_id", user_id)
-        .limit(1)
-        .execute()
-    )
-
-    if not account_user.data:
-        raise HTTPException(status_code=403, detail="User has no account access")
-
-    account_id = account_user.data[0]["account_id"]
-
-    # Step 2: Read PDF and extract text
+    # Step 1: Read PDF and extract text
     pdf_bytes = await pdf.read()
 
     try:
@@ -58,11 +44,11 @@ async def upload_pdf(
 
     route_name = parsed["route_name"]
 
-    # Step 4: Delete existing route with same name+date (if any)
+    # Step 4: Delete existing route with same name+date for this user (if any)
     existing_routes = (
         db.table("routes")
         .select("id")
-        .eq("account_id", account_id)
+        .eq("user_id", user_id)
         .eq("route_name", route_name)
         .eq("delivery_date", date)
         .execute()
@@ -75,7 +61,7 @@ async def upload_pdf(
     route_insert = (
         db.table("routes")
         .insert({
-            "account_id": account_id,
+            "user_id": user_id,
             "route_name": route_name,
             "delivery_date": date,
         })
