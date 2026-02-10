@@ -6,6 +6,7 @@ Machine management endpoints:
 """
 
 import random
+from datetime import datetime
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from app.services.database import get_client
@@ -274,6 +275,8 @@ def set_route_sequence(req: SetRouteSequenceRequest):
         db.table("sessions").update({
             "status": "stocking",
             "current_route_id": route_id,
+            "delivery_date": req.date,
+            "started_at": datetime.utcnow().isoformat(),
         }).eq("id", session_id).execute()
     else:
         # Create new
@@ -284,6 +287,8 @@ def set_route_sequence(req: SetRouteSequenceRequest):
                 "session_key": session_key,
                 "status": "stocking",
                 "current_route_id": route_id,
+                "delivery_date": req.date,
+                "started_at": datetime.utcnow().isoformat(),
             })
             .execute()
         )

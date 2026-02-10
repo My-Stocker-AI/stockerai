@@ -1,3 +1,4 @@
+from datetime import datetime
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from app.services.database import get_client
@@ -29,9 +30,13 @@ def update_session(req: UpdateSessionRequest):
         raise HTTPException(status_code=404, detail="Session not found")
 
     # Update session status
+    update_data = {"status": req.new_status}
+    if req.new_status == "completed":
+        update_data["completed_at"] = datetime.utcnow().isoformat()
+
     update_result = (
         db.table("sessions")
-        .update({"status": req.new_status})
+        .update(update_data)
         .eq("id", req.session_id)
         .execute()
     )

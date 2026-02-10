@@ -129,6 +129,7 @@ async def upload_pdf(
                     "quantity": item["quantity"],
                     "slot": item["slot"],
                     "sequence": idx,
+                    "status": "pending",
                     "inventory_current": item.get("inventory_current", 0),
                     "inventory_parlevel": item.get("inventory_parlevel", 0),
                 })
