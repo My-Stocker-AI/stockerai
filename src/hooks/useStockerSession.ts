@@ -467,13 +467,19 @@ export function useStockerSession(userId: string | null) {
             newIndex: next.currentMachineIndex
           });
 
-          // Mark next machine as in_progress
+          // Mark next machine as pending (user still needs to say top/bottom)
           if (result.next_machine_id) {
             next.machines = next.machines.map(m =>
               m.id === result.next_machine_id
-                ? { ...m, status: 'in_progress' as const }
+                ? { ...m, status: 'pending' as const }
                 : m
             );
+            // Update total items for the next machine's progress display
+            const nextMachine = next.machines.find(m => m.id === result.next_machine_id);
+            if (nextMachine) {
+              next.currentMachineTotalItems = nextMachine.totalItems;
+              next.currentMachineItemsRemaining = nextMachine.totalItems - (nextMachine.completedItems || 0);
+            }
           }
 
           // CRITICAL FIX: Set pending direction flag for AI context
@@ -569,11 +575,11 @@ export function useStockerSession(userId: string | null) {
       }
 
       if (toolName === 'go_back_to_skipped') {
-        // Update the skipped machine to in_progress
+        // Update the skipped machine to pending (matches backend — user still needs to say top/bottom)
         if (result.machine_id) {
           next.machines = prev.machines.map(m =>
             m.id === result.machine_id
-              ? { ...m, status: 'in_progress' as const }
+              ? { ...m, status: 'pending' as const }
               : m.id === prev.currentMachineId
                 ? { ...m, status: 'pending' as const } // Put current back to pending
                 : m

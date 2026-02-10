@@ -496,7 +496,7 @@ export default function StockerApp() {
               const prevResult = undoLastItem();
               setAiResponse(prevResult.message);
               await v.speak(prevResult.message);
-              await keywordLearning.trackKeywords(transcript, true);
+              if (prevResult.success) await keywordLearning.trackKeywords(transcript, true);
               processingRef.current = false;
               return;
 
@@ -505,7 +505,7 @@ export default function StockerApp() {
               const result = undoLastItem();
               setAiResponse(result.message);
               await v.speak(result.message);
-              await keywordLearning.trackKeywords(transcript, true); // Track as success (command recognized)
+              if (result.success) await keywordLearning.trackKeywords(transcript, true);
               processingRef.current = false;
               return;
 
