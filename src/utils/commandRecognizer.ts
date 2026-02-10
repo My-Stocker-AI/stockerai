@@ -17,7 +17,8 @@ export enum PickingCommand {
   DIRECTION_TOP = 'direction_top',
   DIRECTION_BOTTOM = 'direction_bottom',
   AFFIRMATIVE = 'affirmative',  // For "yes/okay/ready" during transitions
-  GO_BACK = 'go_back',
+  GO_BACK = 'go_back',          // Return to skipped machine
+  PREVIOUS_ITEM = 'previous_item', // Go back to previous item on current machine
   UNDO = 'undo',
   UNKNOWN = 'unknown'
 }
@@ -104,7 +105,8 @@ const DIRECTION_BOTTOM_PATTERNS = [
   /^start from end$/,
 ];
 
-const GO_BACK_PATTERNS = [
+// Machine-level: return to a skipped machine
+const GO_BACK_TO_SKIPPED_PATTERNS = [
   /^go back to skipped$/,
   /^go back to the skipped$/,
   /^go back to skipped machine$/,
@@ -113,11 +115,18 @@ const GO_BACK_PATTERNS = [
   /^back to skipped$/,
   /^back to the skipped$/,
   /^back to skipped machine$/,
+  /^skipped machine$/,
+];
+
+// Item-level: go back to previous item on current machine
+const PREVIOUS_ITEM_PATTERNS = [
   /^go back$/,
   /^back$/,
   /^previous$/,
+  /^previous item$/,
   /^go to previous$/,
-  /^previous machine$/,
+  /^last item$/,
+  /^go back one$/,
 ];
 
 const UNDO_PATTERNS = [
@@ -278,9 +287,18 @@ export class CommandRecognizer {
       };
     }
 
-    if (GO_BACK_PATTERNS.some(p => p.test(text))) {
+    // Check "back to skipped" BEFORE generic "go back" to prevent misrouting
+    if (GO_BACK_TO_SKIPPED_PATTERNS.some(p => p.test(text))) {
       return {
         command: PickingCommand.GO_BACK,
+        confidence: 1.0,
+        requiresConfirmation: false,
+      };
+    }
+
+    if (PREVIOUS_ITEM_PATTERNS.some(p => p.test(text))) {
+      return {
+        command: PickingCommand.PREVIOUS_ITEM,
         confidence: 1.0,
         requiresConfirmation: false,
       };
@@ -318,7 +336,8 @@ export class CommandRecognizer {
       { phrase: 'repeat', command: PickingCommand.REPEAT },
       { phrase: 'top', command: PickingCommand.DIRECTION_TOP },
       { phrase: 'bottom', command: PickingCommand.DIRECTION_BOTTOM },
-      { phrase: 'go back', command: PickingCommand.GO_BACK },
+      { phrase: 'back to skipped', command: PickingCommand.GO_BACK },
+      { phrase: 'previous', command: PickingCommand.PREVIOUS_ITEM },
       { phrase: 'undo', command: PickingCommand.UNDO },
     ];
 

@@ -491,6 +491,15 @@ export default function StockerApp() {
               }];
               break;
 
+            case PickingCommand.PREVIOUS_ITEM:
+              // Show previous item (same as undo - pops last item back to current)
+              const prevResult = undoLastItem();
+              setAiResponse(prevResult.message);
+              await v.speak(prevResult.message);
+              await keywordLearning.trackKeywords(transcript, true);
+              processingRef.current = false;
+              return;
+
             case PickingCommand.UNDO:
               // Already handled above via undoLastItem()
               const result = undoLastItem();
