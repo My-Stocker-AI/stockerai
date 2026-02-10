@@ -229,7 +229,7 @@ def start_machine(req: StartMachineRequest):
     # Step 3: Get items ordered by sequence
     items_result = (
         db.table("items")
-        .select("id, product_name, quantity, slot, slot_spoken, sequence, inventory_current, inventory_parlevel")
+        .select("id, product_name, quantity, slot, sequence, inventory_current, inventory_parlevel")
         .eq("machine_id", machine_id)
         .order("sequence")
         .execute()
