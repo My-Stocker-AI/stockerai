@@ -21,7 +21,7 @@ def update_session(req: UpdateSessionRequest):
         .select("id, status")
         .eq("user_id", req.user_id)
         .eq("id", req.session_id)
-        .single()
+        .limit(1)
         .execute()
     )
 

@@ -62,14 +62,14 @@ def delete_route(req: DeleteRouteRequest):
         db.table("routes")
         .select("id, route_name, user_id")
         .eq("id", req.route_id)
-        .single()
+        .limit(1)
         .execute()
     )
 
     if not route_result.data:
         raise HTTPException(status_code=404, detail="Route not found")
 
-    route = route_result.data
+    route = route_result.data[0]
 
     # Verify requesting user is in the same account as route owner
     team_user_ids = _get_team_user_ids(db, req.user_id)
