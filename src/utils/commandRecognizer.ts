@@ -4,9 +4,10 @@
  * Purpose: Achieve 99.9% accuracy for ~90% of commands by using exact/fuzzy
  * pattern matching instead of routing everything through AI.
  *
- * Tier 1: Exact Match (99.9% accuracy) - Regex patterns
- * Tier 2: Fuzzy Match (98% accuracy) - Levenshtein distance for STT errors
- * Tier 3: AI Fallback (<10% of commands) - Complex queries
+ * Tier 1: Phonetic correction (word-level STT error fixing)
+ * Tier 2: Exact Match (99.9% accuracy) - Regex patterns
+ * Tier 3: Fuzzy Match (98% accuracy) - Levenshtein distance for STT errors
+ * Tier 4: UNKNOWN - handled locally ("I didn't catch that"), NOT sent to AI
  */
 
 export enum PickingCommand {
@@ -31,7 +32,73 @@ export interface CommandMatch {
 }
 
 /**
- * Pattern definitions for exact matching
+ * Word-level phonetic corrections for common Deepgram mishearings.
+ * Applied to individual words before pattern matching.
+ * Only includes corrections that are unambiguous in stocking context.
+ */
+const PHONETIC_WORD_CORRECTIONS: Record<string, string> = {
+  // p ↔ f/b (labial consonants — Deepgram's #1 confusion class)
+  'far': 'par',           // "far level" → "par level"
+  'bar': 'par',           // "bar level" → "par level"
+  'car': 'par',           // rare but possible
+  'par': 'par',           // identity (keep for consistency)
+
+  // "next" variants (t/n dental confusion, common Deepgram errors)
+  'text': 'next',
+  'necks': 'next',
+  'neck': 'next',
+  'knext': 'next',
+  'nixed': 'next',
+  'nest': 'next',
+  'net': 'next',
+
+  // "done" variants
+  'dun': 'done',
+  'dawn': 'done',
+  'ton': 'done',
+  'dune': 'done',
+
+  // "top" variants (vowel shifts)
+  'tap': 'top',
+  'tup': 'top',
+  'tob': 'top',
+  'talk': 'top',          // rare Deepgram confusion
+
+  // "bottom" variants
+  'boddum': 'bottom',
+  'baton': 'bottom',
+  'button': 'bottom',
+  'bought': 'bottom',     // "bought 'em" → "bottom"
+  'bother': 'bottom',
+
+  // "skip" variants (sibilant confusion)
+  'ski': 'skip',
+  'schip': 'skip',
+  'ship': 'skip',
+  'skid': 'skip',
+  'skit': 'skip',
+  'skipped': 'skip',
+
+  // "repeat" variants
+  'repeats': 'repeat',
+  'rebeat': 'repeat',
+  'replete': 'repeat',
+
+  // "undo" variants
+  'under': 'undo',
+
+  // "inventory" variants
+  'inventor': 'inventory',
+  'inventery': 'inventory',
+
+  // "level" variants (already correct usually, but just in case)
+  'label': 'level',
+};
+
+/**
+ * Pattern definitions for exact matching.
+ * Uses keyword-based matching (word boundaries) where appropriate
+ * to catch natural speech variations.
  */
 const NEXT_PATTERNS = [
   /^next$/,
@@ -57,6 +124,7 @@ const SKIP_PATTERNS = [
   /^skip$/,
   /^skip machine$/,
   /^skip this machine$/,
+  /^skip this one$/,
   /^skip it$/,
   /^pass$/,
   /^move on$/,
@@ -65,44 +133,50 @@ const SKIP_PATTERNS = [
 ];
 
 const INVENTORY_PATTERNS = [
-  /^inventory$/,
-  /^inventory count$/,
-  /^current inventory$/,
-  /^what'?s the inventory$/,
-  /^how many$/,
-  /^how much$/,
-  /^par level$/,
-  /^what'?s par$/,
-  /^what is par$/,
+  // Keyword-based: any phrase containing "par" or "inventory" or "level" in stocking context
+  /\bpar\s*(level)?\b/,           // "par", "par level", "what's the par level"
+  /\binventory\b/,                // "inventory", "what's the inventory", "current inventory"
+  /\blevel\b/,                    // "level", "what level" (in stocking = par level)
+  /\bhow many\b/,                 // "how many"
+  /\bhow much\b/,                 // "how much"
+  /\bstock\b/,                    // "what's in stock", "stock count"
+  /\bcount\b/,                    // "what's the count"
 ];
 
 const REPEAT_PATTERNS = [
   /^repeat$/,
   /^repeat that$/,
   /^say that again$/,
+  /^say again$/,
   /^what was that$/,
   /^what did you say$/,
   /^come again$/,
   /^pardon$/,
   /^what$/,
+  /^huh$/,
 ];
 
 const DIRECTION_TOP_PATTERNS = [
   /^top$/,
   /^from the top$/,
   /^start at the top$/,
+  /^start from the top$/,
   /^beginning$/,
   /^from beginning$/,
+  /^from the beginning$/,
   /^start from beginning$/,
+  /^start from the beginning$/,
 ];
 
 const DIRECTION_BOTTOM_PATTERNS = [
   /^bottom$/,
   /^from the bottom$/,
   /^start at the bottom$/,
+  /^start from the bottom$/,
   /^end$/,
   /^from the end$/,
   /^start from end$/,
+  /^start from the end$/,
 ];
 
 // Machine-level: return to a skipped machine
@@ -142,6 +216,7 @@ const AFFIRMATIVE_PATTERNS = [
   /^yes$/,
   /^yep$/,
   /^yeah$/,
+  /^yea$/,
   /^okay$/,
   /^ok$/,
   /^ready$/,
@@ -149,6 +224,8 @@ const AFFIRMATIVE_PATTERNS = [
   /^sure$/,
   /^let'?s go$/,
   /^go ahead$/,
+  /^alright$/,
+  /^all right$/,
 ];
 
 /**
@@ -184,24 +261,16 @@ function levenshteinDistance(a: string, b: string): number {
 }
 
 /**
- * Common STT errors and their corrections
+ * Apply word-level phonetic corrections to transcript.
+ * Splits into words, corrects each word, rejoins.
+ * This catches errors like "far level" → "par level" even in
+ * longer phrases like "what's the far level".
  */
-const COMMON_STT_ERRORS: Record<string, string> = {
-  'text': 'next',
-  'necks': 'next',
-  'neck': 'next',
-  'knext': 'next',
-  'dun': 'done',
-  'dawn': 'done',
-  'ski': 'skip',
-  'schip': 'skip',
-  'repeat': 'repeat',
-  'repeats': 'repeat',
-  'top': 'top',
-  'tap': 'top',
-  'bottom': 'bottom',
-  'boddum': 'bottom',
-};
+function applyPhoneticCorrections(text: string): string {
+  return text.split(/\s+/).map(word => {
+    return PHONETIC_WORD_CORRECTIONS[word] || word;
+  }).join(' ');
+}
 
 export class CommandRecognizer {
   /**
@@ -211,22 +280,26 @@ export class CommandRecognizer {
     // Strip trailing punctuation before matching (Deepgram includes periods, commas, etc.)
     const lower = transcript.toLowerCase().trim().replace(/[.!?,;:]+$/g, '');
 
-    // First, check for common STT error corrections
-    const corrected = COMMON_STT_ERRORS[lower] || lower;
+    // Tier 1: Apply word-level phonetic corrections
+    const corrected = applyPhoneticCorrections(lower);
 
-    // Tier 1: Exact match (99.9% accuracy)
+    if (corrected !== lower) {
+      console.log('[CommandRecognizer] 🔊 Phonetic correction:', lower, '→', corrected);
+    }
+
+    // Tier 2: Exact match (99.9% accuracy)
     const exactMatch = this.exactMatch(corrected);
     if (exactMatch) {
       return exactMatch;
     }
 
-    // Tier 2: Fuzzy match for STT errors (98% accuracy)
-    const fuzzyMatch = this.fuzzyMatch(lower);
+    // Tier 3: Fuzzy match for STT errors (98% accuracy)
+    const fuzzyMatch = this.fuzzyMatch(corrected);
     if (fuzzyMatch.confidence > 0.7) {
       return fuzzyMatch;
     }
 
-    // Tier 3: Unknown - send to AI
+    // Tier 4: Unknown - handled locally, NOT sent to AI
     return {
       command: PickingCommand.UNKNOWN,
       confidence: 0,
@@ -253,6 +326,7 @@ export class CommandRecognizer {
       };
     }
 
+    // Check inventory AFTER skip but BEFORE direction (so "level" doesn't conflict)
     if (INVENTORY_PATTERNS.some(p => p.test(text))) {
       return {
         command: PickingCommand.INVENTORY_QUERY,
@@ -329,16 +403,28 @@ export class CommandRecognizer {
   private fuzzyMatch(text: string): CommandMatch {
     const knownCommands = [
       { phrase: 'next', command: PickingCommand.NEXT_ITEM },
+      { phrase: 'next item', command: PickingCommand.NEXT_ITEM },
       { phrase: 'done', command: PickingCommand.NEXT_ITEM },
+      { phrase: 'got it', command: PickingCommand.NEXT_ITEM },
       { phrase: 'skip', command: PickingCommand.SKIP_MACHINE },
       { phrase: 'skip machine', command: PickingCommand.SKIP_MACHINE },
+      { phrase: 'next machine', command: PickingCommand.SKIP_MACHINE },
       { phrase: 'inventory', command: PickingCommand.INVENTORY_QUERY },
+      { phrase: 'par level', command: PickingCommand.INVENTORY_QUERY },
+      { phrase: 'par', command: PickingCommand.INVENTORY_QUERY },
       { phrase: 'repeat', command: PickingCommand.REPEAT },
+      { phrase: 'say again', command: PickingCommand.REPEAT },
       { phrase: 'top', command: PickingCommand.DIRECTION_TOP },
+      { phrase: 'beginning', command: PickingCommand.DIRECTION_TOP },
       { phrase: 'bottom', command: PickingCommand.DIRECTION_BOTTOM },
       { phrase: 'back to skipped', command: PickingCommand.GO_BACK },
+      { phrase: 'skipped machine', command: PickingCommand.GO_BACK },
       { phrase: 'previous', command: PickingCommand.PREVIOUS_ITEM },
+      { phrase: 'go back', command: PickingCommand.PREVIOUS_ITEM },
       { phrase: 'undo', command: PickingCommand.UNDO },
+      { phrase: 'cancel', command: PickingCommand.UNDO },
+      { phrase: 'yes', command: PickingCommand.AFFIRMATIVE },
+      { phrase: 'ready', command: PickingCommand.AFFIRMATIVE },
     ];
 
     let bestMatch: { command: PickingCommand; distance: number; phrase: string } | null = null;

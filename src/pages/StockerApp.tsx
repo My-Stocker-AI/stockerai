@@ -440,10 +440,28 @@ export default function StockerApp() {
               }];
               break;
 
-            case PickingCommand.INVENTORY_QUERY:
-              // This requires AI to explain inventory, so route to AI
-              console.log('[CommandRecognizer] INVENTORY_QUERY requires AI, routing to AI');
-              break;
+            case PickingCommand.INVENTORY_QUERY: {
+              // Handle inventory locally — data is already in state
+              const item1 = routeState.currentItem;
+              const item2 = routeState.currentItem2;
+              let invMsg = '';
+
+              if (item1 && item1.inventory_parlevel !== undefined && item1.inventory_current !== undefined) {
+                if (item2 && item2.inventory_parlevel !== undefined && item2.inventory_current !== undefined) {
+                  invMsg = `${item1.product}: ${item1.inventory_current} of ${item1.inventory_parlevel} par level. ${item2.product}: ${item2.inventory_current} of ${item2.inventory_parlevel} par level.`;
+                } else {
+                  invMsg = `${item1.product}: ${item1.inventory_current} of ${item1.inventory_parlevel} par level.`;
+                }
+              } else {
+                invMsg = 'No inventory information available for this item.';
+              }
+
+              console.log('[CommandRecognizer] INVENTORY_QUERY answered locally:', invMsg);
+              setAiResponse(invMsg);
+              await v.speak(invMsg);
+              processingRef.current = false;
+              return;
+            }
 
             case PickingCommand.REPEAT:
               // Already handled by repeat handler above
@@ -656,7 +674,19 @@ export default function StockerApp() {
         processingRef.current = false;
         // Fall through to AI if direct execution didn't return
       } else {
-        console.log('[CommandRecognizer] No match or low confidence, routing to AI:', commandMatch);
+        // UNKNOWN during active picking — respond locally, do NOT route to AI
+        // AI gives confusing state-based responses to unrecognized input (e.g. "Say top or bottom" mid-machine)
+        console.log('[CommandRecognizer] ❓ UNKNOWN command during picking:', correctedTranscript);
+        let unknownMsg: string;
+        if (routeState.pendingMachineTransition) {
+          unknownMsg = `I didn't catch that. Say top or bottom for ${routeState.pendingMachineTransition.nextMachineName}.`;
+        } else {
+          unknownMsg = "I didn't catch that. Can you say that again?";
+        }
+        setAiResponse(unknownMsg);
+        await v.speak(unknownMsg);
+        processingRef.current = false;
+        return;
       }
     }
 
