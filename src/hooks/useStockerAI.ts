@@ -832,11 +832,18 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
         const endpoint = path.startsWith('http') ? path : `${N8N_BASE}${path}`;
         console.log(`[Tools] Calling ${name}:`, { args, endpoint });
 
-        // Check if 2-item mode is enabled
+        // Check if 2-item mode is enabled (read FRESH from localStorage each call)
         const callTwoItems = localStorage.getItem('stocker-call-two-items') === 'true';
 
         // Add count parameter for workflows that support it
         const shouldAddCount = callTwoItems && (name === 'start_machine' || name === 'get_next_item');
+
+        if (name === 'start_machine' || name === 'get_next_item') {
+          console.log(`[Tools] 📦 2-pick mode: ${callTwoItems ? 'ON (count=2)' : 'OFF (count=1)'}`, {
+            localStorage: localStorage.getItem('stocker-call-two-items'),
+            shouldAddCount,
+          });
+        }
 
         // Edge Functions have verify_jwt=false, no auth header needed
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -848,8 +855,9 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
           body: JSON.stringify({
             session_id: sessionIdRef.current,
             user_id: userIdRef.current,
+            ...args,
+            // count AFTER args so localStorage setting always wins over AI arguments
             ...(shouldAddCount ? { count: 2 } : {}),
-            ...args
           })
         });
 
