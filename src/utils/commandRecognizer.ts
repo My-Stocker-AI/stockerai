@@ -77,7 +77,6 @@ const PHONETIC_WORD_CORRECTIONS: Record<string, string> = {
   'ship': 'skip',
   'skid': 'skip',
   'skit': 'skip',
-  'skipped': 'skip',
 
   // "repeat" variants
   'repeats': 'repeat',
@@ -106,11 +105,6 @@ const NEXT_PATTERNS = [
   /^next one$/,
   /^done$/,
   /^got it$/,
-  /^okay$/,
-  /^ok$/,
-  /^yes$/,
-  /^yep$/,
-  /^yeah$/,
   /^correct$/,
   /^give me next$/,
   /^give me the next$/,

@@ -558,6 +558,19 @@ export default function StockerApp() {
                 await v.speak(msg);
                 processingRef.current = false;
                 return;
+              } else {
+                // No pending transition — "yes/okay/ready" during normal picking means "next item"
+                toolCalls = [{
+                  id: `cmd_${Date.now()}`,
+                  type: 'function',
+                  function: {
+                    name: 'get_next_item',
+                    arguments: JSON.stringify({
+                      session_id: sessionId
+                    })
+                  }
+                }];
+                console.log('[CommandRecognizer] AFFIRMATIVE during normal picking → get_next_item');
               }
               break;
           }

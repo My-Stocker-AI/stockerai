@@ -75,6 +75,9 @@ def skip_machine(req: SkipMachineRequest):
     if current_machine["status"] == "skipped":
         raise HTTPException(status_code=400, detail="Machine is already skipped")
 
+    if current_machine["status"] == "completed":
+        raise HTTPException(status_code=400, detail="Machine is already completed")
+
     # Step 3: Mark machine as skipped (trigger auto_set_skipped_at_item handles skipped_at_item)
     db.table("machines").update({"status": "skipped"}).eq("id", machine_id).execute()
 
@@ -116,12 +119,14 @@ def skip_machine(req: SkipMachineRequest):
             "display": f"Skipped: {current_machine['machine_name']} → Next: {next_machine['machine_name']}",
         }
 
-    # Step 5: No next machine — check for skipped machines to return to
+    # Step 5: No next machine — check for OTHER skipped machines to return to
+    # Exclude the machine we just skipped to prevent infinite loop
     skipped_result = (
         db.table("machines")
         .select("id, machine_name, machine_number, location_name")
         .eq("route_id", route_id)
         .eq("status", "skipped")
+        .neq("id", machine_id)
         .order("sequence")
         .limit(1)
         .execute()
