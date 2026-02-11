@@ -1139,49 +1139,56 @@ export default function StockerApp() {
           // NEW route from MyRoutes (or different route) — start this route directly
           console.log('[Stocker] Route ID from URL (NEW navigation):', routeIdFromUrl);
 
-          // Fetch route details from database
-          const { data: routeData, error: routeError } = await supabase
-            .from('routes')
-            .select('id, route_name, delivery_date, total_machines, total_items')
-            .eq('id', routeIdFromUrl)
-            .limit(1);
+          try {
+            // Fetch route details from database
+            const { data: routeData, error: routeError } = await supabase
+              .from('routes')
+              .select('id, route_name, delivery_date, total_machines, total_items')
+              .eq('id', routeIdFromUrl)
+              .limit(1);
 
-          const route = routeData?.[0];
+            const route = routeData?.[0];
+            console.log('[Stocker] Route query result:', { found: !!route, error: routeError?.message });
 
-          if (!routeError && route) {
-            // Clear any existing session and start fresh with this route
-            await sessionPersistence.clear(userId);
-            reset();
-            const newSessionId = generateNewSessionId();
-            setSession(newSessionId, userId); // Set session immediately to avoid race condition
-            setInitialized(true);
+            if (!routeError && route) {
+              // Clear any existing session and start fresh with this route
+              await sessionPersistence.clear(userId);
+              reset();
+              const newSessionId = generateNewSessionId();
+              setSession(newSessionId, userId); // Set session immediately to avoid race condition
 
-            // Start listening (safe now - audio is unlocked)
-            await voice.startListening();
+              // Set greeting BEFORE async voice ops so user sees feedback immediately
+              const greeting = `Hi ${userName}! Starting ${route.route_name} route. Ready to go?`;
+              setAiResponse(greeting);
+              addMessage({ role: 'assistant', content: greeting });
+              setInitialized(true);
 
-            // Set up route for selection and auto-start
-            setAvailableRoutes([{
-              id: route.id,
-              route_name: route.route_name,
-              machines: route.total_machines || 0,
-              items: route.total_items || 0,
-              machine_names: []
-            }]);
-            setRouteSelectionDate(route.delivery_date);
+              // Start listening (safe now - audio is unlocked)
+              await voice.startListening();
 
-            // Announce and auto-start
-            const greeting = `Hi ${userName}! Starting ${route.route_name} route. Ready to go?`;
-            setAiResponse(greeting);
-            addMessage({ role: 'assistant', content: greeting });
-            await voice.speak(greeting);
+              // Set up route for selection and auto-start
+              setAvailableRoutes([{
+                id: route.id,
+                route_name: route.route_name,
+                machines: route.total_machines || 0,
+                items: route.total_items || 0,
+                machine_names: []
+              }]);
+              setRouteSelectionDate(route.delivery_date);
 
-            // Trigger route start directly (can't rely on useEffect — showRouteSelection is false)
-            (window as any).__routeStartDate = route.delivery_date;
-            triggerRouteStart(route.route_name);
-            return;
-          } else {
-            console.log('[Stocker] Route not found:', routeIdFromUrl, routeError);
-            // Fall through to normal flow if route not found
+              await voice.speak(greeting);
+
+              // Trigger route start directly (can't rely on useEffect — showRouteSelection is false)
+              (window as any).__routeStartDate = route.delivery_date;
+              triggerRouteStart(route.route_name);
+              return;
+            } else {
+              console.log('[Stocker] Route not found:', routeIdFromUrl, routeError);
+              // Fall through to normal flow if route not found
+            }
+          } catch (urlRouteError) {
+            console.error('[Stocker] Failed to start route from URL:', urlRouteError);
+            // Fall through to saved session / startFresh
           }
         }
       }
@@ -1293,9 +1300,15 @@ export default function StockerApp() {
     };
 
     if (!loading && user && !initialized) {
-      checkSavedSession();
+      checkSavedSession().catch((err) => {
+        console.error('[Stocker] Init failed:', err);
+        initStartedRef.current = false;
+        // Show fallback so user isn't stuck on "Waiting for command..."
+        setAiResponse('Something went wrong starting up. Please refresh the page.');
+        setInitialized(true);
+      });
     }
-  }, [loading, user, userId, initialized, sessionPersistence, routeIdFromUrl, urlRouteProcessed, voice, userName, addMessage, reset, generateNewSessionId]);
+  }, [loading, user, userId, initialized, sessionPersistence, routeIdFromUrl, urlRouteProcessed, voice, userName, addMessage, reset, generateNewSessionId, audioUnlocked]);
 
   const resumeSession = useCallback(async () => {
     if (!savedSession) return;
