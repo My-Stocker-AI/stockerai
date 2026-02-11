@@ -1129,7 +1129,7 @@ export default function StockerApp() {
         // Fetch route details from database
         const { data: routeData, error: routeError } = await supabase
           .from('routes')
-          .select('id, route_name, delivery_date')
+          .select('id, route_name, delivery_date, total_machines, total_items')
           .eq('id', routeIdFromUrl)
           .single();
 
@@ -1148,8 +1148,8 @@ export default function StockerApp() {
           setAvailableRoutes([{
             id: routeData.id,
             route_name: routeData.route_name,
-            machines: 0,
-            items: 0,
+            machines: routeData.total_machines || 0,
+            items: routeData.total_items || 0,
             machine_names: []
           }]);
           setRouteSelectionDate(routeData.delivery_date);
