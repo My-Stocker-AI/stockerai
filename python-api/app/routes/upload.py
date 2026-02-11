@@ -7,6 +7,7 @@ import uuid
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from app.services.database import get_client
 from app.services.pdf_parser import extract_text_from_pdf, parse_route_pdf
+from app.services.formatting import format_slot_for_tts
 
 router = APIRouter()
 
@@ -70,7 +71,22 @@ async def upload_pdf(
         # Storage upload is optional — don't fail the whole upload
         pass
 
-    # Step 5: Insert route (with all schema columns)
+    # Step 5: Get driver name from profile (optional — don't fail upload)
+    driver_name = None
+    try:
+        profile_result = (
+            db.table("profiles")
+            .select("full_name")
+            .eq("id", user_id)
+            .limit(1)
+            .execute()
+        )
+        if profile_result.data and profile_result.data[0].get("full_name"):
+            driver_name = profile_result.data[0]["full_name"]
+    except Exception:
+        pass
+
+    # Step 6: Insert route (with all schema columns)
     route_insert = (
         db.table("routes")
         .insert({
@@ -78,6 +94,7 @@ async def upload_pdf(
             "route_name": route_name,
             "delivery_date": date,
             "pdf_url": pdf_url,
+            "driver_name": driver_name,
         })
         .execute()
     )
@@ -94,8 +111,8 @@ async def upload_pdf(
             machine_sequence += 1
             raw_items = machine_data["items"]
 
-            # Combine adjacent same-product items (matches n8n behavior)
-            combined_items = _combine_adjacent_items(raw_items)
+            # Combine ALL same-product items (matches n8n Flatten Data behavior)
+            combined_items = _combine_same_product_items(raw_items)
 
             machine_name = machine_data["machine_name"]
 
@@ -122,12 +139,14 @@ async def upload_pdf(
             # Insert items (includes machine_name for denormalized queries)
             items_to_insert = []
             for idx, item in enumerate(combined_items, start=1):
+                slot_val = item["slot"]
                 items_to_insert.append({
                     "machine_id": machine_id,
                     "machine_name": machine_name,
                     "product_name": item["product_name"],
                     "quantity": item["quantity"],
-                    "slot": item["slot"],
+                    "slot": slot_val,
+                    "slot_spoken": format_slot_for_tts(slot_val),
                     "sequence": idx,
                     "status": "pending",
                     "inventory_current": item.get("inventory_current", 0),
@@ -153,50 +172,53 @@ async def upload_pdf(
     }
 
 
-def _combine_adjacent_items(items: list[dict]) -> list[dict]:
+def _combine_same_product_items(items: list[dict]) -> list[dict]:
     """
-    Combine adjacent items with the same product_name into one row.
-    Matches n8n Flatten Data behavior: "slot 1 to 3" for multi-slot items.
+    Combine ALL items with the same product_name into one row (not just adjacent).
+    Matches n8n Flatten Data behavior: groups by product_name, sums quantities,
+    and creates "slot 1 to 3" display for multi-slot items.
+
+    Order preserved by first occurrence of each product_name.
     """
     if not items:
         return []
 
-    combined = []
+    # Group by product_name, preserving first-occurrence order
+    groups: dict[str, dict] = {}
+    order: list[str] = []
+
     for item in items:
-        if (
-            combined
-            and combined[-1]["product_name"] == item["product_name"]
-        ):
-            # Same product as previous — merge
-            last = combined[-1]
-            last["quantity"] += item["quantity"]
-            last["slots"].append(item["slot"])
-            last["inventory_current"] += item.get("inventory_current", 0)
-            last["inventory_parlevel"] += item.get("inventory_parlevel", 0)
-        else:
-            combined.append({
-                "product_name": item["product_name"],
-                "quantity": item["quantity"],
-                "slots": [item["slot"]],
-                "inventory_current": item.get("inventory_current", 0),
-                "inventory_parlevel": item.get("inventory_parlevel", 0),
-            })
+        name = item["product_name"]
+        if name not in groups:
+            order.append(name)
+            groups[name] = {
+                "product_name": name,
+                "quantity": 0,
+                "slots": [],
+                "inventory_current": 0,
+                "inventory_parlevel": 0,
+            }
+        groups[name]["quantity"] += item["quantity"]
+        groups[name]["slots"].append(item["slot"])
+        groups[name]["inventory_current"] += item.get("inventory_current", 0)
+        groups[name]["inventory_parlevel"] += item.get("inventory_parlevel", 0)
 
     # Convert slots list to display string
     result = []
-    for item in combined:
-        slots = item["slots"]
+    for name in order:
+        group = groups[name]
+        slots = group["slots"]
         if len(slots) == 1:
             slot_display = slots[0]
         else:
             slot_display = f"{slots[0]} to {slots[-1]}"
 
         result.append({
-            "product_name": item["product_name"],
-            "quantity": item["quantity"],
+            "product_name": group["product_name"],
+            "quantity": group["quantity"],
             "slot": slot_display,
-            "inventory_current": item["inventory_current"],
-            "inventory_parlevel": item["inventory_parlevel"],
+            "inventory_current": group["inventory_current"],
+            "inventory_parlevel": group["inventory_parlevel"],
         })
 
     return result

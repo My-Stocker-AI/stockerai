@@ -80,7 +80,9 @@ export function useItemCache() {
       }
 
       // Fire-and-forget fetch (don't await)
-      fetch(`${N8N_BASE}/next-item`, {
+      // Use /get-next-item for Python API, /next-item-optimized for n8n
+      const nextItemPath = N8N_BASE.includes('render.com') ? '/get-next-item' : '/next-item-optimized';
+      fetch(`${N8N_BASE}${nextItemPath}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

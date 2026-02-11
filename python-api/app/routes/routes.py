@@ -71,9 +71,8 @@ def delete_route(req: DeleteRouteRequest):
 
     route = route_result.data[0]
 
-    # Verify requesting user is in the same account as route owner
-    team_user_ids = _get_team_user_ids(db, req.user_id)
-    if route["user_id"] not in team_user_ids:
+    # Verify requesting user owns the route (strict ownership for destructive ops)
+    if route["user_id"] != req.user_id:
         raise HTTPException(status_code=403, detail="Not authorized to delete this route")
 
     # Check for active sessions using this route

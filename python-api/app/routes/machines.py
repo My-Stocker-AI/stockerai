@@ -78,13 +78,13 @@ def skip_machine(req: SkipMachineRequest):
     # Step 3: Mark machine as skipped (trigger auto_set_skipped_at_item handles skipped_at_item)
     db.table("machines").update({"status": "skipped"}).eq("id", machine_id).execute()
 
-    # Step 4: Find next non-skipped machine with higher sequence
+    # Step 4: Find next machine with higher sequence (exclude skipped AND completed)
     next_machine_result = (
         db.table("machines")
         .select("id, machine_name, machine_number, location_name, sequence")
         .eq("route_id", route_id)
         .gt("sequence", current_machine["sequence"])
-        .neq("status", "skipped")
+        .filter("status", "not.in", '("skipped","completed")')
         .order("sequence")
         .limit(1)
         .execute()
@@ -180,15 +180,37 @@ def go_back_to_skipped(req: GoBackToSkippedRequest):
 
     machine = skipped_result.data[0]
 
-    # Step 3: Mark machine as pending
+    # Step 3: Count remaining skipped machines (including this one)
+    all_skipped = (
+        db.table("machines")
+        .select("id")
+        .eq("route_id", route_id)
+        .eq("status", "skipped")
+        .execute()
+    )
+    remaining_skipped = len(all_skipped.data) - 1  # exclude the one we're returning to
+
+    # Step 4: Mark machine as pending
     db.table("machines").update({"status": "pending"}).eq("id", machine["id"]).execute()
 
-    # Step 4: Update session to point to this machine
+    # Step 5: Update session to point to this machine
     db.table("sessions").update({
         "current_machine_id": machine["id"],
     }).eq("id", session["id"]).execute()
 
-    return {
+    # Step 6: Get first item from this machine for immediate voice announcement
+    items_result = (
+        db.table("items")
+        .select("product_name, quantity, slot, slot_spoken")
+        .eq("machine_id", machine["id"])
+        .order("sequence")
+        .limit(1)
+        .execute()
+    )
+
+    first_item = items_result.data[0] if items_result.data else None
+
+    response = {
         "action": "machine_ready",
         "machine_id": machine["id"],
         "machine_name": machine["machine_name"],
@@ -196,9 +218,18 @@ def go_back_to_skipped(req: GoBackToSkippedRequest):
         "location": machine["location_name"],
         "total_items": machine["total_items"],
         "completed_items": machine["completed_items"],
+        "remaining_skipped": remaining_skipped,
         "spoken": f"Going back to {machine['machine_name']} at {machine['location_name']}. Say top or bottom to start.",
         "display": f"Returning to: {machine['machine_name']}",
     }
+
+    if first_item:
+        response["first_item"] = first_item["product_name"]
+        response["first_quantity"] = first_item["quantity"]
+        response["slot"] = first_item["slot"]
+        response["slot_spoken"] = first_item.get("slot_spoken")
+
+    return response
 
 
 # ─── SET ROUTE SEQUENCE ──────────────────────────────────────────────────────
@@ -269,8 +300,9 @@ def set_route_sequence(req: SetRouteSequenceRequest):
         .execute()
     )
 
+    is_new_session = False
     if existing_session.data:
-        # Update existing
+        # Update existing session — preserve progress
         session_id = existing_session.data[0]["id"]
         db.table("sessions").update({
             "status": "stocking",
@@ -279,7 +311,8 @@ def set_route_sequence(req: SetRouteSequenceRequest):
             "started_at": datetime.utcnow().isoformat(),
         }).eq("id", session_id).execute()
     else:
-        # Create new
+        # Create new session — fresh start
+        is_new_session = True
         insert_result = (
             db.table("sessions")
             .insert({
@@ -294,14 +327,14 @@ def set_route_sequence(req: SetRouteSequenceRequest):
         )
         session_id = insert_result.data[0]["id"]
 
-    # Step 5: Reset all machines for this route to clean state
-    # set-route-sequence always starts from machine[0], so machine state must be consistent
-    db.table("machines").update({
-        "status": "pending",
-        "completed_items": 0,
-    }).eq("route_id", route_id).execute()
+    # Step 5: Only reset machines for NEW sessions (preserve progress on resume)
+    if is_new_session:
+        db.table("machines").update({
+            "status": "pending",
+            "completed_items": 0,
+        }).eq("route_id", route_id).execute()
 
-    # Step 6: Get machines for this route (now all clean)
+    # Step 6: Get machines for this route
     machines_result = (
         db.table("machines")
         .select("id, machine_name, machine_number, location_name, sequence, total_items, completed_items, status")
@@ -314,8 +347,16 @@ def set_route_sequence(req: SetRouteSequenceRequest):
     if not machines:
         raise HTTPException(status_code=404, detail="No machines found for this route")
 
-    # Step 7: Set first machine as current
-    first_machine = machines[0]
+    # Step 7: Set current machine — for resumed sessions, find first non-completed machine
+    if is_new_session:
+        first_machine = machines[0]
+    else:
+        # Resume: find first machine that isn't completed
+        first_machine = next(
+            (m for m in machines if m["status"] not in ("completed", "skipped")),
+            machines[0],  # fallback to first if all done
+        )
+
     db.table("sessions").update({
         "current_machine_id": first_machine["id"],
     }).eq("id", session_id).execute()
