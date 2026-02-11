@@ -1219,6 +1219,18 @@ export default function StockerApp() {
             setSavedSession(saved);
 
             // Restore session state immediately
+            // FIX: Clear stale currentItem if already in completedItems (prevents showing
+            // a completed item as "current" after resume, especially when pick-count changed)
+            const completedKeys = new Set(
+              (saved.completedItems || []).map((item: any) => `${item.machineName}:${item.slot}`)
+            );
+            const restoredItem1 = saved.currentItem && saved.currentItem.slot
+              && completedKeys.has(`${saved.currentItem.machineName}:${saved.currentItem.slot}`)
+              ? null : saved.currentItem;
+            const restoredItem2 = saved.currentItem2 && saved.currentItem2.slot
+              && completedKeys.has(`${saved.currentItem2.machineName}:${saved.currentItem2.slot}`)
+              ? null : (saved.currentItem2 || null);
+
             setRouteState({
               routeId: saved.routeId || null,
               routeName: saved.routeName,
@@ -1229,8 +1241,8 @@ export default function StockerApp() {
               currentMachineId: saved.currentMachineId || null,
               currentMachineTotalItems: saved.currentMachineTotalItems || 0,
               currentMachineItemsRemaining: saved.currentMachineItemsRemaining || 0,
-              currentItem: saved.currentItem,
-              currentItem2: saved.currentItem2 || null,
+              currentItem: restoredItem1,
+              currentItem2: restoredItem2,
               totalItems: saved.totalItems,
               completedItems: saved.completedItems,
               machines: saved.machines || []
@@ -1266,13 +1278,14 @@ export default function StockerApp() {
               setAiResponse(msg);
               await voice.speak(msg);
             } else {
-              const item = saved.currentItem;
+              // Use restoredItem1 (not saved.currentItem) since stale items were cleared
+              const item = restoredItem1;
               if (item?.product) {
                 const msg = `Welcome back! Resuming ${saved.routeName}. Current item: ${item.quantity} ${item.product}, ${item.slot_spoken || item.slot}.`;
                 setAiResponse(msg);
                 await voice.speak(msg);
               } else {
-                const msg = `Welcome back! Resuming ${saved.routeName}.`;
+                const msg = `Welcome back! Resuming ${saved.routeName}. Say next to continue.`;
                 setAiResponse(msg);
                 await voice.speak(msg);
               }
@@ -1322,6 +1335,18 @@ export default function StockerApp() {
       ? savedSession.pendingMachineTransition.nextMachineName
       : savedSession.currentMachineName;
 
+    // FIX: Clear stale currentItem if already in completedItems (prevents showing
+    // a completed item as "current" after resume, especially when pick-count changed)
+    const completedKeys = new Set(
+      (savedSession.completedItems || []).map((item: any) => `${item.machineName}:${item.slot}`)
+    );
+    const restoredItem1 = savedSession.currentItem && savedSession.currentItem.slot
+      && completedKeys.has(`${savedSession.currentItem.machineName}:${savedSession.currentItem.slot}`)
+      ? null : savedSession.currentItem;
+    const restoredItem2 = savedSession.currentItem2 && savedSession.currentItem2.slot
+      && completedKeys.has(`${savedSession.currentItem2.machineName}:${savedSession.currentItem2.slot}`)
+      ? null : (savedSession.currentItem2 || null);
+
     setRouteState({
       routeId: savedSession.routeId || null,
       routeName: savedSession.routeName,
@@ -1332,8 +1357,8 @@ export default function StockerApp() {
       currentMachineId: currentMachineId,
       currentMachineTotalItems: savedSession.currentMachineTotalItems || 0,
       currentMachineItemsRemaining: savedSession.currentMachineItemsRemaining || 0,
-      currentItem: savedSession.currentItem,
-      currentItem2: savedSession.currentItem2 || null,
+      currentItem: restoredItem1,
+      currentItem2: restoredItem2,
       completedItems: savedSession.completedItems || [],
       machines: savedSession.machines || [],
       completed: savedSession.completed || false,
@@ -1363,13 +1388,14 @@ export default function StockerApp() {
       setAiResponse(msg);
       await voice.speak(msg);
     } else {
-      const item = savedSession.currentItem;
+      // Use restoredItem1 (not savedSession.currentItem) since stale items were cleared
+      const item = restoredItem1;
       if (item?.product) {
         const msg = `Welcome back to ${savedSession.routeName}! Current item: ${item.quantity} ${item.product}, ${item.slot_spoken || item.slot}.`;
         setAiResponse(msg);
         await voice.speak(msg);
       } else {
-        await voice.speak(`Welcome back to ${savedSession.routeName} route.`);
+        await voice.speak(`Welcome back to ${savedSession.routeName} route. Say next to continue.`);
       }
     }
   }, [savedSession, setRouteState, setSessionId, generateNewSessionId, setMessages, voice]);

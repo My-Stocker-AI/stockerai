@@ -125,14 +125,20 @@ export function useSessionPersistence() {
   // Save minimal session metadata to Supabase sessions table for backend workflow tracking
   const saveToServer = useCallback(async (data: SessionData, userId: string): Promise<void> => {
     try {
-      const sessionKey = `${userId}-${data.routeId || 'active'}`;
-      
-      // Check if session exists
+      // CRITICAL FIX: Must match Python API's session_key format (stocking_{route_id})
+      // so frontend UPDATES the session created by set_route_sequence instead of creating a duplicate.
+      // Old format: `${userId}-${data.routeId}` caused two sessions per route.
+      const sessionKey = `stocking_${data.routeId || 'active'}`;
+
+      // Check if session exists (match by key OR by route_id for backwards compat)
       const { data: existing } = await supabase
         .from('sessions')
         .select('id')
-        .eq('session_key', sessionKey)
         .eq('user_id', userId)
+        .eq('current_route_id', data.routeId)
+        .eq('status', 'stocking')
+        .order('created_at', { ascending: false })
+        .limit(1)
         .maybeSingle();
 
       const sessionRecord = {
