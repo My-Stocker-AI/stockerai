@@ -201,7 +201,7 @@ def go_back_to_skipped(req: GoBackToSkippedRequest):
     # Step 6: Get first item from this machine for immediate voice announcement
     items_result = (
         db.table("items")
-        .select("product_name, quantity, slot, slot_spoken")
+        .select("product_name, quantity, slot")
         .eq("machine_id", machine["id"])
         .order("sequence")
         .limit(1)
@@ -227,7 +227,6 @@ def go_back_to_skipped(req: GoBackToSkippedRequest):
         response["first_item"] = first_item["product_name"]
         response["first_quantity"] = first_item["quantity"]
         response["slot"] = first_item["slot"]
-        response["slot_spoken"] = first_item.get("slot_spoken")
 
     return response
 

@@ -7,7 +7,6 @@ import uuid
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from app.services.database import get_client
 from app.services.pdf_parser import extract_text_from_pdf, parse_route_pdf
-from app.services.formatting import format_slot_for_tts
 
 router = APIRouter()
 
@@ -76,13 +75,16 @@ async def upload_pdf(
     try:
         profile_result = (
             db.table("profiles")
-            .select("full_name")
+            .select("first_name, last_name")
             .eq("id", user_id)
             .limit(1)
             .execute()
         )
-        if profile_result.data and profile_result.data[0].get("full_name"):
-            driver_name = profile_result.data[0]["full_name"]
+        if profile_result.data:
+            p = profile_result.data[0]
+            first = p.get("first_name") or ""
+            last = p.get("last_name") or ""
+            driver_name = f"{first} {last}".strip() or None
     except Exception:
         pass
 
@@ -139,14 +141,12 @@ async def upload_pdf(
             # Insert items (includes machine_name for denormalized queries)
             items_to_insert = []
             for idx, item in enumerate(combined_items, start=1):
-                slot_val = item["slot"]
                 items_to_insert.append({
                     "machine_id": machine_id,
                     "machine_name": machine_name,
                     "product_name": item["product_name"],
                     "quantity": item["quantity"],
-                    "slot": slot_val,
-                    "slot_spoken": format_slot_for_tts(slot_val),
+                    "slot": item["slot"],
                     "sequence": idx,
                     "status": "pending",
                     "inventory_current": item.get("inventory_current", 0),

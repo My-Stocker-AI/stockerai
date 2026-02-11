@@ -63,11 +63,16 @@ def fix_pronunciation(text: str | None) -> str | None:
 
 
 def format_slot_for_tts(slot: str | None) -> str | None:
-    """Format slot for TTS: '5' -> 'slot 5', '3-4' -> 'slots 3 and 4'."""
+    """Format slot for TTS: '5' -> 'slot 5', '3-4' -> 'slots 3 and 4', '1 to 3' -> 'slots 1 to 3'."""
     if not slot:
         return None
     slot = str(slot)
 
+    # Handle combined slots: "1 to 3" (from _combine_same_product_items)
+    if " to " in slot:
+        return f"slots {slot}"
+
+    # Handle dash range: "3-4"
     if "-" in slot:
         parts = slot.split("-")
         try:
@@ -77,6 +82,7 @@ def format_slot_for_tts(slot: str | None) -> str | None:
         except (ValueError, IndexError):
             return slot
 
+    # Handle single slot: "5"
     try:
         num = int(slot)
         return f"slot {num}"
