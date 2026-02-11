@@ -1159,9 +1159,10 @@ export default function StockerApp() {
           setAiResponse(greeting);
           addMessage({ role: 'assistant', content: greeting });
           await voice.speak(greeting);
-          
-          // Trigger route start
-          setSelectedRoute(routeData.route_name);
+
+          // Trigger route start directly (can't rely on useEffect — showRouteSelection is false)
+          (window as any).__routeStartDate = routeData.delivery_date;
+          triggerRouteStart(routeData.route_name);
           return;
         } else {
           console.log('[Stocker] Route not found:', routeIdFromUrl, routeError);
