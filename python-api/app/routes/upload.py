@@ -162,13 +162,19 @@ async def upload_pdf(
         "total_items": total_items,
     }).eq("id", route_id).execute()
 
-    return {
+    response = {
         "route": route_name,
         "machines": total_machines,
         "items": total_items,
         "date": date,
         "pdf_url": pdf_url,
     }
+
+    # Include parser warnings (partial items that couldn't be parsed)
+    if parsed.get("warnings"):
+        response["warnings"] = parsed["warnings"]
+
+    return response
 
 
 def _combine_same_product_items(items: list[dict]) -> list[dict]:

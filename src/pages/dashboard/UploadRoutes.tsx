@@ -322,6 +322,16 @@ const UploadRoutes = () => {
         description: `${result.route || 'Route'} for ${result.date || format(deliveryDate, 'MMM d, yyyy')}: ${result.machines || 0} machines, ${result.items || 0} items. Assigned to ${driverName}.`,
       });
 
+      // Show warning if parser couldn't parse some items (page breaks, line wraps)
+      if (result.warnings && result.warnings.length > 0) {
+        toast({
+          title: `${result.warnings.length} item(s) could not be parsed`,
+          description: result.warnings.join(' | '),
+          variant: "destructive",
+          duration: 15000, // Keep visible longer so user can read
+        });
+      }
+
       setFile(null);
       setSelectedDriverId('');
       queryClient.invalidateQueries({ queryKey: ['routes'] });
