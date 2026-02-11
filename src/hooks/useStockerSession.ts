@@ -236,6 +236,14 @@ export function useStockerSession(userId: string | null) {
         next.currentMachineId = result.machine_id || prev.currentMachineId;
         next.currentMachineName = result.machine_name || prev.currentMachineName;
 
+        // Fix: Compute machine index from machines array (accurate after skips)
+        if (result.machine_id) {
+          const machineIdx = prev.machines.findIndex(m => m.id === result.machine_id) + 1;
+          if (machineIdx > 0) {
+            next.currentMachineIndex = machineIdx;
+          }
+        }
+
         // Fix: Mark machine as in_progress in machines array
         if (result.machine_id) {
           next.machines = prev.machines.map(m =>
@@ -413,7 +421,8 @@ export function useStockerSession(userId: string | null) {
             next.currentItem2 = null;
           }
 
-          next.currentMachineIndex = result.machine_index || prev.currentMachineIndex;
+          // Machine index doesn't change during item picking — keep previous value
+          next.currentMachineIndex = prev.currentMachineIndex;
           // ATOMIC UPDATE: Set both machine ID and name together
           next.currentMachineId = machineId;
           next.currentMachineName = machineName;
@@ -438,7 +447,11 @@ export function useStockerSession(userId: string | null) {
           }
 
           // REVERT TO WORKING BEHAVIOR: Update machine ID immediately
-          next.currentMachineIndex = (prev.currentMachineIndex || 0) + 1;
+          // Compute machine index from array (handles skips correctly, not just +1)
+          const nextMachineIdx = result.next_machine_id
+            ? prev.machines.findIndex(m => m.id === result.next_machine_id) + 1
+            : 0;
+          next.currentMachineIndex = nextMachineIdx > 0 ? nextMachineIdx : (prev.currentMachineIndex || 0) + 1;
           next.currentMachineName = result.next_machine || '';
           next.currentMachineId = result.next_machine_id || null;
           next.currentItem = null;
@@ -469,7 +482,7 @@ export function useStockerSession(userId: string | null) {
           next.pendingMachineTransition = {
             nextMachineId: result.next_machine_id || '',
             nextMachineName: result.next_machine || '',
-            nextMachineIndex: (prev.currentMachineIndex || 0) + 1
+            nextMachineIndex: next.currentMachineIndex
           };
           console.log('[Session] ⏸️  AWAITING DIRECTION for:', result.next_machine, '| pendingMachineTransition:', next.pendingMachineTransition);
         } else if (action === 'route_complete' || action === 'complete') {

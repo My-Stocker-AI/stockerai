@@ -1115,58 +1115,75 @@ export default function StockerApp() {
         return; // This useEffect will re-run when audioUnlocked changes
       }
 
-      // CRITICAL FIX: Detect page refresh BEFORE checking route ID in URL
-      // On F5, URL still has ?route=X, but we should resume, not start fresh
+      // Detect page refresh for resume-vs-restart decision
       const isRefresh = performance.getEntriesByType &&
                         performance.getEntriesByType('navigation').length > 0 &&
                         (performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming).type === 'reload';
 
-      // If we have a route ID from URL AND it's NOT a page refresh, start that route directly
-      if (routeIdFromUrl && !urlRouteProcessed && !isRefresh) {
-        console.log('[Stocker] Route ID from URL (NEW navigation):', routeIdFromUrl);
+      // Handle route ID from URL (Start Picking from MyRoutes OR accidental refresh)
+      if (routeIdFromUrl && !urlRouteProcessed) {
         setUrlRouteProcessed(true);
 
-        // Fetch route details from database
-        const { data: routeData, error: routeError } = await supabase
-          .from('routes')
-          .select('id, route_name, delivery_date, total_machines, total_items')
-          .eq('id', routeIdFromUrl)
-          .single();
+        // Check if saved session matches this route (accidental refresh scenario)
+        const savedForCheck = await sessionPersistence.load(userId);
+        const isResumeRefresh = isRefresh &&
+          savedForCheck &&
+          sessionPersistence.isValidSession(savedForCheck) &&
+          savedForCheck.userId === userId &&
+          savedForCheck.routeId === routeIdFromUrl;
 
-        if (!routeError && routeData) {
-          // Clear any existing session and start fresh with this route
-          await sessionPersistence.clear(userId);
-          reset();
-          const newSessionId = generateNewSessionId();
-          setSession(newSessionId, userId); // Set session immediately to avoid race condition
-          setInitialized(true);
-
-          // Start listening (safe now - audio is unlocked)
-          await voice.startListening();
-          
-          // Set up route for selection and auto-start
-          setAvailableRoutes([{
-            id: routeData.id,
-            route_name: routeData.route_name,
-            machines: routeData.total_machines || 0,
-            items: routeData.total_items || 0,
-            machine_names: []
-          }]);
-          setRouteSelectionDate(routeData.delivery_date);
-          
-          // Announce and auto-start
-          const greeting = `Hi ${userName}! Starting ${routeData.route_name} route. Ready to go?`;
-          setAiResponse(greeting);
-          addMessage({ role: 'assistant', content: greeting });
-          await voice.speak(greeting);
-
-          // Trigger route start directly (can't rely on useEffect — showRouteSelection is false)
-          (window as any).__routeStartDate = routeData.delivery_date;
-          triggerRouteStart(routeData.route_name);
-          return;
+        if (isResumeRefresh) {
+          // Accidental refresh with matching saved session — fall through to resume code below
+          console.log('[Stocker] Refresh detected with matching saved session — resuming');
         } else {
-          console.log('[Stocker] Route not found:', routeIdFromUrl, routeError);
-          // Fall through to normal flow if route not found
+          // NEW route from MyRoutes (or different route) — start this route directly
+          console.log('[Stocker] Route ID from URL (NEW navigation):', routeIdFromUrl);
+
+          // Fetch route details from database
+          const { data: routeData, error: routeError } = await supabase
+            .from('routes')
+            .select('id, route_name, delivery_date, total_machines, total_items')
+            .eq('id', routeIdFromUrl)
+            .limit(1)
+            .execute();
+
+          const route = routeData?.[0];
+
+          if (!routeError && route) {
+            // Clear any existing session and start fresh with this route
+            await sessionPersistence.clear(userId);
+            reset();
+            const newSessionId = generateNewSessionId();
+            setSession(newSessionId, userId); // Set session immediately to avoid race condition
+            setInitialized(true);
+
+            // Start listening (safe now - audio is unlocked)
+            await voice.startListening();
+
+            // Set up route for selection and auto-start
+            setAvailableRoutes([{
+              id: route.id,
+              route_name: route.route_name,
+              machines: route.total_machines || 0,
+              items: route.total_items || 0,
+              machine_names: []
+            }]);
+            setRouteSelectionDate(route.delivery_date);
+
+            // Announce and auto-start
+            const greeting = `Hi ${userName}! Starting ${route.route_name} route. Ready to go?`;
+            setAiResponse(greeting);
+            addMessage({ role: 'assistant', content: greeting });
+            await voice.speak(greeting);
+
+            // Trigger route start directly (can't rely on useEffect — showRouteSelection is false)
+            (window as any).__routeStartDate = route.delivery_date;
+            triggerRouteStart(route.route_name);
+            return;
+          } else {
+            console.log('[Stocker] Route not found:', routeIdFromUrl, routeError);
+            // Fall through to normal flow if route not found
+          }
         }
       }
 
@@ -1610,9 +1627,10 @@ export default function StockerApp() {
       await new Promise(resolve => setTimeout(resolve, 300));
       console.log('[Reset] Verified clear completed');
 
-      // Step 6: Reload page to get clean state
-      console.log('[Reset] Reloading page...');
-      window.location.reload();
+      // Step 6: Navigate to /app without route param to get clean state
+      // Using href (not reload) ensures ?route=X is stripped, preventing stale route restart
+      console.log('[Reset] Navigating to clean /app...');
+      window.location.href = '/app';
     } catch (error) {
       console.error('[Reset] Failed to reset route:', error);
       setError('Failed to reset route. Please refresh the page.');
