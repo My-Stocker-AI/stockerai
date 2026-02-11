@@ -124,6 +124,8 @@ def _format_next_item(row: dict, count: int) -> dict:
         "items_remaining": row.get("items_remaining"),
         "new_item_index": row.get("new_item_index"),
         "items_to_increment": row.get("items_to_increment"),
+        "new_completed_items": row.get("new_completed_items"),
+        "total_items": row.get("total_items"),
         "item1": format_item_for_response(
             product_name=row.get("product_name", ""),
             quantity=row.get("quantity", 0),

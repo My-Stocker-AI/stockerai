@@ -333,52 +333,35 @@ export function useStockerSession(userId: string | null) {
             });
 
             if (newItems.length > 0) {
-              const currentMachine = prev.machines.find(m => m.id === prev.currentMachineId);
-              const oldCount = currentMachine?.completedItems || 0;
-
               next.completedItems = [...prev.completedItems, ...newItems];
+            }
 
-              // EDGE CASE 3 FIX: Use workflow's items_to_increment instead of newItems.length
-              // Workflow increments database by items_to_increment (based on count param)
-              // Frontend MUST use same value to stay in sync
-              // Using newItems.length (deduplicated) can cause divergence on retries
-              // CRITICAL: Use !== undefined check (not ||) to allow items_to_increment=0
+            // Use backend's absolute count as source of truth (prevents drift on retries/dedup)
+            if (result.new_completed_items !== undefined && prev.currentMachineId) {
+              const oldCount = prev.machines.find(m => m.id === prev.currentMachineId)?.completedItems || 0;
+              next.machines = prev.machines.map(m =>
+                m.id === prev.currentMachineId
+                  ? { ...m, completedItems: result.new_completed_items }
+                  : m
+              );
+              console.log('[Session] ✅ Count synced from backend:', {
+                machine: prev.currentMachineName,
+                oldCount,
+                backendCount: result.new_completed_items,
+                completedListSize: (next.completedItems || prev.completedItems).length
+              });
+            } else if (prev.currentMachineId) {
+              // Fallback: increment locally if backend doesn't return absolute count
               const workflowIncrement = result.items_to_increment !== undefined
                 ? result.items_to_increment
-                : newItems.length;
-
-              // Update machine's completedItems count
-              if (prev.currentMachineId) {
+                : (newItems.length > 0 ? newItems.length : 0);
+              if (workflowIncrement > 0) {
                 next.machines = prev.machines.map(m =>
                   m.id === prev.currentMachineId
                     ? { ...m, completedItems: m.completedItems + workflowIncrement }
                     : m
                 );
-
-                console.log('[Session] ✅ Updated counts:', {
-                  machine: prev.currentMachineName,
-                  oldCount,
-                  workflowIncrement,
-                  deduplicatedCount: newItems.length,
-                  newCount: oldCount + workflowIncrement,
-                  totalCompleted: prev.completedItems.length + newItems.length,
-                  usingWorkflowValue: result.items_to_increment !== undefined
-                });
-              } else {
-                console.warn('[Session] ⚠️  No currentMachineId - count not updated!');
-              }
-            } else {
-              console.warn('[Session] ⚠️  All items filtered as duplicates:', itemsToAdd.map(i => `${i.machineName}:${i.slot}`));
-              // Fix: Still update machine completedItems count from backend increment
-              const workflowIncrement = result.items_to_increment !== undefined
-                ? result.items_to_increment : 0;
-              if (workflowIncrement > 0 && prev.currentMachineId) {
-                next.machines = (next.machines || prev.machines).map(m =>
-                  m.id === prev.currentMachineId
-                    ? { ...m, completedItems: m.completedItems + workflowIncrement }
-                    : m
-                );
-                console.log('[Session] Updated machine count despite dedup filter:', workflowIncrement);
+                console.log('[Session] ✅ Count incremented (fallback):', workflowIncrement);
               }
             }
           }
@@ -586,11 +569,25 @@ export function useStockerSession(userId: string | null) {
           );
           next.currentMachineId = result.machine_id;
           next.currentMachineName = result.machine_name || '';
-          // Fix: Update total items for the returned-to machine
-          const returnedMachine = prev.machines.find(m => m.id === result.machine_id);
-          if (returnedMachine) {
-            next.currentMachineTotalItems = returnedMachine.totalItems;
-            next.currentMachineItemsRemaining = returnedMachine.totalItems - (returnedMachine.completedItems || 0);
+          // Use fresh counts from API response (not stale local state)
+          const apiTotal = result.total_items;
+          const apiCompleted = result.completed_items;
+          if (apiTotal !== undefined) {
+            next.currentMachineTotalItems = apiTotal;
+            next.currentMachineItemsRemaining = apiTotal - (apiCompleted || 0);
+            // Sync machine's completedItems with backend
+            next.machines = (next.machines || prev.machines).map(m =>
+              m.id === result.machine_id
+                ? { ...m, completedItems: apiCompleted || 0 }
+                : m
+            );
+          } else {
+            // Fallback to local state if API doesn't return counts
+            const returnedMachine = prev.machines.find(m => m.id === result.machine_id);
+            if (returnedMachine) {
+              next.currentMachineTotalItems = returnedMachine.totalItems;
+              next.currentMachineItemsRemaining = returnedMachine.totalItems - (returnedMachine.completedItems || 0);
+            }
           }
           // Set pending transition so user is prompted for direction
           next.pendingMachineTransition = {
