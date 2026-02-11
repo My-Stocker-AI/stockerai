@@ -3,7 +3,6 @@ PDF upload endpoint:
   POST /api/upload-pdf — replaces n8n PDF Upload workflow (7kO6o1wASKvbhc2U, 16 nodes)
 """
 
-import uuid
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from app.services.database import get_client
 from app.services.pdf_parser import extract_text_from_pdf, parse_route_pdf

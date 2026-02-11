@@ -55,7 +55,11 @@ def get_next_item(req: GetNextItemRequest):
             "p_count": req.count,
         })
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        err_str = str(e)
+        # Parse Postgres RAISE EXCEPTION messages (e.g., 'No active session found')
+        if "No active session" in err_str:
+            raise HTTPException(status_code=404, detail="No active session found")
+        raise HTTPException(status_code=500, detail=err_str)
 
     if not data:
         raise HTTPException(status_code=404, detail="No active session found")

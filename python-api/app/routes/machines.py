@@ -356,6 +356,12 @@ def set_route_sequence(req: SetRouteSequenceRequest):
             machines[0],  # fallback to first if all done
         )
 
+    # Compute 1-based machine index for frontend "Machine X of Y" display
+    machine_index = next(
+        (i + 1 for i, m in enumerate(machines) if m["id"] == first_machine["id"]),
+        1,
+    )
+
     db.table("sessions").update({
         "current_machine_id": first_machine["id"],
     }).eq("id", session_id).execute()
@@ -388,6 +394,7 @@ def set_route_sequence(req: SetRouteSequenceRequest):
         "machine_id": first_machine["id"],
         "machine_name": first_machine["machine_name"],
         "total_machines": len(machines),
+        "machine_index": machine_index,
         "machines": machines_list,
         "session_id": session_id,
         "spoken": f"Starting route. First machine is {first_machine['machine_name']} at {first_machine['location_name']}. Say top or bottom.",
