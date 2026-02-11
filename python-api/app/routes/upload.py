@@ -100,6 +100,8 @@ async def upload_pdf(
         .execute()
     )
 
+    if not route_insert.data:
+        raise HTTPException(status_code=500, detail="Failed to create route in database")
     route_id = route_insert.data[0]["id"]
 
     # Step 6: Insert machines and items (with denormalized fields)
@@ -134,6 +136,8 @@ async def upload_pdf(
                 .execute()
             )
 
+            if not machine_insert.data:
+                raise HTTPException(status_code=500, detail=f"Failed to insert machine: {machine_name}")
             machine_id = machine_insert.data[0]["id"]
             total_machines += 1
 

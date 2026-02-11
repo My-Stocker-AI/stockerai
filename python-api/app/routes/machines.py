@@ -111,6 +111,7 @@ def skip_machine(req: SkipMachineRequest):
             "next_machine_id": next_machine["id"],
             "next_machine_number": next_machine.get("machine_number"),
             "next_location": next_machine["location_name"],
+            "voice_text": phrase,
             "spoken": phrase,
             "display": f"Skipped: {current_machine['machine_name']} → Next: {next_machine['machine_name']}",
         }
@@ -132,20 +133,24 @@ def skip_machine(req: SkipMachineRequest):
             "current_machine_id": skipped["id"],
         }).eq("id", session["id"]).execute()
 
+        skip_phrase = f"No more machines ahead. Going back to {skipped['machine_name']} at {skipped['location_name']}. Top or bottom?"
         return {
             "action": "next_machine",
             "skipped_machine": current_machine["machine_name"],
             "next_machine": skipped["machine_name"],
             "next_machine_id": skipped["id"],
             "next_location": skipped["location_name"],
-            "spoken": f"No more machines ahead. Going back to {skipped['machine_name']} at {skipped['location_name']}. Top or bottom?",
+            "voice_text": skip_phrase,
+            "spoken": skip_phrase,
             "display": f"Returning to: {skipped['machine_name']}",
         }
 
     # Step 6: All machines done/skipped — route complete
+    complete_phrase = "All machines are done or skipped. Route complete!"
     return {
         "action": "route_complete",
-        "spoken": "All machines are done or skipped. Route complete!",
+        "voice_text": complete_phrase,
+        "spoken": complete_phrase,
     }
 
 
@@ -210,6 +215,7 @@ def go_back_to_skipped(req: GoBackToSkippedRequest):
 
     first_item = items_result.data[0] if items_result.data else None
 
+    back_phrase = f"Going back to {machine['machine_name']} at {machine['location_name']}. Say top or bottom to start."
     response = {
         "action": "machine_ready",
         "machine_id": machine["id"],
@@ -219,7 +225,8 @@ def go_back_to_skipped(req: GoBackToSkippedRequest):
         "total_items": machine["total_items"],
         "completed_items": machine["completed_items"],
         "remaining_skipped": remaining_skipped,
-        "spoken": f"Going back to {machine['machine_name']} at {machine['location_name']}. Say top or bottom to start.",
+        "voice_text": back_phrase,
+        "spoken": back_phrase,
         "display": f"Returning to: {machine['machine_name']}",
     }
 
@@ -380,6 +387,7 @@ def set_route_sequence(req: SetRouteSequenceRequest):
         for m in machines
     ]
 
+    route_phrase = f"Starting route. First machine is {first_machine['machine_name']} at {first_machine['location_name']}. Say top or bottom."
     return {
         "action": "machine_ready",
         "route_name": route["route_name"],
@@ -397,7 +405,8 @@ def set_route_sequence(req: SetRouteSequenceRequest):
         "machine_index": machine_index,
         "machines": machines_list,
         "session_id": session_id,
-        "spoken": f"Starting route. First machine is {first_machine['machine_name']} at {first_machine['location_name']}. Say top or bottom.",
+        "voice_text": route_phrase,
+        "spoken": route_phrase,
     }
 
 

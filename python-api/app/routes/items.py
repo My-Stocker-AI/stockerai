@@ -234,6 +234,9 @@ def start_machine(req: StartMachineRequest):
     session = session_result.data[0]
     machine_id = session["current_machine_id"]
 
+    if not machine_id:
+        raise HTTPException(status_code=400, detail="Session has no current machine. Select a route first.")
+
     # Step 2: Get machine
     machine_result = (
         db.table("machines")
