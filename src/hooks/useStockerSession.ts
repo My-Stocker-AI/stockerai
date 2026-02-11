@@ -244,11 +244,12 @@ export function useStockerSession(userId: string | null) {
           }
         }
 
-        // Fix: Mark machine as in_progress in machines array
+        // Fix: Mark machine as in_progress and sync completed count from backend
         if (result.machine_id) {
+          const backendCompleted = result.new_completed_items;
           next.machines = prev.machines.map(m =>
             m.id === result.machine_id
-              ? { ...m, status: 'in_progress' as const }
+              ? { ...m, status: 'in_progress' as const, ...(backendCompleted !== undefined ? { completedItems: backendCompleted } : {}) }
               : m
           );
         }
@@ -302,11 +303,13 @@ export function useStockerSession(userId: string | null) {
 
         if (action === 'next_item' || action === 'next_machine' || action === 'route_complete' || action === 'complete') {
           // Add current item(s) to completed list (2-pick mode: add both if present)
+          // NOTE: Do NOT gate on .slot truthiness — empty string '' is falsy in JS
+          // and items with null/empty slots would silently be dropped from Done card
           const itemsToAdd: CurrentItem[] = [];
-          if (prev.currentItem && prev.currentItem.slot) {
+          if (prev.currentItem) {
             itemsToAdd.push(prev.currentItem);
           }
-          if (prev.currentItem2 && prev.currentItem2.slot) {
+          if (prev.currentItem2) {
             itemsToAdd.push(prev.currentItem2);
           }
 
@@ -328,10 +331,10 @@ export function useStockerSession(userId: string | null) {
           }
 
           if (itemsToAdd.length > 0) {
-            // CATASTROPHIC FAILURE FIX: Deduplicate items to prevent duplicate logging
-            // Check if items are already in the completed list by BOTH slot AND machine name
-            const existingKeys = new Set(prev.completedItems.map(item => `${item.machineName}:${item.slot}`));
-            const newItems = itemsToAdd.filter(item => !existingKeys.has(`${item.machineName}:${item.slot}`));
+            // Deduplicate items to prevent duplicate logging
+            // Key includes product name to prevent false collisions (different products, same slot range)
+            const existingKeys = new Set(prev.completedItems.map(item => `${item.machineName}:${item.slot}:${item.product}`));
+            const newItems = itemsToAdd.filter(item => !existingKeys.has(`${item.machineName}:${item.slot}:${item.product}`));
 
             console.log('[Session] 🔍 Deduplication check:', {
               itemsToAdd: itemsToAdd.length,

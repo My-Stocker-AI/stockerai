@@ -272,8 +272,16 @@ def start_machine(req: StartMachineRequest):
         item1_data = items[-1]
         item2_data = items[-2] if req.count == 2 and len(items) > 1 else None
 
-    # Step 5: Update machine status to in_progress
-    db.table("machines").update({"status": "in_progress"}).eq("id", machine_id).execute()
+    # Step 5: Update machine status to in_progress AND pre-count displayed items
+    # CRITICAL: Without this, the first get_next_item RPC returns the SAME items
+    # start_machine showed (because completed_items=0), causing a "wasted" call where
+    # the frontend dedup filters everything and the Done card doesn't grow.
+    items_shown = 1 + (1 if item2_data else 0)
+    new_completed = machine.get("completed_items", 0) + items_shown
+    db.table("machines").update({
+        "status": "in_progress",
+        "completed_items": new_completed,
+    }).eq("id", machine_id).execute()
 
     # Step 6: Update session pick_direction and current_machine_id
     db.table("sessions").update({
@@ -294,7 +302,9 @@ def start_machine(req: StartMachineRequest):
         "session_complete": False,
         "machine_id": machine_id,
         "machine_name": machine.get("machine_name", ""),
-        "items_remaining": machine["total_items"] - machine.get("completed_items", 0),
+        "items_remaining": machine["total_items"] - new_completed,
+        "new_completed_items": new_completed,
+        "total_items": machine["total_items"],
         "direction": pick_direction,
         "new_item_index": new_item_index,
         "item1": format_item_for_response(

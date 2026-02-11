@@ -1222,13 +1222,13 @@ export default function StockerApp() {
             // FIX: Clear stale currentItem if already in completedItems (prevents showing
             // a completed item as "current" after resume, especially when pick-count changed)
             const completedKeys = new Set(
-              (saved.completedItems || []).map((item: any) => `${item.machineName}:${item.slot}`)
+              (saved.completedItems || []).map((item: any) => `${item.machineName}:${item.slot}:${item.product}`)
             );
-            const restoredItem1 = saved.currentItem && saved.currentItem.slot
-              && completedKeys.has(`${saved.currentItem.machineName}:${saved.currentItem.slot}`)
+            const restoredItem1 = saved.currentItem
+              && completedKeys.has(`${saved.currentItem.machineName}:${saved.currentItem.slot}:${saved.currentItem.product}`)
               ? null : saved.currentItem;
-            const restoredItem2 = saved.currentItem2 && saved.currentItem2.slot
-              && completedKeys.has(`${saved.currentItem2.machineName}:${saved.currentItem2.slot}`)
+            const restoredItem2 = saved.currentItem2
+              && completedKeys.has(`${saved.currentItem2.machineName}:${saved.currentItem2.slot}:${saved.currentItem2.product}`)
               ? null : (saved.currentItem2 || null);
 
             setRouteState({
@@ -1338,13 +1338,13 @@ export default function StockerApp() {
     // FIX: Clear stale currentItem if already in completedItems (prevents showing
     // a completed item as "current" after resume, especially when pick-count changed)
     const completedKeys = new Set(
-      (savedSession.completedItems || []).map((item: any) => `${item.machineName}:${item.slot}`)
+      (savedSession.completedItems || []).map((item: any) => `${item.machineName}:${item.slot}:${item.product}`)
     );
-    const restoredItem1 = savedSession.currentItem && savedSession.currentItem.slot
-      && completedKeys.has(`${savedSession.currentItem.machineName}:${savedSession.currentItem.slot}`)
+    const restoredItem1 = savedSession.currentItem
+      && completedKeys.has(`${savedSession.currentItem.machineName}:${savedSession.currentItem.slot}:${savedSession.currentItem.product}`)
       ? null : savedSession.currentItem;
-    const restoredItem2 = savedSession.currentItem2 && savedSession.currentItem2.slot
-      && completedKeys.has(`${savedSession.currentItem2.machineName}:${savedSession.currentItem2.slot}`)
+    const restoredItem2 = savedSession.currentItem2
+      && completedKeys.has(`${savedSession.currentItem2.machineName}:${savedSession.currentItem2.slot}:${savedSession.currentItem2.product}`)
       ? null : (savedSession.currentItem2 || null);
 
     setRouteState({
