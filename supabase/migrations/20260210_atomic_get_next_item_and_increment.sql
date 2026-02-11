@@ -84,6 +84,7 @@ DECLARE
   v_new_completed_items INTEGER;
   v_new_items_remaining INTEGER;
   v_item2_sequence INTEGER;
+  v_route_name TEXT;
 BEGIN
   -- Step 1: Get session with active stocking status
   SELECT
@@ -101,6 +102,10 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'No active session found for user';
   END IF;
+
+  -- Look up route name for completion voice text
+  SELECT r.route_name INTO v_route_name
+  FROM routes r WHERE r.id = v_session.current_route_id;
 
   -- Step 2: Get current machine WITH ROW LOCK (prevents concurrent modifications)
   SELECT
@@ -248,7 +253,7 @@ BEGIN
       NULL::TEXT, NULL::INTEGER, NULL::TEXT,
       NULL::UUID, NULL::TEXT, NULL::INTEGER, NULL::TEXT,
       FALSE,
-      'Route'::TEXT,
+      COALESCE(v_route_name, 'Route')::TEXT,
       1,
       v_current_machine.completed_items,
       v_session.current_machine_id,
