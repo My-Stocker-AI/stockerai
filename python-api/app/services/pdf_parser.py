@@ -8,18 +8,19 @@ Output: structured route data { route_name, delivery_date, locations: [...] }
 """
 
 import re
-from PyPDF2 import PdfReader
 import io
+import pdfplumber
 
 
 def extract_text_from_pdf(pdf_bytes: bytes) -> str:
-    """Extract text from PDF binary data."""
-    reader = PdfReader(io.BytesIO(pdf_bytes))
+    """Extract text from PDF binary data using pdfplumber (preserves layout/whitespace)."""
+    pdf = pdfplumber.open(io.BytesIO(pdf_bytes))
     text_parts = []
-    for page in reader.pages:
+    for page in pdf.pages:
         page_text = page.extract_text()
         if page_text:
             text_parts.append(page_text)
+    pdf.close()
     return "\n".join(text_parts)
 
 
