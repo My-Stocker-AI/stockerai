@@ -2047,11 +2047,12 @@ export default function StockerApp() {
               return null;
             }
 
-            // CRITICAL FIX: Use actual completed items count from machines array
-            // Bug: itemsRemaining includes current item (announced but not picked yet)
-            // Result: Progress was always +1 ahead of reality
-            const currentMachine = routeState.machines.find(m => m.id === routeState.currentMachineId);
-            const itemsCompleted = currentMachine?.completedItems || 0;
+            // CRITICAL FIX: Use completedItems[] array (same SOT as route-level "items picked")
+            // machines[].completedItems is synced from backend which includes pre-counted
+            // displayed items (start_machine pre-counts before user confirms with "next")
+            const itemsCompleted = routeState.completedItems.filter(
+              item => item.machineName === routeState.currentMachineName
+            ).length;
             const itemPercent = Math.max(5, Math.min(100, (itemsCompleted / itemsTotal) * 100));
 
             console.log('[Progress] Total:', itemsTotal, 'Completed:', itemsCompleted, 'Percent:', itemPercent);
