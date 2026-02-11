@@ -664,15 +664,23 @@ export default function StockerApp() {
 
             // Fallback if no spoken field (CONTRACT VIOLATION - should not happen)
             console.error('[ContractViolation] No spoken field in workflow result - this violates data contracts');
-            console.warn('[CommandRecognizer] No spoken field in result, falling through to AI');
+            const fallbackMsg = "Something went wrong. Can you say that again?";
+            setAiResponse(fallbackMsg);
+            await v.speak(fallbackMsg);
+            processingRef.current = false;
+            return;
           }
         } catch (err: any) {
           console.error('[CommandRecognizer] Direct execution failed:', err);
-          // Fall through to AI on error
+          const errorMsg = "Something went wrong. Can you try again?";
+          setAiResponse(errorMsg);
+          await v.speak(errorMsg);
+          processingRef.current = false;
+          return;
         }
 
         processingRef.current = false;
-        // Fall through to AI if direct execution didn't return
+        return; // Never fall through to AI during active picking
       } else {
         // UNKNOWN during active picking — respond locally, do NOT route to AI
         // AI gives confusing state-based responses to unrecognized input (e.g. "Say top or bottom" mid-machine)
