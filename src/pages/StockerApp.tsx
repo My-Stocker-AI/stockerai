@@ -1144,8 +1144,7 @@ export default function StockerApp() {
             .from('routes')
             .select('id, route_name, delivery_date, total_machines, total_items')
             .eq('id', routeIdFromUrl)
-            .limit(1)
-            .execute();
+            .limit(1);
 
           const route = routeData?.[0];
 
