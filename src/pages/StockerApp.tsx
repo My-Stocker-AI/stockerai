@@ -1767,7 +1767,7 @@ export default function StockerApp() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#0d1117] via-[#161b22] to-[#0d1117] text-white flex flex-col">
+    <div className="min-h-screen bg-gradient-to-b from-[#0d1117] via-[#161b22] to-[#0d1117] text-white flex flex-col select-none">
       {/* iOS PWA Warning Modal - getUserMedia is completely broken in standalone mode */}
       {showPWAWarning && (
         <div className="fixed inset-0 bg-black/90 z-[100] flex items-center justify-center p-4">
