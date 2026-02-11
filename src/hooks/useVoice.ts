@@ -999,13 +999,21 @@ export function useVoice(options: UseVoiceOptions = {}) {
 
   const speakBrowser = useCallback((text: string): Promise<void> => {
     return new Promise((resolve) => {
+      // Timeout: Chrome onend is unreliable and can hang indefinitely
+      const timeout = setTimeout(() => {
+        console.warn('[Voice] speakBrowser timeout (15s) — forcing resolve');
+        try { window.speechSynthesis.cancel(); } catch (e) {}
+        resolve();
+      }, 15000);
+
       try {
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.rate = 1.0;
-        utterance.onend = () => resolve();
-        utterance.onerror = () => resolve();
+        utterance.onend = () => { clearTimeout(timeout); resolve(); };
+        utterance.onerror = () => { clearTimeout(timeout); resolve(); };
         window.speechSynthesis.speak(utterance);
       } catch (e) {
+        clearTimeout(timeout);
         resolve();
       }
     });
@@ -1021,7 +1029,18 @@ export function useVoice(options: UseVoiceOptions = {}) {
         speakLockRef.current = true;
         resolve();
       } else {
-        speakQueueRef.current.push(resolve);
+        // Timeout: prevent deadlock if current speak() hangs
+        const timeout = setTimeout(() => {
+          console.warn('[Voice] acquireSpeakLock timeout (20s) — force-releasing lock');
+          speakLockRef.current = true; // Take the lock for ourselves
+          speakQueueRef.current = []; // Clear stale queue
+          resolve();
+        }, 20000);
+
+        speakQueueRef.current.push(() => {
+          clearTimeout(timeout);
+          resolve();
+        });
       }
     });
   }, []);
@@ -1305,7 +1324,16 @@ export function useVoice(options: UseVoiceOptions = {}) {
       // 10. Restart recognition (matches original PWA)
       await resumeListening();
 
+    } catch (outerError) {
+      console.error('[Voice] Speak failed:', outerError);
     } finally {
+      // CRITICAL: Always reset from 'speaking' state to prevent permanent voice lockout
+      // If status is still 'speaking' here, something threw before setStatus('listening')
+      if (!stoppedRef.current && statusRef.current === 'speaking') {
+        console.warn('[Voice] Resetting stuck speaking state in finally block');
+        setStatus('listening');
+        try { await resumeListening(); } catch (e) { /* best effort */ }
+      }
       // Always release lock (matches original PWA unlock in finally)
       releaseSpeakLock();
     }
