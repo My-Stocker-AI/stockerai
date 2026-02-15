@@ -1,5 +1,21 @@
 # StockerAI Memory - Recent Sessions
 
+> **Older sessions archived to:** `.claude-archives/StockerAI_MEMORY_archive_20260215_030045.md`
+> **Archive date:** 2026-02-15
+> **Sessions kept:** 12 (last 14 days)
+
+---
+
+# StockerAI Memory - Recent Sessions
+
+> **Older sessions archived to:** `.claude-archives/StockerAI_MEMORY_archive_20260210_030017.md`
+> **Archive date:** 2026-02-10
+> **Sessions kept:** 13 (last 14 days)
+
+---
+
+# StockerAI Memory - Recent Sessions
+
 > **Older sessions archived to:** `.claude-archives/StockerAI_MEMORY_archive_20260208_030001.md`
 > **Archive date:** 2026-02-08
 > **Sessions kept:** 11 (last 14 days)
@@ -21,6 +37,10 @@
 **Status:** ⏳ IN PROGRESS - Fixed immediate bug, planning complete migration
 
 ---
+
+
+
+
 
 ## ✅ SESSION 62: N8N TO PYTHON MIGRATION (2026-02-10)
 
@@ -155,6 +175,10 @@ See: `/home/visionairy/StockerAI/docs/SESSION_62_N8N_TO_PYTHON_MIGRATION.md`
 **Status:** ✅ DEPLOYED - LIMIT 100 removed, Machine 3 now returns all 34 items
 
 ---
+
+
+
+
 
 ## ✅ SESSION 60: MACHINE 3 "ITEM NOT FOUND" BUG - SYSTEMIC ROOT CAUSE (2026-02-08)
 
@@ -346,6 +370,282 @@ next.currentMachineName = machineName;
 
 
 
+
+
+
+
+## ✅ SESSION 61: FUNCTIONAL AUDIT - RACE CONDITION & SECURITY FIX (2026-02-08)
+
+**Context:** Completed systematic functional audit of StockerAI workflows after fixing LIMIT 100 bug. Found critical race condition and security issues.
+
+**Audit Scope:** 11 active workflows (user functions: next, top/bottom, skip, go back, etc.)
+
+---
+
+### Workflows Audited (3/11 Complete)
+
+| Workflow | Status | Critical Issues | High Issues | Medium Issues |
+|----------|--------|----------------|-------------|---------------|
+| get_next_item | ✅ FIXED | 2 (FIXED) | 3 | 2 |
+| start_machine | ✅ AUDITED | 0 | 1 | 2 |
+| skip_current_machine | ✅ AUDITED | 0 | 0 | 1 |
+| go_back_to_skipped | ⏸️ IN PROGRESS | - | - | - |
+| set_route_sequence | ⏳ PENDING | - | - | - |
+| get_routes_for_date | ⏳ PENDING | - | - | - |
+| update_session_state | ⏳ PENDING | - | - | - |
+| delete_route | ⏳ PENDING | - | - | - |
+| get_current_status | ⏳ PENDING | - | - | - |
+| PDF Upload | ⏳ PENDING | - | - | - |
+
+---
+
+### 🔴 CRITICAL ISSUES FOUND & FIXED
+
+#### Issue #1: Machine Sequence Gap Bug (FALSE ALARM)
+**Status:** ❌ NOT A BUG - User correctly challenged
+
+**Initial finding:** get_next_item uses `sequence = current + 1`, fails if machines deleted
+**User question:** "Can machines be deleted? If 5 machines, they're 1-5, where's the issue?"
+**Research revealed:**
+- ✅ Only ROUTES can be deleted (not individual machines)
+- ✅ Routes CANNOT be deleted during active sessions (code protection verified)
+- ✅ Sequences assigned sequentially when route created (no gaps possible)
+
+**Conclusion:** Theoretical issue, not real. No fix needed.
+
+**Lesson:** Always verify assumptions before calling something "critical"
+
+---
+
+#### Issue #2: Race Condition - completed_items Counter ✅ FIXED
+**Status:** ✅ DEPLOYED (2026-02-08)
+
+**Problem:**
+```javascript
+// Workflow does Read → Calculate → Write (NOT atomic)
+var completed = 5;           // Read
+var newCompleted = 5 + 1;    // Calculate
+UPDATE completed_items = 6;  // Write
+```
+
+**Failure scenario:**
+- User says "next" twice rapidly (voice mishearing, double-tap, network retry)
+- Both requests read `completed_items = 5`
+- Both write `completed_items = 6`
+- Counter only increments once, but user picked 2 items
+- Result: Progress counter desync, machine never completes
+
+**Impact:** Conceded by user as possible, even if rare
+
+---
+
+#### Issue #3: Hardcoded API Keys ✅ FIXED
+**Status:** ✅ DEPLOYED (2026-02-08)
+
+**Problem:** "Increment Completed Items" node had literal Supabase service role keys
+**Security risk:** Keys visible in workflow export, execution logs, version control
+
+---
+
+### The Fix: Atomic Increment + Credential Security ✅
+
+**Files deployed:**
+1. **Migration:** `supabase/migrations/20260208_atomic_increment_machine_items.sql`
+2. **Workflow:** get_next_item → "Increment Completed Items" node updated
+
+**Database function created:**
+```sql
+CREATE FUNCTION increment_machine_items(
+  p_machine_id UUID,
+  p_increment INTEGER
+) RETURNS TABLE (
+  completed_items INTEGER,
+  total_items INTEGER,
+  items_remaining INTEGER
+)
+-- Atomic UPDATE with implicit row lock
+UPDATE machines 
+SET completed_items = completed_items + p_increment
+WHERE id = p_machine_id
+```
+
+**Workflow node updated:**
+```javascript
+// OLD (vulnerable):
+await this.helpers.httpRequest({
+  headers: {
+    'apikey': 'eyJhbGci...',  // Hardcoded
+    'Authorization': 'Bearer eyJhbGci...'
+  },
+  body: { completed_items: newCompletedItems }  // Read-then-write
+});
+
+// NEW (secure + atomic):
+var credentials = await this.getCredentials('supabaseApi');
+await this.helpers.httpRequest({
+  method: 'POST',
+  url: '.../rpc/increment_machine_items',
+  headers: {
+    'apikey': credentials.serviceRole,  // From n8n credentials
+    'Authorization': 'Bearer ' + credentials.serviceRole
+  },
+  body: { p_machine_id: machineId, p_increment: itemsToIncrement }
+});
+```
+
+**Benefits:**
+- ✅ Race condition eliminated (PostgreSQL row locking)
+- ✅ Hardcoded API keys removed (uses n8n credential store)
+- ✅ Zero breaking changes (same behavior)
+- ✅ Same performance (single DB operation)
+
+---
+
+### 🟡 REMAINING HIGH PRIORITY ISSUES (Unresolved)
+
+#### Issue #4: completed > total Not Validated
+**Workflow:** get_next_item
+**Problem:** If `completed_items > total_items` (data corruption), code continues silently
+**Should:** Throw error "Data corruption detected"
+**Priority:** HIGH
+
+#### Issue #5: Skipped Machine Not Validated
+**Workflow:** get_next_item (next_machine path)
+**Problem:** Returns to first skipped machine without checking if still incomplete
+**Scenario:** Another user completes skipped machine remotely, first user returns to it
+**Priority:** HIGH
+
+#### Issue #6: start_machine Sets completed_items Without Validation
+**Workflow:** start_machine
+**Problem:** Sets `completed_items = count` without checking current value is 0
+**Risk:** If called incorrectly mid-machine, resets counter (data loss)
+**Current protection:** AI prompt prevents this, but workflow has no safeguard
+**Priority:** HIGH
+
+---
+
+### 🟢 MEDIUM ISSUES (Unresolved)
+
+#### Issue #7: pick_direction Value Mismatch?
+**Workflow:** get_next_item
+**Problem:** Code uses `pickDirection === 'reverse'` but database might use 'backward'
+**Action needed:** Verify actual database values
+
+#### Issue #8: Completed Machine Validation Missing
+**Workflow:** skip_current_machine
+**Problem:** User can "skip" an already-completed machine
+**Impact:** LOW (user progresses correctly, just wrong status)
+
+#### Issue #9: Invalid Direction Handling
+**Workflow:** start_machine
+**Problem:** Invalid direction values (e.g., "middle") fall through to 'forward'
+**Should:** Validate direction, return error
+
+#### Issue #10: Dead Code
+**Workflow:** start_machine
+**Problem:** `itemIndex` variable declared but never used
+**Impact:** NONE (just cleanup)
+
+---
+
+### ✅ POSITIVE FINDINGS
+
+**skip_current_machine is EXCELLENT:**
+- Uses `sequence > current` (handles gaps correctly) ✅
+- Better than get_next_item's `sequence = current + 1`
+- Uses credentials (not hardcoded) ✅
+- Clean validation logic ✅
+- **Recommendation:** get_next_item should adopt this approach
+
+---
+
+### Code Pattern Research - n8n Credentials in Code Nodes
+
+**Question:** How to use credentials in Code nodes? (not HTTP Request nodes)
+
+**Research method:** Searched existing workflows for patterns
+**Answer found:** `INCREMENT_CODE_NODE_FINAL.js`
+
+**CORRECT pattern for Code nodes:**
+```javascript
+var credentials = await this.getCredentials('supabaseApi');
+await this.helpers.httpRequest({
+  headers: {
+    'apikey': credentials.serviceRole,
+    'Authorization': 'Bearer ' + credentials.serviceRole
+  }
+});
+```
+
+**WRONG pattern (doesn't work in Code nodes):**
+```javascript
+// This only works in HTTP Request nodes, NOT Code nodes:
+await this.helpers.httpRequest({
+  authentication: 'predefinedCredentialType',
+  nodeCredentialType: 'supabaseApi'
+});
+```
+
+**Lesson:** Always research existing patterns before providing code
+
+---
+
+### Audit Documents Created
+
+**Location:** `/home/visionairy/StockerAI/docs/audits/`
+
+1. `FUNCTIONAL_AUDIT_get_next_item.md` - 399 lines, comprehensive
+2. `FUNCTIONAL_AUDIT_start_machine.md` - Complete with dependency verification
+3. `FUNCTIONAL_AUDIT_skip_current_machine.md` - Best practices documented
+
+**Deployment guides:**
+- `DEPLOYMENT_GUIDE_atomic_increment.md` - Step-by-step fix deployment
+
+**Fix files:**
+- `supabase/migrations/20260208_atomic_increment_machine_items.sql` - ✅ DEPLOYED
+- `workflows/fixes/get_next_item_increment_completed_items_ATOMIC_FIX.js` - ✅ DEPLOYED
+
+---
+
+### Next Actions
+
+**Immediate (user paused here):**
+- Continue functional audit (8 workflows remaining)
+- Assess remaining HIGH priority issues (#4-6)
+- Validate pick_direction values in database (#7)
+
+**Future considerations:**
+- get_next_item should adopt skip_current_machine's sequence selection logic
+- Add defensive validations where identified
+- Document go_back_to_skipped resume behavior (restart vs resume from skipped_at_item)
+
+---
+
+### Key Learnings - Session 61
+
+**User feedback that improved quality:**
+1. "Can't you research to determine which is correct?" → Led to proper code pattern research
+2. "Is the perceived problem in how machines are entered?" → Challenged false assumption
+3. "One item at a time. Start with the first one." → Forced systematic validation
+
+**What I did RIGHT:**
+- ✅ Created comprehensive audit documents with examples
+- ✅ Researched actual patterns before providing code
+- ✅ Combined two fixes (race condition + security) in one deployment
+- ✅ Provided zero-impact fix with migration + workflow update
+
+**What I did WRONG:**
+- ❌ Called theoretical issue "CRITICAL" without verifying it could happen
+- ❌ Provided two code versions to "try" instead of researching first
+- ❌ Initial atomic increment code used wrong credential pattern
+
+**Lesson:** Validate assumptions. Research patterns. One verified solution beats two guesses.
+
+
+
+
+
+
 ## ✅ SESSION 59: F5 REFRESH FIX + MANDATORY AUDIT VIOLATION (2026-02-04)
 
 **Context:** Fixed F5 refresh bug where Done card and progress bar showed empty after page refresh. VIOLATED MANDATORY SYSTEM IMPACT AUDIT PROTOCOL by deploying without audit. User called out pattern of repeated failures.
@@ -484,6 +784,10 @@ const load = useCallback(async (userId: string | null): Promise<SessionData | nu
 
 
 
+
+
+
+
 ## ✅ SESSION 58: CRITICAL FIXES - PDF PARSER + MYROUTES DELETE (2026-02-04)
 
 **Context:** Three critical bugs discovered and fixed: corrupted PDF item names (78% failure), 0-item machines causing upload failures, and MyRoutes delete completely broken.
@@ -615,6 +919,10 @@ if (activeSessions && activeSessions.length > 0) {
 **Status:** ALL THREE FIXES DEPLOYED AND VALIDATED
 
 ---
+
+
+
+
 
 
 
@@ -1142,12 +1450,20 @@ Nodes:
 
 
 
+
+
+
+
 ## ✅ SESSION 56 COMPLETE - DIRECTION REVERSAL BUG FIXED (2026-02-02)
 
 **Date:** 2026-02-02
 **Status:** ✅ CommandRecognizer now strips punctuation, "next item." routes correctly
 
 ---
+
+
+
+
 
 
 
@@ -1201,6 +1517,10 @@ recognize(transcript: string): CommandMatch {
 **Deployment:** Auto-deploy via GitHub push to main
 
 ---
+
+
+
+
 
 
 
@@ -1434,6 +1754,10 @@ Machine 2 starts with items in saved direction (no prompt)
 
 
 
+
+
+
+
 ## ✅ SESSION 54: DASHBOARD-ROUTE SYNC FIX (2026-02-02)
 
 **Problem:** Dashboard showing stale completion data not matching actual route state
@@ -1518,6 +1842,10 @@ queryClient.invalidateQueries({ queryKey: ['my-routes'] });
 4. **Honesty over speed** - Better to admit violation and fix properly than defend incomplete work
 
 ---
+
+
+
+
 
 
 
@@ -1943,6 +2271,10 @@ WHERE id = '<route_id>';
 
 
 
+
+
+
+
 ## ✅ SESSION 52: MACHINE COUNTING FIX (2026-02-02)
 
 **Problem:** skip_machine workflow not preserving progress when machines are skipped
@@ -2153,1290 +2485,7 @@ if (sessionData && sessionData.id) {
 
 
 
-## ✅ SESSION 51 RECOVERY COMPLETE (2026-02-01)
 
-**Summary:** Complete system recovery from incomplete systemic fix that removed database column but left 20+ code references.
 
-### Recovery Execution (2026-02-01)
 
-**Layer 1: Database (FIXED)**
-- Created: `supabase/migrations/20260201_remove_current_item_index_from_rpc.sql`
-- Fixed: `get_next_item_data` RPC function removed current_item_index from RETURNS TABLE and SELECT
-- Status: ✅ User executed successfully, RPC now queries only existing columns
-
-**Layer 2: Workflows (6 FIXED)**
-- `set_route_sequence` (46lMRdxTgD1E3WFz) - Removed from HTTP Request jsonBody
-- `skip_current_machine` (ElCSMeguJNxwp0HO) - Removed from GET URL + Code node
-- `get_next_item` (iykbFj7f9222PF7r) - Removed from HTTP Request jsonBody
-- `go_back_to_skipped` (rpNfINhjbFCuFrlZ) - Removed from GET URL + PATCH body
-- `switch_route` (3G01u7N9REhrC9tn) - Removed from GET URL
-- `get_current_status` (PD3ErCuxWBWLFXIq) - Complete logic redesign (uses completed_items + 1)
-- Status: ✅ All fixed via n8n-mcp batch operations, validated successfully
-
-**Layer 3: Frontend (15 REFS REMOVED)**
-- `MyRoutes.tsx` (3 refs) - Added machines query, progress = sum(completed_items) / total_items
-- `Usage.tsx` (6 refs) - Join sessions with machines for chart and driver stats
-- `contracts.ts` (2 refs) - Removed from SessionContract interface
-- `types.ts` (3 refs) - Removed from Row/Insert/Update database types
-- `useSessionPersistence.ts` (1 ref) - Comment only, kept as documentation
-- Status: ✅ All fixed, TypeScript build passes, grep returns zero non-comment refs
-
-**Migration:** `sessions.current_item_index` → `machines.completed_items`
-**Verification:** grep + TypeScript + build all pass
-**Commit:** f8bfdf4 (StockerAI), cf85fa6 (Flon8)
-
-### Learnings Captured
-
-**Pattern:** TROUBLE_001 - Incomplete Systemic Fix
-- Captured in `/home/visionairy/Flon8/knowledge/synta-learnings/TROUBLE_001.md`
-- Root cause: Trusted incomplete documentation, never ran comprehensive grep
-- Prevention: Mandatory comprehensive discovery FIRST, present full scope, atomic execution
-- Flon8 implementation: Automated grep, approval gate, verification protocol
-
-**Pattern:** TROUBLE_002 - Frontend Migration
-- Complete data migration strategy documented
-- 15 references removed atomically across 4 files
-- Verification protocol: grep + TypeScript build
-
-**Pattern:** DISCOVER_002 - Hierarchical Validation Protocol
-- Captured in `/home/visionairy/Flon8/knowledge/synta-learnings/DISCOVER_002_hierarchical_validation.md`
-- Discovery: Validation must mirror decomposition (inverted)
-- Intent decomposition flows TOP-DOWN (complex → simple)
-- Validation MUST flow BOTTOM-UP (syntax → function → integration → system)
-- 4 layers: Syntax (code compiles) → Function (logic works) → Integration (boundaries correct) → System (user experience works)
-- CRITICAL: NEVER claim "verified" without specifying which layers passed
-- User insight: "Code doesn't live in a vacuum" - syntax validity ≠ system validity
-
-**Infrastructure:** Mandatory Learning Capture Protocol
-- Added to `/home/visionairy/Flon8/CLAUDE.md`
-- 4 triggers, 3 checkpoints, verification protocol
-- Knowledge bridge now functional and tested
-
-### Validation Status (2026-02-01)
-
-**Database Verification:** ✅ PASSED
-- Test 1: sessions.current_item_index removed ✓
-- Test 2: machines.completed_items exists ✓
-- Test 3: RPC function returns machine_completed_items ✓
-- Test 4: Sample RPC output shows correct fields ✓
-- Test 5: Route progress aggregation works ✓
-
-**Hierarchical Validation:**
-- ✅ Layer 1 (Syntax): TypeScript build passed, grep verification clean, SQL executes
-- ✅ Layer 2 (Function): RPC returns correct fields, progress calculations work
-- ⚠️ Layer 3 (Integration): Cannot programmatically test n8n → frontend flow
-- ✅ Layer 4 (System): Manual testing COMPLETED
-
-**Manual Testing Results (2026-02-01):**
-
-**✅ CORE FUNCTIONALITY WORKING:**
-- Dashboard loads without errors ✓
-- Routes display correctly ✓
-- Voice recognition works ✓
-- Items can be picked and increment ✓
-- Progress tracking works (mostly) ✓
-- Machine completion detection ✓
-- Skip machine functionality ✓
-- Resume skipped machine (partially) ✓
-- No schema migration errors ✓
-- Database queries successful ✓
-
-**Session 51 Migration: ✅ SUCCESS**
-- Removed `sessions.current_item_index` column
-- Migrated to `machines.completed_items`
-- Updated 1 RPC function
-- Updated 6 n8n workflows
-- Updated 15 frontend references
-- No crashes, no schema errors
-- Core data flow intact
-
-**✅ ALL 5 EDGE CASES FIXED (2026-02-01):**
-
----
-
-### Edge Case 1: Machine Transition Semantic Confusion ✅ FIXED
-
-**Severity:** MEDIUM
-**Status:** ✅ FIXED (2026-02-01)
-
-**Symptom:**
-- User finished Machine 1
-- System asked "top or bottom" for Machine 2
-- User replied: "start at the bottom"
-- AI responded: "You're already starting from the bottom"
-- But user wasn't ON Machine 2 yet (just finished Machine 1)
-
-**Root Cause:**
-AI misunderstood context - interpreted "bottom" as current position instead of next machine direction:
-- `awaitingDirection` context didn't clarify this is the NEXT machine
-- No explicit statement that previous machine is COMPLETE
-- No explanation that user is choosing direction for NEW machine (not current position)
-- STATE 1 repeat question was ambiguous
-
-**Expected Behavior:**
-AI should understand "start at the bottom" means "begin Machine 2 from the last item"
-
-**Impact:**
-Confuses users, requires clarification exchange
-
-**The Fix (File: src/hooks/useStockerAI.ts):**
-
-**1. Enhanced awaitingDirection context (lines 296-306):**
-- Added: "CONTEXT: Previous machine is COMPLETE. You are about to START the NEXT machine."
-- Added: "USER IS CHOOSING: Direction to begin THIS NEW MACHINE (not their current position)."
-- Added: "When user says 'start at the bottom', they mean 'BEGIN this new machine from the last item'."
-- Added: "Do NOT say 'you're already at...' (they haven't started this machine yet!)"
-
-**2. Updated STATE 1 prompt (lines 364-377):**
-- Added: "CRITICAL CONTEXT: User just FINISHED previous machine and is about to START the NEXT machine."
-- Changed repeat question: "Do you want to start [machine name] from the top or bottom?"
-- Added: "NEVER say 'you're already at...' (they haven't started this machine yet!)"
-
-**Result:**
-- AI now understands user is choosing direction for NEW machine
-- Clear context about machine transition state (finished → about to start)
-- No more "you're already at..." confusion
-- Proper semantic interpretation of "start at bottom" = "begin new machine from end"
-
----
-
-### Edge Case 2: Direction Prompt Timing Wrong ✅ FIXED
-
-**Severity:** MEDIUM
-**Status:** ✅ FIXED (2026-02-01)
-
-**Symptom:**
-- Skipped Machine 2
-- Started Machine 3
-- System gave 2 items BEFORE asking "top or bottom"
-- User had to say "next" to trigger the direction prompt
-- Then system asked "top or bottom"
-
-**Root Cause:**
-`skip_current_machine` workflow (ElCSMeguJNxwp0HO) had "Get First Item" node that fetched items prematurely:
-- Flow was: Mark Skipped → Find Next Machine → Get First Item → Format Output
-- Workflow returned `action="next_machine"` BUT also included item data (first_item, first_quantity, first_slot)
-- Frontend received items before direction was chosen
-- Items were displayed to user before being asked "top or bottom"
-
-**Expected Behavior:**
-1. Detect new machine
-2. Ask "top or bottom?"
-3. User responds
-4. THEN give first item(s)
-
-**Impact:**
-User sees items they may not want (if they wanted to start from opposite end)
-
-**The Fix (Workflow: skip_current_machine - ElCSMeguJNxwp0HO):**
-
-**1. Removed "Get First Item" node:**
-- This node was fetching first item from next machine prematurely
-- Items should only be fetched AFTER direction is chosen
-
-**2. Rewired connections:**
-- Before: Update Session → Get First Item → Format Output
-- After: Update Session → Format Output (direct connection)
-
-**3. Updated "Format Output" node:**
-- Removed item data fields: `first_item`, `first_quantity`, `first_slot`
-- Now returns ONLY transition info: `action="next_machine"`, `next_machine`, `next_machine_id`, `next_location`
-- Updated comment to clarify: "Returns action='next_machine' WITHOUT items - direction must be chosen first"
-
-**Result:**
-- Skip machine now returns action="next_machine" with NO item data
-- Frontend sets pendingMachineTransition and waits
-- AI asks "Top or bottom for [machine]?"
-- User provides direction
-- start_machine called with direction
-- THEN get_next_item fetches first items
-- Items appear AFTER direction chosen, not before
-
----
-
-### Edge Case 3: Item Count Wrong on Final Machine ✅ FIXED
-
-**Severity:** HIGH
-**Status:** ✅ FIXED (2026-02-01)
-
-**Symptom:**
-- Final machine (Machine 4, 5 items total)
-- After picking first 2 items, count showed "6" (wrong - should be 2/5)
-- System gave only 1 item instead of next 2
-- First 2 picked items did NOT appear in "done" card
-
-**Root Cause:**
-Frontend-database counter divergence:
-- Frontend incremented machine counter by `newItems.length` (deduplicated count)
-- Workflow incremented database by `items_to_increment` (count parameter)
-- On retries/duplicate calls, deduplication filtered items → newItems.length = 0
-- Frontend incremented by 0, but database still incremented by 2
-- Counts diverged: Frontend showed 2, database had 4 (or higher)
-
-**Example divergence scenario:**
-1. User picks 2 items → Database +2, Frontend +2 ✓ (in sync)
-2. Retry/race condition triggers duplicate call
-   - Deduplication: items already in array → newItems.length = 0
-   - Frontend: +0
-   - Workflow: +2 (still uses count parameter)
-   - Database: 2+2=4, Frontend: 2+0=2 ✗ (out of sync)
-3. User sees wrong count
-
-**Expected Behavior:**
-- Count: 2/5 after first 2 items
-- Done card: Shows 2 completed items
-- Next items: Should give 2 more (items 3-4), not just 1
-
-**Impact:**
-Progress tracking incorrect, done card missing items, wrong items announced
-
-**The Fix (File: src/hooks/useStockerSession.ts:317):**
-
-**Before:**
-```javascript
-// Used frontend-calculated deduplicated count
-completedItems: m.completedItems + newItems.length
-```
-
-**After:**
-```javascript
-// Use workflow's authoritative increment value
-const workflowIncrement = result.items_to_increment || newItems.length;
-// ...
-completedItems: m.completedItems + workflowIncrement
-```
-
-**Result:**
-- Frontend uses same increment value as workflow/database
-- Counts stay in sync even on retries/duplicates
-- Deduplication still works for completedItems array (prevents duplicate items in "done" card)
-- Machine counter uses authoritative workflow value (matches database)
-- Progress bar shows correct "2/5" instead of wrong value
-
----
-
-### Edge Case 4: Resume Skipped Machine State Lost ✅ FIXED
-
-**Severity:** HIGH
-**Status:** ✅ FIXED (2026-02-01)
-
-**Symptom:**
-- Skipped Machine 2 after picking 2 items
-- Completed other machines
-- Returned to Machine 2 (correct behavior ✓)
-- But system asked "top or bottom" again (should remember we started from bottom)
-- Progress didn't show 2 already picked
-- System gave 2 DIFFERENT items (wrong - should give items 3-4)
-- Didn't give final 5th item
-
-**Root Cause:**
-`set_route_sequence` workflow wasn't querying `status` and `completed_items` from database:
-- "Get All Machines" node missing `status` and `completed_items` in SELECT query
-- "Prep Machine Update" node hard-coding values: `completedItems: 0`, `status: i === 0 ? 'in_progress' : 'pending'`
-- Result: Skipped machine state lost on page reload/resume
-
-**Expected Behavior:**
-When resuming skipped machine:
-1. Remember direction (don't ask again)
-2. Show progress (2/5 items completed)
-3. Continue from where left off (give items 3-4, then 5)
-
-**Impact:**
-User re-picks same items, loses time, wrong completion count
-
-**The Fix (Workflow: set_route_sequence - 46lMRdxTgD1E3WFz):**
-
-**1. "Get All Machines" node (id: "get_machine"):**
-- Added `status,completed_items` to SELECT query
-- Before: `select=id,machine_name,location_name,machine_number,sequence,total_items`
-- After: `select=id,machine_name,location_name,machine_number,sequence,total_items,status,completed_items`
-
-**2. "Prep Machine Update" node (id: "prep_machine"):**
-- Use database values instead of hard-coding
-- Before:
-```javascript
-completedItems: 0,  // Hard-coded!
-status: i === 0 ? 'in_progress' : 'pending'  // Hard-coded logic!
-```
-- After:
-```javascript
-completedItems: m.completed_items || 0,  // Use DB value
-status: m.status || 'pending'  // Use DB value
-```
-
-**3. "Needs Create?" IF node (id: "if_needs_create"):**
-- Downgraded from typeVersion 2.2 to 1 (v2.2 validation error)
-- Changed from complex conditions.options structure to simple string comparison
-
-**Result:**
-- Skipped machines now preserve `status='skipped'` and `completed_items` count
-- Resume flow uses actual database state
-- No more asking "top or bottom" again
-- Progress counter shows correct N/total
-- Continues from where user left off
-
----
-
-### Edge Case 5: Completion Detection Wrong ✅ FIXED
-
-**Severity:** MEDIUM
-**Status:** ✅ FIXED (2026-02-01)
-
-**Symptom:**
-- After resuming skipped machine with state issues (Edge Case 4)
-- System thought machine was complete (it wasn't - missing items)
-- Moved to ALREADY COMPLETED machine (should skip completed machines)
-
-**Root Cause:**
-Two related issues:
-1. **Edge Case 4 state corruption:** Skipped machine `completed_items` reset to 0 on resume, then inflated incorrectly
-2. **Missing completion check:** Next machine selection only checked `status !== 'skipped'`, NOT `completed_items < total_items`
-
-Result: Even if a machine had `completed_items >= total_items`, it could still be selected as "next machine"
-
-**Expected Behavior:**
-- Detect all items in machine completed (completed_items = total_items)
-- Skip already-completed machines
-- Move to next incomplete machine OR end route if all complete
-
-**Impact:**
-User sent to wrong machine, wastes time, route completion detection unreliable
-
-**The Fix (Workflow: get_next_item - iykbFj7f9222PF7r):**
-
-**Updated "Determine Next State" node - Added defensive completion checks:**
-
-**1. Sequential machine selection (lines ~70-85):**
-- Before:
-```javascript
-if (machines[i].sequence === currentMachineSeq + 1 &&
-    machines[i].status !== 'skipped') {
-```
-- After:
-```javascript
-if (machines[i].sequence === currentMachineSeq + 1 &&
-    machines[i].status !== 'skipped' &&
-    (machines[i].completed_items || 0) < machines[i].total_items) {
-```
-
-**2. Skipped machine selection (lines ~95-105):**
-- Before:
-```javascript
-if (machines[i].status === 'skipped') {
-```
-- After:
-```javascript
-if (machines[i].status === 'skipped' &&
-    (machines[i].completed_items || 0) < machines[i].total_items) {
-```
-
-**Result:**
-- Next machine selection now verifies machine is INCOMPLETE
-- Skips any machine where `completed_items >= total_items`
-- Even if Edge Case 4 state corruption occurs again, won't select completed machines
-- Route completion only when ALL machines have `completed_items >= total_items`
-
-**Note:** Edge Case 5 likely already resolved by Edge Case 4 fix (preserves `completed_items` state). This adds defensive logic to prevent similar issues even if state corruption occurs elsewhere.
-
----
-
-### Assessment Summary
-
-**Migration Success:** ✅
-- No schema errors
-- Core data flow works
-- Migration from `current_item_index` to `machines.completed_items` successful
-
-**Core Features Working:** ✅
-- Voice recognition
-- Item picking
-- Progress tracking (basic)
-- Machine transitions (basic)
-- Skip functionality (basic)
-
-**Edge Cases Status (2026-02-01):** ✅ ALL 5 FIXED
-- ✅ Edge Case 1: Machine Transition Semantic Confusion (AI prompt enhanced)
-- ✅ Edge Case 2: Direction Prompt Timing Wrong (workflow fixed)
-- ✅ Edge Case 3: Item count wrong on final machine (counter divergence fixed)
-- ✅ Edge Case 4: Resume Skipped Machine State Lost (workflow + state persistence fixed)
-- ✅ Edge Case 5: Completion Detection Wrong (defensive logic added)
-
-**Production Readiness:** ✅ READY FOR TESTING
-- Core migration: Complete ✓
-- Edge cases: 5/5 fixed ✓
-- Recommendation: Manual testing to verify all fixes work correctly
-
-**User Quote (from initial testing):** "We're getting MUCH closer. BUT WE'RE CLOSE!"
-
----
-
-### Next Steps (2026-02-01)
-
-1. ✅ **Capture learnings** - Document bidirectional XF architecture, hybrid Synta+XF approach
-2. ✅ **Debug edge cases** - Fixed ALL 5 edge cases systematically from code analysis
-3. **Manual testing** - Verify all fixes work correctly in production
-4. **Deploy confidence** - All edge cases fixed, ready for production use
-
-**Fixes deployed:**
-- Commit e17dc56: Edge Cases 1 & 4 (AI prompt + workflow state preservation)
-- Commit bbe79b3: Edge Case 2 (skip_current_machine workflow timing)
-- Commit d1ca44d: Edge Case 5 (defensive completion detection)
-- Commit c79ffac: Edge Case 3 (counter divergence fix)
-- Frontend changes: Auto-deployed via Cloudflare Pages (2-3 minutes)
-
-**All changes committed and pushed to production.**
-
-### THE ORIGINAL CATASTROPHIC FAILURE
-
-**What happened:**
-1. Deployed "systemic fix" commit 345fc92 to eliminate dual-counter architecture
-2. Migration ran successfully: Removed `sessions.current_item_index` column from database ✓
-3. Updated ONLY 2 of 9 workflows before deployment ✗
-4. System completely broken - cannot start routes ✗
-
-**Root cause of failure:**
-- **Violated System Impact Audit Protocol** - Did not check ALL affected workflows before deployment
-- **Incomplete fix deployment** - Changed database schema without updating all dependent code
-- **No validation** - Deployed without testing complete system
-
-### THE PROBLEM
-
-**Database state:**
-- ✓ Migration ran: `sessions.current_item_index` column removed
-- ✓ Unique constraints intact: `(user_id, session_key)`
-
-**Broken workflows (7+ workflows still reference current_item_index):**
-- set_route_sequence - Trying to SELECT/UPDATE removed column → "column does not exist" error
-- start_machine - Same issue
-- skip_current_machine - Unknown
-- get_next_item - Unknown
-- update_session_state - Unknown
-- get_current_status - Unknown
-- go_back_to_skipped - Unknown
-
-**Broken frontend:**
-- `src/pages/dashboard/MyRoutes.tsx` - Queries current_item_index for progress
-- `src/pages/dashboard/Usage.tsx` - Queries current_item_index for stats
-- Type definitions still reference removed column
-
-**User impact:** Cannot start routes, cannot work, cannot make money
-
-### THE FIX PATTERN DISCOVERED
-
-**Using XF Framework (manual MECE decomposition), identified 3-fix pattern:**
-
-Every workflow that touches sessions needs the same fixes:
-
-**Pattern 1: HTTP Request SELECT queries**
-- Find: `select=id,current_machine_id,current_item_index,status`
-- Fix: Remove `current_item_index,` from select clause
-
-**Pattern 2: Code nodes setting current_item_index**
-- Find: `current_item_index: 1` or `current_item_index: itemIndex`
-- Fix: Delete the entire line
-
-**Pattern 3: HTTP Request UPDATE/PATCH**
-- Find: `{{ JSON.stringify({ current_machine_id: ..., current_item_index: ... }) }}`
-- Fix: Remove `current_item_index: ...` from JSON object
-
-### FIXES APPLIED (2026-01-31)
-
-**✅ FIXED:**
-1. **set_route_sequence (46lMRdxTgD1E3WFz)** - 3 fixes applied by user:
-   - Find Session node: Removed current_item_index from SELECT
-   - Prep Machine Update node: Removed `current_item_index: 1` line
-   - Update Session Machine node: Removed current_item_index from PATCH body
-
-2. **start_machine (JbKdJuKgGbyvzlF0)** - 3 fixes applied by user:
-   - Get Session node: Removed current_item_index from SELECT
-   - Select Item node: Removed `current_item_index: itemIndex` line
-   - Update Session node: Removed current_item_index from PATCH body
-
-**❌ STILL NEED TO FIX:**
-3. skip_current_machine (ElCSMeguJNxwp0HO) - Same 3-fix pattern
-4. get_next_item (iykbFj7f9222PF7r) - Same 3-fix pattern
-5. update_session_state (ueDSi9SDBZ5jMwpO) - Same 3-fix pattern
-6. get_current_status (PD3ErCuxWBWLFXIq) - Likely just SELECT (lower priority)
-7. go_back_to_skipped (rpNfINhjbFCuFrlZ) - Same 3-fix pattern
-8. switch_route (3G01u7N9REhrC9tn) - Unknown
-9. delete_route (zmgTBX1w1rc5bOpO) - Unknown
-
-**Frontend (non-blocking but needs fixing):**
-- MyRoutes.tsx - Remove current_item_index queries, use machines.completed_items
-- Usage.tsx - Same
-- Type definitions - Remove current_item_index from interfaces
-
-### HIERARCHICAL FIX STRATEGY
-
-**Layer 1: Get routes starting** ← USER IS HERE
-- ✅ Fix set_route_sequence
-- ✅ Fix start_machine
-- 🧪 TEST: Can routes start now?
-
-**Layer 2: Get routes completing**
-- Fix skip_current_machine
-- Fix get_next_item
-- Fix go_back_to_skipped
-- 🧪 TEST: Can routes complete?
-
-**Layer 3: State management**
-- Fix update_session_state
-- Fix other workflows
-
-**Layer 4: Polish**
-- Fix frontend dashboard
-- Update type definitions
-
-### ALTERNATIVE APPROACH: Synta.io
-
-**User signed up for Synta.io AI workflow builder**
-
-**Why Synta might be better for this:**
-- Purpose-built for n8n workflows (vs general-purpose Claude)
-- Has self-healing capabilities - auto-tests and fixes workflows
-- Deep knowledge of n8n nodes and validation
-- Can scan all workflows systematically
-- Outputs production-ready workflows
-
-**Synta.io prompt prepared:**
-```
-Full context provided including:
-- System overview (StockerAI voice-first vending system)
-- The problem (current_item_index column removed)
-- Workflows to fix (9 workflows listed with IDs)
-- Fix pattern (3-point pattern documented)
-- Expected behavior after fix
-- Supabase connection details
-```
-
-**User decision:** Try Synta.io for systematic workflow fixing
-
-### KEY LESSONS
-
-**What went wrong:**
-1. ❌ **Violated System Impact Audit Protocol** - Changed database without checking ALL affected code
-2. ❌ **Incomplete deployment** - Updated 2 workflows out of 9+
-3. ❌ **No validation** - Didn't test before declaring "systemic fix" complete
-4. ❌ **Overconfidence** - Assumed fix was simple, didn't do full MECE analysis upfront
-
-**What should have happened:**
-1. ✅ Run MECE decomposition FIRST - Find ALL code that references current_item_index
-2. ✅ Create complete checklist - Document every file/workflow that needs changes
-3. ✅ Fix ALL code BEFORE running migration - Database change is last step, not first
-4. ✅ Test thoroughly - Validate each layer works before moving to next
-5. ✅ Deploy atomically - All changes at once, not piecemeal
-
-**XF Framework worked when applied manually:**
-- MECE decomposition found the 3-fix pattern
-- Hierarchical approach (Layer 1, 2, 3) provides clear path forward
-- Boundary analysis identified what's critical vs nice-to-have
-
-**User insight:** "Shouldn't we be able to identify the prompts XF would use for MECE discovery specific to the system?"
-- ✅ Yes - focused queries work better than broad "analyze everything"
-- Example: "Which workflows SELECT current_item_index?" (specific, bounded)
-- vs "Analyze systemic fix impact" (too broad, XF timed out)
-
-### NEXT ACTIONS
-
-**Option 1: Continue with Claude using hierarchical approach**
-1. Test if routes start now (2 workflows fixed)
-2. If yes: Apply 3-fix pattern to remaining 5-7 workflows
-3. Test after each layer
-4. Fix frontend last
-
-**Option 2: Use Synta.io for systematic fix**
-1. Provide full context prompt (prepared above)
-2. Let Synta scan all workflows
-3. Apply fixes systematically
-4. Validate complete solution
-
-**User chose:** Option 2 (Synta.io)
-
-### FILES CHANGED THIS SESSION
-
-**Database:**
-- Migration already ran (commit 345fc92)
-
-**Workflows (manually updated in n8n UI):**
-- set_route_sequence: Find Session, Prep Machine Update, Update Session Machine nodes
-- start_machine: Get Session, Select Item, Update Session nodes
-
-**Git commits:**
-- None yet (changes made in n8n UI, not committed)
-
----
-
-
-
-## PREVIOUS WORK (Session 50 - 2026-01-26)
-
-### 🔥 CRITICAL BUG FIXED: Machine Completing at 3/5 Instead of 5/5
-
-**Problem:** Machine showed 3/5 items complete after user picked all 5 items
-- Done list showed all 9 items correctly ✓
-- Machine dropdown showed 4/5 (missing last increment) ✗
-- Machine 3 started with Machine 2 items instead of Machine 3 ✗
-- Database: `completed_items = 3` when should be 5 ✗
-
----
-
-### Timeline of Debugging (Learning Moments)
-
-**Initial hypothesis 1: Increment node not executing**
-- ❌ WRONG: Execution logs showed it WAS executing (28572, 28573, 28577, 28578)
-- User corrected: "Increment fired on 28572 and 28573, not 28574, fired 28577, and 28578, but not the last 28579"
-
-**Initial hypothesis 2: Await not working in Code node**
-- ❌ WRONG: Created async IIFE wrapper, but this wasn't the problem
-- Created: `INCREMENT_COMPLETED_ITEMS_AWAIT_FIX.js` (unnecessary)
-
-**Initial hypothesis 3: PATH 3 fallback triggering incorrectly**
-- ✅ PARTIALLY CORRECT: PATH 3 WAS triggered (execution 28574, 28579)
-- But this was a SYMPTOM, not the root cause
-
-**USER INSIGHT (breakthrough):**
-> "It's counting the number of conversation turns instead of the items picked? That's why it's 3, not 5 right? There are 5 items, it picked 2 twice and 1 once, and it was done with the machine."
-
-✅ **ROOT CAUSE DISCOVERED:**
-
----
-
-### Root Cause: Dual-Counter Architectural Bug
-
-**What happened:**
-```javascript
-// Line 194 in Determine Next State - OLD CODE:
-var itemsToIncrement = item2 ? 2 : 1;  // ← BUG: Counts items FOUND, not items PICKED
-```
-
-**User picked:**
-- Turn 1: count=2 (2 items) → `itemsToIncrement = 2` ✓
-- Turn 2: count=2 (2 items) → `itemsToIncrement = 1` ✗ (item2 didn't exist at sequence 6)
-- Turn 3: count=1 (1 item) → `itemsToIncrement = 1` ✓
-- **Total: 2+1+1 = 4 items counted** (not 2+2+1 = 5)
-
-**Why item2 was null on Turn 2:**
-- Session at `current_item_index = 4`
-- Looking for sequence 5 (nextItem) ✓ Found
-- Looking for sequence 6 (item2) ✗ Doesn't exist (only 5 items total)
-- Result: `item2 = null`, so `itemsToIncrement = 1` not 2
-
-**The architectural problem:**
-- System has TWO counters: `current_item_index` (sequence position) AND `completed_items` (items picked)
-- These can DIVERGE and cause bugs
-- Workflow was using `item2` existence (sequence-based) instead of `count` parameter (user request)
-
----
-
-### Bandaid Fix Deployed (2026-01-26)
-
-**File:** `workflows/FIXED_determine_next_state_USE_COUNT_PARAM.js`
-
-**Changes:**
-1. ✅ Line 194: `var itemsToIncrement = count;` (was: `item2 ? 2 : 1`)
-2. ✅ Removed PATH 3 entirely (lines 238-322)
-3. ✅ Added error handling if nextItem null but machine incomplete
-
-**Commit:** `d958b3d` - Bandaid fix: Use count parameter for items_to_increment
-
-**Impact:**
-- `completed_items` now increments by requested count, not found items
-- Machine completion ONLY by `completed_items >= total_items` (PATH 1)
-- No more "ran out of sequence" fallback (PATH 3 removed)
-
-**Status:** Fix created, needs pasting into n8n workflow
-- Workflow: `get_next_item (Optimized)` (ID: iykbFj7f9222PF7r)
-- Node: "Determine Next State"
-- Action: Replace ALL code with `FIXED_determine_next_state_USE_COUNT_PARAM.js`
-
----
-
-### 🚨 ARCHITECTURAL DEBT: Dual-Counter System
-
-**Current system (after bandaid):**
-- `current_item_index` - Tracks sequence position (which item to show next)
-- `completed_items` - Tracks items picked count (source of truth for completion)
-- These counters can DIVERGE (as they did in this bug)
-
-**User insight:**
-> "Shouldn't there just be 1 way of counting everything the whole way through? There are the number of items in a machine, and the number of items that have been presented and picked, being indicate by the user saying next. That's it, isn't it?"
-
-✅ **User is correct.** The system is over-engineered.
-
-**Proper architectural fix (NOT YET IMPLEMENTED):**
-
-1. **Remove `current_item_index` entirely**
-2. **Use ONLY `completed_items` for both counting AND finding next item:**
-   ```javascript
-   // Calculate target sequence from completed_items
-   if (pickDirection === 'forward') {
-     targetSequence = completedItems + 1;  // 0→1, 1→2, 2→3
-   } else {
-     targetSequence = totalItems - completedItems;  // 0→5, 1→4, 2→3
-   }
-
-   // Find item with that sequence
-   for (var i = 0; i < items.length; i++) {
-     if (items[i].sequence === targetSequence) {
-       nextItem = items[i];
-       break;
-     }
-   }
-
-   // Increment by count parameter
-   completedItems += count;
-
-   // Complete when: completedItems >= totalItems
-   ```
-
-3. **Update ALL workflows to stop using current_item_index:**
-   - get_next_item workflow (Determine Next State, Update Session)
-   - start_machine workflow (stop setting current_item_index)
-   - skip_current_machine workflow (already sets to 0, works as-is)
-
-4. **Validate assumptions:**
-   - ✅ Items array sorted by sequence (1,2,3,4,5)
-   - ✅ Sequences consecutive (no gaps)
-   - ✅ Array index = sequence - 1
-
-**Why not implemented yet:**
-- Bandaid fixes immediate bug (5 minutes)
-- Architectural fix requires 2-3 hours + thorough testing
-- Risk: 4 workflows + frontend changes
-- Decision: Fix NOW, refactor LATER
-
-**Documentation of proper fix location:**
-- See VALIDATION section in Session 50 transcript
-- Algorithm validated against actual execution data
-- Safe to implement when time permits
-
----
-
-### Files Modified (Session 50)
-
-**Bandaid fix:**
-- `workflows/FIXED_determine_next_state_USE_COUNT_PARAM.js` (new file)
-- `workflows/INCREMENT_COMPLETED_ITEMS_AWAIT_FIX.js` (created but unnecessary)
-- `workflows/SKIP_PREPARE_SESSION_UPDATE_FIX.js` (fixed separate bug)
-- `workflows/ADD_FIRST_ITEM_FIX.js` (read only, already fixed)
-
-**Frontend fix:**
-- `src/hooks/useSessionPersistence.ts` (clearServer now resets machines)
-
-**Commits:**
-- `d958b3d` - Bandaid fix: Use count parameter for items_to_increment
-- `1583852` - Fix: Reset machines.completed_items on route reset
-- `6717501` - Fix: Wrap await in async IIFE (unnecessary, but harmless)
-
----
-
-### Phase 2 Status
-
-**✅ WORKING:**
-- Edge Function passes `completed_items` through
-- Increment node executes on next_item actions
-- Database increments by requested count (after bandaid fix)
-- Machine dropdown will show correct N/5 progress
-- Reset button clears `completed_items` back to 0
-
-**🚨 NEEDS DEPLOYMENT:**
-- Paste `FIXED_determine_next_state_USE_COUNT_PARAM.js` into n8n workflow
-
-**📋 ARCHITECTURAL DEBT:**
-- Dual-counter system (current_item_index + completed_items)
-- Should refactor to single counter when time permits
-- Complete algorithm and validation documented above
-
----
-
-## 🎯 XF DEBUGGING PROTOCOL (Learned from Session 50)
-
-**Status:** MANDATORY for multi-component bugs
-**Purpose:** Prevent 2-hour guessing games with systematic boundary discovery
-
-### When Session 50 Went Wrong (Symptomatic Approach)
-
-**What we did:**
-1. Observed symptom: 3/5 instead of 5/5
-2. Guessed cause 1: Increment not executing → ❌ WRONG (it WAS executing)
-3. Guessed cause 2: Await broken → ❌ WRONG (await was fine)
-4. Guessed cause 3: PATH 3 bug → ⚠️ SYMPTOM not cause
-5. User insight: "Counting conversation turns instead of items picked"
-6. Fixed increment calculation → Deployed
-7. **User tested:** "Item not found" error (new symptom!)
-8. Fixed sequence lookup → Deployed (second fix)
-
-**Result:** 2 hours, 6-8 wrong hypotheses, 2 partial fixes, user frustrated
-
----
-
-### How XF Would Have Solved It (Systemic Approach)
-
-**One XF command discovers everything:**
-```bash
-./xpansion.py analyze "Machine showing 3/5 items complete after user picked all 5 items with count=2,2,1. Database has completed_items=3 not 5. User picked 5 items total but system only counted 3."
-```
-
-**XF discovers in 15 minutes what took us 2 hours:**
-
-**DATA Boundary:**
-```
-INPUTS:
-- webhook.body.count (user's requested count: 1 or 2)
-- session.current_item_index (sequence position: 1-5)
-- machines.completed_items (items picked count: 0-5)
-- item2 (second item when count=2, may be null)
-
-CALCULATION DIVERGENCE DETECTED:
-- Line 194: itemsToIncrement = item2 ? 2 : 1
-- This depends on item2 EXISTENCE, not count PARAMETER
-- RISK: count=2 requested but item2 doesn't exist → increments by 1 not 2
-
-DUAL-COUNTER SYSTEM DETECTED:
-- Counter A: completed_items (database, source of truth for completion)
-- Counter B: current_item_index (session, for sequence lookup)
-- RISK: Can diverge if not synchronized
-```
-
-**NODES Boundary:**
-```
-CRITICAL PATH:
-  Webhook (count=2)
-  → Determine Next State (calculates itemsToIncrement)
-  → Increment Completed Items (updates DB)
-
-AFFECTED: 1 workflow node (Determine Next State)
-NO IMPACT: Frontend, Edge Functions, other workflows
-```
-
-**FLOW Boundary:**
-```
-SCENARIO: count=2 at end of machine (items 4,5 when only 5 exist)
-1. User requests count=2
-2. Determine Next State looks for item2 at sequence 6
-3. Item2 doesn't exist (only 5 items total)
-4. itemsToIncrement set to 1 (BUG: should use count=2)
-5. Database increments by 1
-6. Result: completed_items = 2+1=3 not 2+2=4
-
-SECONDARY BUG DETECTED (dormant):
-1. Session has current_item_index = 1 (from last pick)
-2. Pick direction = reverse
-3. Determine Next State calculates: sequence = 1-1 = 0
-4. No item at sequence 0 (items are 1-5)
-5. WILL FAIL when this code path executes
-```
-
-**ERRORS Boundary:**
-```
-ERROR 1 (active): Counting divergence
-- Root cause: itemsToIncrement = item2 ? 2 : 1
-- Fix: itemsToIncrement = count
-
-ERROR 2 (dormant): Sequence exhaustion
-- Root cause: Using current_item_index for sequence lookup
-- Fix: Calculate sequence from completed_items
-- Forward: targetSequence = completed_items + 1
-- Reverse: targetSequence = totalItems - completedItems
-```
-
-**XF OUTPUT:**
-```
-=== COMPLETE FIX REQUIRED ===
-
-CHANGE 1: Line 194
-  itemsToIncrement = item2 ? 2 : 1
-  → itemsToIncrement = count
-
-CHANGE 2: Lines 158-172 (sequence lookup)
-  if (pickDirection === 'reverse') {
-    nextItem = items[currentItemIndex - 1];
-  }
-  →
-  var targetSequence = pickDirection === 'reverse'
-    ? totalItems - completedItems
-    : completedItems + 1;
-  nextItem = items.find(i => i.sequence === targetSequence);
-
-IMPACT: Single workflow node, no downstream effects
-DEPLOY: Once, test once, done
-```
-
-**Result:** 15 minutes, 1 complete fix, 0 wrong hypotheses, 1 deployment
-
----
-
-### XF Usage Protocol (MANDATORY)
-
-**⚠️ ALWAYS use XF when:**
-
-1. **Bug affects multiple states/counters**
-   - Example: completed_items vs current_item_index
-   - Example: Frontend state vs database state
-
-2. **You have >2 hypotheses**
-   - If guessing, STOP and run XF
-   - Example: "Could be await, or increment, or PATH 3..."
-
-3. **Fix might have downstream effects**
-   - Example: Changing sequence lookup affects all pick modes
-   - Example: Workflow changes might break frontend
-
-4. **User reports "still broken" after your fix**
-   - Indicates incomplete boundary discovery
-   - XF reveals what you missed
-
-5. **Multi-component debugging**
-   - Spans workflow + database + frontend
-   - Need to trace data flow across boundaries
-
-**✅ SKIP XF when:**
-
-1. **Single obvious typo**
-   - Example: `machien_name` → `machine_name`
-
-2. **Copy-paste error**
-   - Example: Wrong variable name, clear from context
-
-3. **User says "don't analyze, just fix X"**
-   - Explicit instruction to skip discovery
-
----
-
-### XF Command Reference
-
-**1. Discover complete bug boundaries:**
-```bash
-./xpansion.py analyze "[User's bug description with symptoms]"
-```
-
-**2. Validate proposed fix:**
-```bash
-./xpansion.py validate \
-  "[Problem statement]" \
-  "[Proposed solution]"
-```
-
-**3. Design complete fix:**
-```bash
-./xpansion.py design "[Goal: fix X to do Y]"
-```
-
----
-
-### Practical Example (Session 50 Bug)
-
-**Instead of our 2-hour debugging:**
-
-```bash
-# User reports: "Picked 5 items, shows 3/5, database has completed_items=3"
-
-# Step 1: STOP - Don't guess
-# Step 2: Run XF
-./xpansion.py analyze "Machine showing 3/5 items complete after user picked all 5 items with count=2,2,1. Database has completed_items=3 not 5."
-
-# Step 3: XF discovers BOTH bugs (increment + sequence lookup)
-# Step 4: Create COMPLETE fix (not partial)
-# Step 5: Deploy once
-# Step 6: Test once
-# Done in 15 minutes
-```
-
----
-
-### Key Insight
-
-**Symptomatic debugging:** Fix immediate symptom → User tests → New symptom → Fix again → ...
-
-**XF systemic debugging:** Discover ALL boundaries → Fix ALL issues → Deploy once → Done
-
-**Time savings:** ~75% (15 min vs 2 hours)
-**User frustration:** Eliminated (1 deployment vs 2+)
-**Code quality:** Higher (complete fix vs partial fixes)
-
----
-
-### Session 50 Lesson
-
-**What we learned:**
-- Partial fixes waste time (user reports "still broken")
-- Guessing wastes time (6+ wrong hypotheses)
-- XF discovers complete picture upfront
-- One complete fix > multiple partial fixes
-
-**Next time:** Run XF FIRST when bug affects multiple components or you're guessing at root cause.
-
----
-
-
-
-
----
-
-## ✅ SESSION 61: FUNCTIONAL AUDIT - RACE CONDITION & SECURITY FIX (2026-02-08)
-
-**Context:** Completed systematic functional audit of StockerAI workflows after fixing LIMIT 100 bug. Found critical race condition and security issues.
-
-**Audit Scope:** 11 active workflows (user functions: next, top/bottom, skip, go back, etc.)
-
----
-
-### Workflows Audited (3/11 Complete)
-
-| Workflow | Status | Critical Issues | High Issues | Medium Issues |
-|----------|--------|----------------|-------------|---------------|
-| get_next_item | ✅ FIXED | 2 (FIXED) | 3 | 2 |
-| start_machine | ✅ AUDITED | 0 | 1 | 2 |
-| skip_current_machine | ✅ AUDITED | 0 | 0 | 1 |
-| go_back_to_skipped | ⏸️ IN PROGRESS | - | - | - |
-| set_route_sequence | ⏳ PENDING | - | - | - |
-| get_routes_for_date | ⏳ PENDING | - | - | - |
-| update_session_state | ⏳ PENDING | - | - | - |
-| delete_route | ⏳ PENDING | - | - | - |
-| get_current_status | ⏳ PENDING | - | - | - |
-| PDF Upload | ⏳ PENDING | - | - | - |
-
----
-
-### 🔴 CRITICAL ISSUES FOUND & FIXED
-
-#### Issue #1: Machine Sequence Gap Bug (FALSE ALARM)
-**Status:** ❌ NOT A BUG - User correctly challenged
-
-**Initial finding:** get_next_item uses `sequence = current + 1`, fails if machines deleted
-**User question:** "Can machines be deleted? If 5 machines, they're 1-5, where's the issue?"
-**Research revealed:**
-- ✅ Only ROUTES can be deleted (not individual machines)
-- ✅ Routes CANNOT be deleted during active sessions (code protection verified)
-- ✅ Sequences assigned sequentially when route created (no gaps possible)
-
-**Conclusion:** Theoretical issue, not real. No fix needed.
-
-**Lesson:** Always verify assumptions before calling something "critical"
-
----
-
-#### Issue #2: Race Condition - completed_items Counter ✅ FIXED
-**Status:** ✅ DEPLOYED (2026-02-08)
-
-**Problem:**
-```javascript
-// Workflow does Read → Calculate → Write (NOT atomic)
-var completed = 5;           // Read
-var newCompleted = 5 + 1;    // Calculate
-UPDATE completed_items = 6;  // Write
-```
-
-**Failure scenario:**
-- User says "next" twice rapidly (voice mishearing, double-tap, network retry)
-- Both requests read `completed_items = 5`
-- Both write `completed_items = 6`
-- Counter only increments once, but user picked 2 items
-- Result: Progress counter desync, machine never completes
-
-**Impact:** Conceded by user as possible, even if rare
-
----
-
-#### Issue #3: Hardcoded API Keys ✅ FIXED
-**Status:** ✅ DEPLOYED (2026-02-08)
-
-**Problem:** "Increment Completed Items" node had literal Supabase service role keys
-**Security risk:** Keys visible in workflow export, execution logs, version control
-
----
-
-### The Fix: Atomic Increment + Credential Security ✅
-
-**Files deployed:**
-1. **Migration:** `supabase/migrations/20260208_atomic_increment_machine_items.sql`
-2. **Workflow:** get_next_item → "Increment Completed Items" node updated
-
-**Database function created:**
-```sql
-CREATE FUNCTION increment_machine_items(
-  p_machine_id UUID,
-  p_increment INTEGER
-) RETURNS TABLE (
-  completed_items INTEGER,
-  total_items INTEGER,
-  items_remaining INTEGER
-)
--- Atomic UPDATE with implicit row lock
-UPDATE machines 
-SET completed_items = completed_items + p_increment
-WHERE id = p_machine_id
-```
-
-**Workflow node updated:**
-```javascript
-// OLD (vulnerable):
-await this.helpers.httpRequest({
-  headers: {
-    'apikey': 'eyJhbGci...',  // Hardcoded
-    'Authorization': 'Bearer eyJhbGci...'
-  },
-  body: { completed_items: newCompletedItems }  // Read-then-write
-});
-
-// NEW (secure + atomic):
-var credentials = await this.getCredentials('supabaseApi');
-await this.helpers.httpRequest({
-  method: 'POST',
-  url: '.../rpc/increment_machine_items',
-  headers: {
-    'apikey': credentials.serviceRole,  // From n8n credentials
-    'Authorization': 'Bearer ' + credentials.serviceRole
-  },
-  body: { p_machine_id: machineId, p_increment: itemsToIncrement }
-});
-```
-
-**Benefits:**
-- ✅ Race condition eliminated (PostgreSQL row locking)
-- ✅ Hardcoded API keys removed (uses n8n credential store)
-- ✅ Zero breaking changes (same behavior)
-- ✅ Same performance (single DB operation)
-
----
-
-### 🟡 REMAINING HIGH PRIORITY ISSUES (Unresolved)
-
-#### Issue #4: completed > total Not Validated
-**Workflow:** get_next_item
-**Problem:** If `completed_items > total_items` (data corruption), code continues silently
-**Should:** Throw error "Data corruption detected"
-**Priority:** HIGH
-
-#### Issue #5: Skipped Machine Not Validated
-**Workflow:** get_next_item (next_machine path)
-**Problem:** Returns to first skipped machine without checking if still incomplete
-**Scenario:** Another user completes skipped machine remotely, first user returns to it
-**Priority:** HIGH
-
-#### Issue #6: start_machine Sets completed_items Without Validation
-**Workflow:** start_machine
-**Problem:** Sets `completed_items = count` without checking current value is 0
-**Risk:** If called incorrectly mid-machine, resets counter (data loss)
-**Current protection:** AI prompt prevents this, but workflow has no safeguard
-**Priority:** HIGH
-
----
-
-### 🟢 MEDIUM ISSUES (Unresolved)
-
-#### Issue #7: pick_direction Value Mismatch?
-**Workflow:** get_next_item
-**Problem:** Code uses `pickDirection === 'reverse'` but database might use 'backward'
-**Action needed:** Verify actual database values
-
-#### Issue #8: Completed Machine Validation Missing
-**Workflow:** skip_current_machine
-**Problem:** User can "skip" an already-completed machine
-**Impact:** LOW (user progresses correctly, just wrong status)
-
-#### Issue #9: Invalid Direction Handling
-**Workflow:** start_machine
-**Problem:** Invalid direction values (e.g., "middle") fall through to 'forward'
-**Should:** Validate direction, return error
-
-#### Issue #10: Dead Code
-**Workflow:** start_machine
-**Problem:** `itemIndex` variable declared but never used
-**Impact:** NONE (just cleanup)
-
----
-
-### ✅ POSITIVE FINDINGS
-
-**skip_current_machine is EXCELLENT:**
-- Uses `sequence > current` (handles gaps correctly) ✅
-- Better than get_next_item's `sequence = current + 1`
-- Uses credentials (not hardcoded) ✅
-- Clean validation logic ✅
-- **Recommendation:** get_next_item should adopt this approach
-
----
-
-### Code Pattern Research - n8n Credentials in Code Nodes
-
-**Question:** How to use credentials in Code nodes? (not HTTP Request nodes)
-
-**Research method:** Searched existing workflows for patterns
-**Answer found:** `INCREMENT_CODE_NODE_FINAL.js`
-
-**CORRECT pattern for Code nodes:**
-```javascript
-var credentials = await this.getCredentials('supabaseApi');
-await this.helpers.httpRequest({
-  headers: {
-    'apikey': credentials.serviceRole,
-    'Authorization': 'Bearer ' + credentials.serviceRole
-  }
-});
-```
-
-**WRONG pattern (doesn't work in Code nodes):**
-```javascript
-// This only works in HTTP Request nodes, NOT Code nodes:
-await this.helpers.httpRequest({
-  authentication: 'predefinedCredentialType',
-  nodeCredentialType: 'supabaseApi'
-});
-```
-
-**Lesson:** Always research existing patterns before providing code
-
----
-
-### Audit Documents Created
-
-**Location:** `/home/visionairy/StockerAI/docs/audits/`
-
-1. `FUNCTIONAL_AUDIT_get_next_item.md` - 399 lines, comprehensive
-2. `FUNCTIONAL_AUDIT_start_machine.md` - Complete with dependency verification
-3. `FUNCTIONAL_AUDIT_skip_current_machine.md` - Best practices documented
-
-**Deployment guides:**
-- `DEPLOYMENT_GUIDE_atomic_increment.md` - Step-by-step fix deployment
-
-**Fix files:**
-- `supabase/migrations/20260208_atomic_increment_machine_items.sql` - ✅ DEPLOYED
-- `workflows/fixes/get_next_item_increment_completed_items_ATOMIC_FIX.js` - ✅ DEPLOYED
-
----
-
-### Next Actions
-
-**Immediate (user paused here):**
-- Continue functional audit (8 workflows remaining)
-- Assess remaining HIGH priority issues (#4-6)
-- Validate pick_direction values in database (#7)
-
-**Future considerations:**
-- get_next_item should adopt skip_current_machine's sequence selection logic
-- Add defensive validations where identified
-- Document go_back_to_skipped resume behavior (restart vs resume from skipped_at_item)
-
----
-
-### Key Learnings - Session 61
-
-**User feedback that improved quality:**
-1. "Can't you research to determine which is correct?" → Led to proper code pattern research
-2. "Is the perceived problem in how machines are entered?" → Challenged false assumption
-3. "One item at a time. Start with the first one." → Forced systematic validation
-
-**What I did RIGHT:**
-- ✅ Created comprehensive audit documents with examples
-- ✅ Researched actual patterns before providing code
-- ✅ Combined two fixes (race condition + security) in one deployment
-- ✅ Provided zero-impact fix with migration + workflow update
-
-**What I did WRONG:**
-- ❌ Called theoretical issue "CRITICAL" without verifying it could happen
-- ❌ Provided two code versions to "try" instead of researching first
-- ❌ Initial atomic increment code used wrong credential pattern
-
-**Lesson:** Validate assumptions. Research patterns. One verified solution beats two guesses.
 
