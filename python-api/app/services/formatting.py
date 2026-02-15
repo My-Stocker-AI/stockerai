@@ -107,13 +107,29 @@ def _build_item_voice_parts(parsed: dict, quantity: int) -> str:
 
 
 def generate_spoken_next_item(data: dict, parsed: dict, parsed2: dict | None) -> str:
-    """Generate voice text for get_next_item action='next_item'."""
+    """
+    Generate voice text for get_next_item action='next_item'.
+    Includes last-item notification prefix when items_remaining == 0.
+    """
+    # Check if this is the last item(s) in the machine
+    items_remaining = data.get("items_remaining", 0)
+    is_last = (items_remaining == 0)
+
+    # Build prefix based on HOW MANY ITEMS ARE DISPLAYED (not mode)
+    prefix = ""
+    if is_last:
+        if parsed2:  # 2 items displayed
+            prefix = "These are the last 2 items. "
+        else:  # 1 item displayed
+            prefix = "This is the last item. "
+
+    # Build item voice text
     if data.get("product_name2") and parsed2:
         item1_text = _build_item_voice_parts(parsed, data["quantity"])
         item2_text = _build_item_voice_parts(parsed2, data["quantity2"])
-        return f"{item1_text}, {item2_text}"
+        return f"{prefix}{item1_text}, {item2_text}"
     else:
-        return _build_item_voice_parts(parsed, data["quantity"])
+        return f"{prefix}{_build_item_voice_parts(parsed, data["quantity"])}"
 
 
 def generate_spoken_next_machine(data: dict) -> str:

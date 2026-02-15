@@ -662,6 +662,23 @@ export default function StockerApp() {
               }
             }
 
+            // FIX: Clear pendingMachineTransition after start_machine succeeds
+            // This prevents "next" commands from being blocked after user says "OK" to start a machine
+            for (const tr of toolResults) {
+              if (tr.result && !tr.result.error) {
+                // Find the tool call that produced this result
+                const toolCall = toolCalls.find(tc => tc.id === tr.tool_call_id);
+                if (toolCall && toolCall.function.name === 'start_machine') {
+                  setRouteState(prev => ({
+                    ...prev,
+                    pendingMachineTransition: null
+                  }));
+                  console.log('[CommandRecognizer] ✅ Cleared pendingMachineTransition after start_machine');
+                  break; // Only need to clear once
+                }
+              }
+            }
+
             // Use fast path - speak the workflow's voice_text or spoken field directly
             for (const tr of toolResults) {
               const voiceText = tr.result?.voice_text || tr.result?.spoken;
