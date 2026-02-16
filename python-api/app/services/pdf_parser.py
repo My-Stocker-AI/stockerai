@@ -81,43 +81,79 @@ def parse_route_pdf(text: str, delivery_date: str) -> dict:
     route_name = ""
     locations: dict[str, dict] = {}
 
+    # Slot identifier pattern (reused in multiple regexes)
+    _slot = r"(0?\d{1,3}|[A-Z]\d{1,2}|Drink Cooler[\d-]+|Fresh Food[\d-]+|Snack Rack[\s-]*(?:Small)?[\d-]+)"
+
     # Complete item row: slot + product + qty + inventory + price + None
     item_row_pattern = re.compile(
-        r"^\s*(0?\d{1,3}|[A-Z]\d{1,2}|Drink Cooler[\d-]+|Fresh Food[\d-]+|Snack Rack[\s-]*(?:Small)?[\d-]+)"
-        r"\s+(.+)\s+(\d+)\s+(\d+)\s*/\s*(\d+)\s+([\d.]+)\s+None\s*$"
+        rf"^\s*{_slot}\s+(.+)\s+(\d+)\s+(\d+)\s*/\s*(\d+)\s+([\d.]+)\s+None\s*$"
+    )
+
+    # Reversed item row (page break): slot + qty + inventory + price + None + product
+    # Happens when page break puts numbers on one page and product name on the next
+    reversed_item_pattern = re.compile(
+        rf"^\s*{_slot}\s+(\d+)\s+(\d+)\s*/\s*(\d+)\s+([\d.]+)\s+None\s+(.+)$"
     )
 
     # Partial: line starts with a slot number (used to detect multi-line items)
-    slot_start_pattern = re.compile(
-        r"^\s*(0?\d{1,3}|[A-Z]\d{1,2}|Drink Cooler[\d-]+|Fresh Food[\d-]+|Snack Rack[\s-]*(?:Small)?[\d-]+)\s"
-    )
+    slot_start_pattern = re.compile(rf"^\s*{_slot}\s")
+
+    # Detect product-fragment false alarms (e.g. "20 oz - Bottle", "17 oz - Can")
+    _fragment_pattern = re.compile(r"^\d+\s*oz\b", re.IGNORECASE)
 
     warnings: list[str] = []
 
     def _try_emit_item(text_to_match: str, target_machine: dict) -> bool:
-        """Try to match text as a complete item row. Returns True if successful."""
+        """Try to match text as a complete item row (normal or reversed). Returns True if successful."""
+        # Normal order: slot product qty inv/par price None
         m = item_row_pattern.match(text_to_match)
-        if not m:
-            return False
-        slot = m.group(1).strip()
-        product_name = m.group(2).strip()
-        quantity = int(m.group(3))
-        inventory_current = int(m.group(4))
-        inventory_parlevel = int(m.group(5))
-        if (
-            re.search(r"[a-zA-Z]", product_name)
-            and quantity > 0
-            and 2 < len(product_name) < 150
-        ):
-            target_machine["items"].append({
-                "product_name": product_name,
-                "quantity": quantity,
-                "slot": slot,
-                "inventory_current": inventory_current,
-                "inventory_parlevel": inventory_parlevel,
-            })
-            return True
+        if m:
+            slot = m.group(1).strip()
+            product_name = m.group(2).strip()
+            quantity = int(m.group(3))
+            inventory_current = int(m.group(4))
+            inventory_parlevel = int(m.group(5))
+            if (
+                re.search(r"[a-zA-Z]", product_name)
+                and quantity > 0
+                and 2 < len(product_name) < 150
+            ):
+                target_machine["items"].append({
+                    "product_name": product_name,
+                    "quantity": quantity,
+                    "slot": slot,
+                    "inventory_current": inventory_current,
+                    "inventory_parlevel": inventory_parlevel,
+                })
+                return True
+
+        # Reversed order: slot qty inv/par price None product (page-break casualty)
+        m = reversed_item_pattern.match(text_to_match)
+        if m:
+            slot = m.group(1).strip()
+            quantity = int(m.group(2))
+            inventory_current = int(m.group(3))
+            inventory_parlevel = int(m.group(4))
+            product_name = m.group(6).strip()
+            if (
+                re.search(r"[a-zA-Z]", product_name)
+                and quantity > 0
+                and 2 < len(product_name) < 150
+            ):
+                target_machine["items"].append({
+                    "product_name": product_name,
+                    "quantity": quantity,
+                    "slot": slot,
+                    "inventory_current": inventory_current,
+                    "inventory_parlevel": inventory_parlevel,
+                })
+                return True
+
         return False
+
+    def _is_product_fragment(text: str) -> bool:
+        """Check if text is just a trailing product description (e.g. '20 oz - Bottle')."""
+        return bool(_fragment_pattern.match(text.strip()))
 
     # Step 3: Process each machine section
     for h, header in enumerate(headers):
@@ -163,9 +199,10 @@ def parse_route_pdf(text: str, delivery_date: str) -> dict:
                 # New slot starting — flush any accumulated partial
                 if pending_line:
                     if not _try_emit_item(pending_line, machine):
-                        warnings.append(
-                            f"{machine_name}: partial item dropped — {pending_line[:100]}"
-                        )
+                        if not _is_product_fragment(pending_line):
+                            warnings.append(
+                                f"{machine_name}: slot {slot_start_pattern.match(pending_line).group(1)} could not be parsed"
+                            )
                     pending_line = ""
 
                 # Try complete single-line match (fast path — most items)
@@ -185,9 +222,10 @@ def parse_route_pdf(text: str, delivery_date: str) -> dict:
         # Flush any remaining accumulated text at end of section
         if pending_line:
             if not _try_emit_item(pending_line, machine):
-                warnings.append(
-                    f"{machine_name}: partial item dropped — {pending_line[:100]}"
-                )
+                if not _is_product_fragment(pending_line):
+                    warnings.append(
+                        f"{machine_name}: slot {slot_start_pattern.match(pending_line).group(1)} could not be parsed"
+                    )
 
         # Skip machines with 0 items
         if machine["items"]:

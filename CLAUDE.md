@@ -28,8 +28,28 @@
 - For workflow troubleshooting: See `/home/visionairy/Flon8/CLAUDE.md`
 
 **Production URLs:**
-- Cloudflare Pages: https://stocker-ai.pages.dev
-- Custom Domain: https://my-stocker-ai.com
+- Custom Domain: https://my-stocker-ai.com (primary)
+- Cloudflare Pages: https://stocker-ai.pages.dev (legacy, do NOT reference)
+
+---
+
+# SECTION -1: ABSOLUTE RULES
+
+## NEVER MAKE ASSUMPTIONS ABOUT AVAILABLE DATA
+
+**Status:** ACTIVE (2026-02-15)
+**Authority:** SUPREME
+
+**When diagnosing issues:**
+1. **Query the actual database** — don't assume data is missing or corrupt
+2. **Read the actual code** — don't assume what changed; use `git log`, `git diff`
+3. **Check what the user can see** — toasts, UI errors, browser console
+4. **Verify deployment state** — what code is actually running in production
+5. **Don't dismiss user reports** — if they say something broke, SOMETHING changed (even if it's new visibility, not a regression)
+
+**Violation consequences:** Same as Honesty Protocol (destroys trust, wastes time)
+
+**Incident (2026-02-15):** User reported upload "errors" on PDFs that previously worked. I assumed the PDFs were bad or the user was wrong. Reality: I had added warning code (commit 10543df, Feb 10) that made previously-silent item drops visible as RED error toasts. The uploads were succeeding. The "error" was my own code showing warnings for the first time. I wasted the user's time dismissing their report instead of checking my own recent changes.
 
 ---
 
