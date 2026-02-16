@@ -269,7 +269,15 @@ const UploadRoutes = () => {
 
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(errorText || 'Upload failed');
+        // Parse the detail from the JSON error response for clearer messages
+        let errorMsg = 'Upload failed';
+        try {
+          const errorJson = JSON.parse(errorText);
+          errorMsg = errorJson.detail || errorJson.error || errorText;
+        } catch {
+          errorMsg = errorText || 'Upload failed';
+        }
+        throw new Error(errorMsg);
       }
 
       const result = await response.json();
@@ -322,13 +330,13 @@ const UploadRoutes = () => {
         description: `${result.route || 'Route'} for ${result.date || format(deliveryDate, 'MMM d, yyyy')}: ${result.machines || 0} machines, ${result.items || 0} items. Assigned to ${driverName}.`,
       });
 
-      // Show warning if parser couldn't parse some items (page breaks, line wraps)
+      // Show info if parser couldn't parse some items (page breaks, line wraps)
+      // NOTE: Upload succeeded — these are minor parsing casualties, not failures
       if (result.warnings && result.warnings.length > 0) {
         toast({
-          title: `${result.warnings.length} item(s) could not be parsed`,
-          description: result.warnings.join(' | '),
-          variant: "destructive",
-          duration: 15000, // Keep visible longer so user can read
+          title: `Upload complete — ${result.warnings.length} item(s) skipped`,
+          description: `These items had formatting issues (page breaks): ${result.warnings.join(' | ')}`,
+          duration: 10000,
         });
       }
 

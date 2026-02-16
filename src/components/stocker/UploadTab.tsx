@@ -126,7 +126,15 @@ export function UploadTab() {
 
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(errorText || 'Upload failed');
+        // Parse the detail from the JSON error response for clearer messages
+        let errorMsg = 'Upload failed';
+        try {
+          const errorJson = JSON.parse(errorText);
+          errorMsg = errorJson.detail || errorJson.error || errorText;
+        } catch {
+          errorMsg = errorText || 'Upload failed';
+        }
+        throw new Error(errorMsg);
       }
 
       const result = await response.json();
