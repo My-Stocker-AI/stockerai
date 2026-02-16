@@ -24,6 +24,99 @@ def extract_text_from_pdf(pdf_bytes: bytes) -> str:
     return "\n".join(text_parts)
 
 
+def _reassemble_compound_slots(text: str) -> str:
+    """
+    Pre-process text to reassemble compound slot names split by pdfplumber.
+
+    VendMax PDFs use compound slot names like "Drink Cooler-3-7", "Fresh Food-1-2",
+    "Snack Rack-5-3". pdfplumber puts the first word ("Drink"/"Fresh"/"Snack") on the
+    same line as the product data, with the rest ("Cooler-", "3-7") on subsequent lines.
+
+    This function detects these patterns and reassembles them into single lines
+    that the main parser's slot regex can match.
+
+    Example:
+        Drink Vitamin Water Focus Bottle 20 oz - Bottle 2 4 / 6 2.75 None
+        Cooler-
+        3-7
+    Becomes:
+        Drink Cooler-3-7 Vitamin Water Focus Bottle 20 oz - Bottle 2 4 / 6 2.75 None
+    """
+    # Line starting with compound prefix + item data ending with None
+    # Negative lookahead ensures we only match SPLIT slots (not already-complete ones)
+    compound_item_re = re.compile(
+        r"^\s*(Drink|Fresh|Snack)\s+(?!Cooler|Food|Rack)(.+\s+\d+\s+\d+\s*/\s*\d+\s+[\d.]+\s+None)\s*$"
+    )
+    # Slot keyword line: Cooler-, Food-, Rack- (with optional directly-attached slot number)
+    keyword_re = re.compile(r"^\s*(Cooler|Food|Rack)\s*-\s*([\d]+(?:-[\d]+)*)?\s*")
+    # Standalone slot number: "3-7", "5-3", "1-2 Bottle" (extracts digits before any text)
+    slot_number_re = re.compile(r"^\s*([\d]+(?:-[\d]+)*)\b")
+
+    lines = text.split("\n")
+    result = []
+    i = 0
+
+    while i < len(lines):
+        stripped = lines[i].strip()
+        m = compound_item_re.match(stripped)
+
+        if m:
+            prefix_word = m.group(1)   # "Drink", "Fresh", or "Snack"
+            rest = m.group(2)          # "Product... qty inv/par price None"
+
+            # Look ahead for keyword suffix (Cooler/Food/Rack) and slot number
+            keyword = None
+            slot_num = None
+            j = i + 1
+            lookahead_limit = min(i + 6, len(lines))
+
+            while j < lookahead_limit:
+                next_stripped = lines[j].strip()
+                if not next_stripped:
+                    j += 1
+                    continue
+                # Stop if we hit another compound item, machine header, or regular item
+                if compound_item_re.match(next_stripped):
+                    break
+                if "|" in next_stripped and "ID:" in next_stripped:
+                    break
+
+                # Look for keyword (Cooler/Food/Rack)
+                km = keyword_re.match(next_stripped)
+                if km and not keyword:
+                    keyword = km.group(1)
+                    if km.group(2):  # Slot number directly attached: "Cooler-3-7"
+                        slot_num = km.group(2)
+                    j += 1
+                    if keyword and slot_num:
+                        break
+                    continue
+
+                # Look for slot number on its own line: "3-7", "1-2 Bottle"
+                sm = slot_number_re.match(next_stripped)
+                if sm and keyword and not slot_num:
+                    slot_num = sm.group(1)
+                    j += 1
+                    break
+
+                j += 1
+
+            if keyword and slot_num:
+                full_slot = f"{prefix_word} {keyword}-{slot_num}"
+                reassembled = f"{full_slot} {rest}"
+                result.append(reassembled)
+                i = j
+            else:
+                # Couldn't find suffix — preserve original line
+                result.append(lines[i])
+                i += 1
+        else:
+            result.append(lines[i])
+            i += 1
+
+    return "\n".join(result)
+
+
 def parse_route_pdf(text: str, delivery_date: str) -> dict:
     """
     Parse extracted PDF text into structured route data.
@@ -58,6 +151,9 @@ def parse_route_pdf(text: str, delivery_date: str) -> dict:
     text = re.sub(r"https://[^\s]+", " ", text)
     text = re.sub(r"\d{1,2}/\d{1,2}/\d{2},?\s*\d{1,2}:\d{2}\s*(AM|PM)", " ", text, flags=re.IGNORECASE)
     text = re.sub(r"Page\s+\d+\s+of\s+\d+", " ", text, flags=re.IGNORECASE)
+
+    # Step 1.5: Reassemble compound slot names split by pdfplumber
+    text = _reassemble_compound_slots(text)
 
     # Step 2: Find all machine headers
     header_pattern = re.compile(
