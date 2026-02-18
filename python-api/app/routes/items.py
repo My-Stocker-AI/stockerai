@@ -112,6 +112,7 @@ def _format_next_item(row: dict, count: int) -> dict:
         "product_name2": row.get("product_name2"),
         "quantity2": row.get("quantity2"),
         "action": "next_item",
+        "items_remaining": row.get("items_remaining"),
     }
 
     output = {
