@@ -551,6 +551,8 @@ export function useStockerSession(userId: string | null) {
           console.log('[Session] Skip set pending transition:', next.pendingMachineTransition, 'currentMachineId:', next.currentMachineId);
         } else if (action === 'route_complete') {
           // No more machines - route is done
+          next.completed = true;
+          next.sessionInvalidated = true;
           next.currentMachineIndex = (prev.currentMachineIndex || 0) + 1;
           next.currentItem = null;
           next.currentItem2 = null;

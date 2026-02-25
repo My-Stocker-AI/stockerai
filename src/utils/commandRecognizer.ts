@@ -255,13 +255,37 @@ function levenshteinDistance(a: string, b: string): number {
 }
 
 /**
+ * Multi-word phrase corrections applied BEFORE word-level corrections.
+ * Handles cases where Deepgram mishears a single word as multiple words
+ * (e.g. "bottom" heard as "bought them" — two words that individually
+ * don't map to the intended word).
+ */
+const PHONETIC_PHRASE_CORRECTIONS: [RegExp, string][] = [
+  [/\bbought\s+them?\b/g, 'bottom'],    // "bought them" / "bought the" → "bottom"
+  [/\bbought\s+em\b/g, 'bottom'],       // "bought em" → "bottom"
+  [/\bbottom\s+of\s+the\b/g, 'bottom'], // "bottom of the" → "bottom"
+  [/\bstart\s+from\s+bought\b/g, 'start from bottom'], // phrase variant
+];
+
+function applyPhraseCorrections(text: string): string {
+  let result = text;
+  for (const [pattern, replacement] of PHONETIC_PHRASE_CORRECTIONS) {
+    result = result.replace(pattern, replacement);
+  }
+  return result;
+}
+
+/**
  * Apply word-level phonetic corrections to transcript.
  * Splits into words, corrects each word, rejoins.
  * This catches errors like "far level" → "par level" even in
  * longer phrases like "what's the far level".
  */
 function applyPhoneticCorrections(text: string): string {
-  return text.split(/\s+/).map(word => {
+  // Phrase corrections first (multi-word → single word)
+  const phraseFixed = applyPhraseCorrections(text);
+  // Then word-level corrections
+  return phraseFixed.split(/\s+/).map(word => {
     return PHONETIC_WORD_CORRECTIONS[word] || word;
   }).join(' ');
 }

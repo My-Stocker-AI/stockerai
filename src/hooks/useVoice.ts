@@ -81,6 +81,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
   // PRIORITY 1.2: Deepgram reconnection tracking
   const reconnectAttemptsRef = useRef(0);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const tokenRefreshTimerRef = useRef<NodeJS.Timeout | null>(null);
   const MAX_RECONNECT_ATTEMPTS = 5;
 
   // Echo filtering refs (from original PWA)
@@ -516,6 +517,14 @@ export function useVoice(options: UseVoiceOptions = {}) {
         emitDiagnostic('mediarecorder-state', 'paused');
       };
 
+      // Stop any existing recorder before replacing (prevents duplicate audio streams on reconnect)
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        try {
+          mediaRecorderRef.current.stop();
+        } catch (e) {
+          // Ignore - just cleaning up stale recorder
+        }
+      }
       mediaRecorderRef.current = recorder;
       recorder.start(100);
       isRecordingRef.current = true;
@@ -612,6 +621,22 @@ export function useVoice(options: UseVoiceOptions = {}) {
         emitDiagnostic('deepgram-connected', true);
         startKeepAlive();
         setupMediaRecorder();
+
+        // Proactive token refresh: schedule a controlled reconnect 90s before token expires.
+        // Prevents Deepgram from force-closing mid-utterance and avoids abrupt acoustic adaptation loss.
+        if (tokenRefreshTimerRef.current) clearTimeout(tokenRefreshTimerRef.current);
+        const msUntilRefresh = tokenExpiryRef.current - Date.now() - 90000;
+        if (msUntilRefresh > 0) {
+          tokenRefreshTimerRef.current = setTimeout(() => {
+            if (socketRef.current?.readyState === WebSocket.OPEN && shouldReconnectRef.current) {
+              console.log('[Voice] Proactive token refresh: closing socket for fresh token');
+              emitDiagnostic('token-refresh', 'proactive');
+              tokenExpiryRef.current = 0; // Force ensureToken to fetch fresh token on next connect
+              socketRef.current.close(1000, 'Token refresh');
+            }
+          }, msUntilRefresh);
+        }
+
         resolve();
       };
 
@@ -825,6 +850,10 @@ export function useVoice(options: UseVoiceOptions = {}) {
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
       reconnectTimeoutRef.current = null;
+    }
+    if (tokenRefreshTimerRef.current) {
+      clearTimeout(tokenRefreshTimerRef.current);
+      tokenRefreshTimerRef.current = null;
     }
     reconnectAttemptsRef.current = 0;
 
