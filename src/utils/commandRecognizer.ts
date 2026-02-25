@@ -261,10 +261,10 @@ function levenshteinDistance(a: string, b: string): number {
  * don't map to the intended word).
  */
 const PHONETIC_PHRASE_CORRECTIONS: [RegExp, string][] = [
-  [/\bbought\s+them?\b/g, 'bottom'],    // "bought them" / "bought the" → "bottom"
-  [/\bbought\s+em\b/g, 'bottom'],       // "bought em" → "bottom"
-  [/\bbottom\s+of\s+the\b/g, 'bottom'], // "bottom of the" → "bottom"
-  [/\bstart\s+from\s+bought\b/g, 'start from bottom'], // phrase variant
+  [/\bstart\s+from\s+bought\b.*/g, 'bottom'],  // "start from bought [them]" → "bottom" (before bought→bottom word correction)
+  [/\bbought\s+them?\b/g, 'bottom'],            // "bought them" / "bought the" → "bottom"
+  [/\bbought\s+em\b/g, 'bottom'],              // "bought em" → "bottom"
+  [/\bbottom\s+of\s+the\b/g, 'bottom'],        // "bottom of the" → "bottom"
 ];
 
 function applyPhraseCorrections(text: string): string {
