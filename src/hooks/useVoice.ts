@@ -520,6 +520,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
       // Stop any existing recorder before replacing (prevents duplicate audio streams on reconnect)
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
         try {
+          mediaRecorderRef.current.ondataavailable = null; // Prevent buffered audio from replaying to new socket
           mediaRecorderRef.current.stop();
         } catch (e) {
           // Ignore - just cleaning up stale recorder
@@ -632,6 +633,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
               console.log('[Voice] Proactive token refresh: closing socket for fresh token');
               emitDiagnostic('token-refresh', 'proactive');
               tokenExpiryRef.current = 0; // Force ensureToken to fetch fresh token on next connect
+              reconnectAttemptsRef.current = 0; // Reset counter — proactive refresh is not a failure
               socketRef.current.close(1000, 'Token refresh');
             }
           }, msUntilRefresh);
