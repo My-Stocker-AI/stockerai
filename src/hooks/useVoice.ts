@@ -105,7 +105,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
   const isEcho = useCallback((text: string): boolean => {
     const lower = text.toLowerCase().trim();
 
-    // Cooldown: ignore anything within 800ms of speaking
+    // Cooldown: ignore anything within ECHO_COOLDOWN_MS of speaking
     if (Date.now() - lastSpeakTimeRef.current < ECHO_COOLDOWN_MS) {
       console.log('[Voice] Ignoring input during cooldown');
       return true;
