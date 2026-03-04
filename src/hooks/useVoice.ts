@@ -976,10 +976,24 @@ export function useVoice(options: UseVoiceOptions = {}) {
       }
     }
 
-    if (mediaRecorderRef.current?.state === 'paused') {
+    if (mediaRecorderRef.current?.state === 'paused' && socketRef.current?.readyState === WebSocket.OPEN) {
+      // Socket alive AND recorder paused — safe to resume
       mediaRecorderRef.current.resume();
       isRecordingRef.current = true;
       setStatus('listening');
+    } else if (mediaRecorderRef.current?.state === 'paused') {
+      // Recorder paused BUT socket dead — stop recorder and do full reconnect
+      console.warn('[Voice] resumeListening: socket dead while recorder paused — doing full reconnect');
+      emitDiagnostic('zombie-state-detected', 'recorder-paused-socket-dead');
+      try {
+        mediaRecorderRef.current.ondataavailable = null;
+        mediaRecorderRef.current.stop();
+      } catch (e) {
+        // Ignore — just cleaning up stale recorder
+      }
+      mediaRecorderRef.current = null;
+      isRecordingRef.current = false;
+      startListening();
     } else if (!mediaRecorderRef.current && socketRef.current?.readyState === WebSocket.OPEN) {
       setupMediaRecorder();
       setStatus('listening');
