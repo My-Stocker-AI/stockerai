@@ -688,14 +688,22 @@ export function useVoice(options: UseVoiceOptions = {}) {
 
           // Check if we've exceeded max attempts
           if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
-            console.error('[Voice] Max reconnection attempts reached - giving up', {
+            console.warn('[Voice] Max reconnect attempts reached — waiting 30s before recovery attempt', {
               timestamp,
               totalAttempts: reconnectAttemptsRef.current,
               maxAttempts: MAX_RECONNECT_ATTEMPTS
             });
-            emitDiagnostic('error', 'Deepgram connection lost - please refresh');
-            onErrorRef.current?.('Connection lost. Please refresh the page.');
-            setStatus('error');
+            emitDiagnostic('reconnect-max-reached', { timestamp, attempts: reconnectAttemptsRef.current });
+            // Don't give up permanently — schedule recovery after 30s
+            // This handles transient network issues (dead zones, cellular handoff) in long sessions
+            reconnectTimeoutRef.current = setTimeout(() => {
+              if (shouldReconnectRef.current) {
+                console.log('[Voice] Recovery attempt after max retries — restarting connection');
+                emitDiagnostic('reconnect-recovery', { timestamp: new Date().toISOString() });
+                reconnectAttemptsRef.current = 0;
+                startListening();
+              }
+            }, 30000);
             return;
           }
 
