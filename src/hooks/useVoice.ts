@@ -696,6 +696,9 @@ export function useVoice(options: UseVoiceOptions = {}) {
             emitDiagnostic('reconnect-max-reached', { timestamp, attempts: reconnectAttemptsRef.current });
             // Don't give up permanently — schedule recovery after 30s
             // This handles transient network issues (dead zones, cellular handoff) in long sessions
+            if (reconnectTimeoutRef.current) {
+              clearTimeout(reconnectTimeoutRef.current);
+            }
             reconnectTimeoutRef.current = setTimeout(() => {
               if (shouldReconnectRef.current) {
                 console.log('[Voice] Recovery attempt after max retries — restarting connection');
