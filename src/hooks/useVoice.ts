@@ -338,7 +338,9 @@ export function useVoice(options: UseVoiceOptions = {}) {
       return tokenRef.current;
     }
 
-    const response = await fetch(DEEPGRAM_TOKEN_URL);
+    const response = await fetch(DEEPGRAM_TOKEN_URL, {
+      signal: AbortSignal.timeout(10000)
+    });
     if (!response.ok) {
       throw new Error('Failed to get Deepgram token');
     }
