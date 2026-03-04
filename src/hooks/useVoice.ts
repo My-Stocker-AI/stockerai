@@ -1468,8 +1468,8 @@ export function useVoice(options: UseVoiceOptions = {}) {
       // 7. Done speaking - transition back to listening (matches original PWA)
       setStatus('listening');
 
-      // 8. Play ready beep (matches original PWA)
-      playReadyBeep();
+      // 8. Play ready beep — skip if TTS was interrupted (driver already heard command chime)
+      if (!stoppedRef.current) playReadyBeep();
 
       // 9. Wait before restarting recognition (matches original PWA)
       await new Promise(r => setTimeout(r, 100));
