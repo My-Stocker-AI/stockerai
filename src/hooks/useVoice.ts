@@ -111,8 +111,8 @@ export function useVoice(options: UseVoiceOptions = {}) {
       return true;
     }
 
-    // Ignore very short garbage (1-2 chars)
-    if (lower.length < 3) {
+    // Ignore very short garbage (single characters only)
+    if (lower.length < 2) {
       console.log('[Voice] Ignoring short input:', lower);
       return true;
     }
@@ -809,9 +809,17 @@ export function useVoice(options: UseVoiceOptions = {}) {
         wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
         console.log('[Voice] Wake lock acquired - screen will stay awake');
 
-        // Re-acquire wake lock if screen is unlocked after being locked
-        wakeLockRef.current.addEventListener('release', () => {
-          console.log('[Voice] Wake lock released');
+        // Re-acquire wake lock automatically when released (screen dim, power button, etc.)
+        wakeLockRef.current.addEventListener('release', async () => {
+          console.log('[Voice] Wake lock released — attempting re-acquisition');
+          if (shouldReconnectRef.current) {
+            try {
+              wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+              console.log('[Voice] Wake lock re-acquired successfully');
+            } catch (e: any) {
+              console.warn('[Voice] Wake lock re-acquisition failed:', e.message);
+            }
+          }
         });
       } catch (e: any) {
         console.warn('[Voice] Wake lock failed (not critical):', e.message);
@@ -1029,12 +1037,25 @@ export function useVoice(options: UseVoiceOptions = {}) {
   }, [setStatus]);
 
   const unmute = useCallback(() => {
-    if (mediaRecorderRef.current?.state === 'paused') {
+    if (mediaRecorderRef.current?.state === 'paused' && socketRef.current?.readyState === WebSocket.OPEN) {
+      // Socket alive — safe to resume
       mediaRecorderRef.current.resume();
       isRecordingRef.current = true;
+    } else if (mediaRecorderRef.current?.state === 'paused') {
+      // Socket dead — stop stale recorder and do full reconnect
+      console.warn('[Voice] unmute: socket dead while recorder paused — doing full reconnect');
+      emitDiagnostic('zombie-state-detected', 'unmute-recorder-paused-socket-dead');
+      try {
+        mediaRecorderRef.current.ondataavailable = null;
+        mediaRecorderRef.current.stop();
+      } catch (e) { /* Ignore — cleaning up stale recorder */ }
+      mediaRecorderRef.current = null;
+      isRecordingRef.current = false;
+      startListening();
+      return; // startListening sets its own status
     }
     setStatus('listening');
-  }, [setStatus]);
+  }, [setStatus, startListening]);
 
   const stopAudio = useCallback(() => {
     // Set stopped flag to prevent any pending TTS from playing
@@ -1379,8 +1400,8 @@ export function useVoice(options: UseVoiceOptions = {}) {
         }
 
       } catch (error) {
-        // Fallback to browser TTS
-        await speakBrowser(text);
+        // Fallback to browser TTS — use processed text so pronunciation corrections apply
+        await speakBrowser(processed);
       }
 
       // 6. Store for echo filtering AFTER audio completes (matches original PWA)
