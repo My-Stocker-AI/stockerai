@@ -1037,6 +1037,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
         const queued = pendingCommandRef.current;
         pendingCommandRef.current = null;
         console.log('[Voice] Firing queued command after resume:', queued);
+        playCommandChime(); // Acknowledge the queued command
         setTimeout(() => onTranscriptRef.current?.(queued, true), 0);
       }
     } else if (mediaRecorderRef.current?.state === 'paused') {
@@ -1060,12 +1061,14 @@ export function useVoice(options: UseVoiceOptions = {}) {
         const queued = pendingCommandRef.current;
         pendingCommandRef.current = null;
         console.log('[Voice] Firing queued command after resume:', queued);
+        playCommandChime(); // Acknowledge the queued command
         setTimeout(() => onTranscriptRef.current?.(queued, true), 0);
       }
     } else if (!isConnectedRef.current) {
+      pendingCommandRef.current = null; // Clear stale queued command — full reconnect needed, command too old to replay
       startListening();
     }
-  }, [setupMediaRecorder, startListening, setStatus]);
+  }, [setupMediaRecorder, startListening, setStatus, playCommandChime]);
 
   const mute = useCallback(() => {
     // Clear silence timer and accumulated transcript (matches original PWA mute behavior)
