@@ -1179,7 +1179,8 @@ export function useVoice(options: UseVoiceOptions = {}) {
           const response = await fetch(TTS_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: processed, voice: 'nova' })
+            body: JSON.stringify({ text: processed, voice: 'nova' }),
+            signal: AbortSignal.timeout(15000)
           });
 
           if (!response.ok) {
@@ -1411,7 +1412,8 @@ export function useVoice(options: UseVoiceOptions = {}) {
     const fetchPromise = fetch(TTS_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: processed, voice: 'nova' })
+      body: JSON.stringify({ text: processed, voice: 'nova' }),
+      signal: AbortSignal.timeout(15000)
     })
       .then(response => {
         if (!response.ok) throw new Error('TTS prefetch failed: ' + response.status);
