@@ -307,6 +307,27 @@ export function useVoice(options: UseVoiceOptions = {}) {
     }
   }, [getAudioContext]);
 
+  // Brief acknowledgment click: plays immediately when a command is received
+  // Much shorter and softer than the ready beep — confirms "I heard you"
+  const playCommandChime = useCallback(async () => {
+    try {
+      const ctx = await getAudioContext();
+      if (!ctx) return;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = 'sine';
+      osc.frequency.value = 660; // E5 — softer than ready beep (880 Hz)
+      gain.gain.value = 0.05;    // Very quiet — just enough to notice
+      osc.start();
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08); // 80ms — brief click
+      osc.stop(ctx.currentTime + 0.08);
+    } catch (e) {
+      console.warn('[Voice] Command chime failed:', e);
+    }
+  }, [getAudioContext]);
+
   // Legacy playBeep for backward compatibility
   const playBeep = useCallback((success: boolean) => {
     if (success) {
@@ -380,9 +401,11 @@ export function useVoice(options: UseVoiceOptions = {}) {
       return;
     }
 
+    // Play acknowledgment chime — immediate audio feedback that command was heard
+    playCommandChime();
     // Pass to handler - use ref to avoid stale closure
     onTranscriptRef.current?.(text, true);
-  }, [hasWakePhrase, extractWakeCommand, isEcho]); // Removed callback deps - using refs
+  }, [hasWakePhrase, extractWakeCommand, isEcho, playCommandChime]); // Removed callback deps - using refs
 
   const handleDeepgramMessage = useCallback((data: any) => {
     if (data.type === 'Results' && data.channel?.alternatives?.[0]) {
