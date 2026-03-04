@@ -684,7 +684,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
 
         // PRIORITY 1.2: Enhanced reconnection logic with exponential backoff
         const currentStatus = statusRef.current;
-        if (shouldReconnectRef.current && (currentStatus === 'listening' || currentStatus === 'paused' || currentStatus === 'muted')) {
+        if (shouldReconnectRef.current && (currentStatus === 'listening' || currentStatus === 'paused' || currentStatus === 'muted' || currentStatus === 'thinking')) {
 
           // Check if we've exceeded max attempts
           if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
