@@ -77,6 +77,9 @@ export function useVoice(options: UseVoiceOptions = {}) {
   const isRecordingRef = useRef(false);
   const accumulatedTranscriptRef = useRef('');  // Accumulated transcript for utterance (matches original PWA this.transcript)
   const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);  // Silence timer fallback (matches original PWA)
+  // Queued command: stores the latest command spoken during 'thinking'/'speaking'
+  // Fired automatically when resumeListening() completes successfully
+  const pendingCommandRef = useRef<string | null>(null);
 
   // PRIORITY 1.2: Deepgram reconnection tracking
   const reconnectAttemptsRef = useRef(0);
@@ -392,7 +395,13 @@ export function useVoice(options: UseVoiceOptions = {}) {
 
     // Only process if in valid state (matches original PWA state check)
     if (currentStatus !== 'listening' && currentStatus !== 'idle') {
-      console.log('[Voice] Ignoring transcript, wrong state:', currentStatus);
+      // Queue commands spoken during processing/speaking — fire when listening resumes
+      if (currentStatus === 'thinking' || currentStatus === 'speaking') {
+        console.log('[Voice] Command queued during', currentStatus, ':', text);
+        pendingCommandRef.current = text; // Keep only the latest
+      } else {
+        console.log('[Voice] Ignoring transcript, wrong state:', currentStatus);
+      }
       return;
     }
 
@@ -901,6 +910,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
       silenceTimerRef.current = null;
     }
     accumulatedTranscriptRef.current = '';
+    pendingCommandRef.current = null; // Clear any queued commands
 
     // STOP FIX: Clear reconnect timeout to prevent interference
     if (reconnectTimeoutRef.current) {
@@ -1022,6 +1032,13 @@ export function useVoice(options: UseVoiceOptions = {}) {
       mediaRecorderRef.current.resume();
       isRecordingRef.current = true;
       setStatus('listening');
+      // Fire any command that was spoken during processing/TTS
+      if (pendingCommandRef.current) {
+        const queued = pendingCommandRef.current;
+        pendingCommandRef.current = null;
+        console.log('[Voice] Firing queued command after resume:', queued);
+        setTimeout(() => onTranscriptRef.current?.(queued, true), 0);
+      }
     } else if (mediaRecorderRef.current?.state === 'paused') {
       // Recorder paused BUT socket dead — stop recorder and do full reconnect
       console.warn('[Voice] resumeListening: socket dead while recorder paused — doing full reconnect');
@@ -1038,6 +1055,13 @@ export function useVoice(options: UseVoiceOptions = {}) {
     } else if (!mediaRecorderRef.current && socketRef.current?.readyState === WebSocket.OPEN) {
       setupMediaRecorder();
       setStatus('listening');
+      // Fire any command that was spoken during processing/TTS
+      if (pendingCommandRef.current) {
+        const queued = pendingCommandRef.current;
+        pendingCommandRef.current = null;
+        console.log('[Voice] Firing queued command after resume:', queued);
+        setTimeout(() => onTranscriptRef.current?.(queued, true), 0);
+      }
     } else if (!isConnectedRef.current) {
       startListening();
     }
