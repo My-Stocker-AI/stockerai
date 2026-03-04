@@ -87,7 +87,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
   // Echo filtering refs (from original PWA)
   const lastSpokenTextRef = useRef('');
   const lastSpeakTimeRef = useRef(0);
-  const ECHO_COOLDOWN_MS = 800;
+  const ECHO_COOLDOWN_MS = 300;
 
   // TTS refs
   const audioRef = useRef<HTMLAudioElement | null>(null);
