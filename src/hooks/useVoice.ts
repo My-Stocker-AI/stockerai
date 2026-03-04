@@ -394,10 +394,10 @@ export function useVoice(options: UseVoiceOptions = {}) {
     }
 
     // Only process if in valid state (matches original PWA state check)
-    if (currentStatus !== 'listening' && currentStatus !== 'idle') {
-      // Queue commands spoken during processing/speaking — fire when listening resumes
-      if (currentStatus === 'thinking' || currentStatus === 'speaking') {
-        console.log('[Voice] Command queued during', currentStatus, ':', text);
+    if (currentStatus !== 'listening' && currentStatus !== 'idle' && currentStatus !== 'speaking') {
+      // Queue commands spoken during API processing — fire when listening resumes
+      if (currentStatus === 'thinking') {
+        console.log('[Voice] Command queued during thinking:', text);
         pendingCommandRef.current = text; // Keep only the latest
       } else {
         console.log('[Voice] Ignoring transcript, wrong state:', currentStatus);
@@ -410,11 +410,18 @@ export function useVoice(options: UseVoiceOptions = {}) {
       return;
     }
 
+    // If TTS is playing, interrupt it immediately — driver spoke a command
+    if (statusRef.current === 'speaking') {
+      console.log('[Voice] Interrupting TTS — command received during playback');
+      emitDiagnostic('tts-interrupted', text);
+      stopAudio();
+      setStatus('listening');
+    }
     // Play acknowledgment chime — immediate audio feedback that command was heard
     playCommandChime();
     // Pass to handler - use ref to avoid stale closure
     onTranscriptRef.current?.(text, true);
-  }, [hasWakePhrase, extractWakeCommand, isEcho, playCommandChime]); // Removed callback deps - using refs
+  }, [hasWakePhrase, extractWakeCommand, isEcho, playCommandChime, stopAudio, setStatus]); // Removed callback deps - using refs
 
   const handleDeepgramMessage = useCallback((data: any) => {
     if (data.type === 'Results' && data.channel?.alternatives?.[0]) {
@@ -1234,7 +1241,6 @@ export function useVoice(options: UseVoiceOptions = {}) {
         }
         audioRef.current = null;
       }
-      pauseListening();
 
       // 4. Preprocess text for TTS - matches original PWA
       const processed = text
@@ -1259,6 +1265,11 @@ export function useVoice(options: UseVoiceOptions = {}) {
         .replace(/\bct\b/gi, 'count')
         .replace(/\bCan\b/g, 'can')
         .replace(/\b(\d+)\s*can\b/gi, '$1 cans');
+
+      // 5a. Set echo references BEFORE playback so filtering works during TTS
+      // (MediaRecorder stays active during playback for interrupt support)
+      lastSpokenTextRef.current = processed.toLowerCase();
+      lastSpeakTimeRef.current = Date.now();
 
       // 5. Fetch and play audio (with prefetch optimization - Performance Priority 5)
       try {
@@ -1453,10 +1464,6 @@ export function useVoice(options: UseVoiceOptions = {}) {
         // Fallback to browser TTS — use processed text so pronunciation corrections apply
         await speakBrowser(processed);
       }
-
-      // 6. Store for echo filtering AFTER audio completes (matches original PWA)
-      lastSpokenTextRef.current = text.toLowerCase();
-      lastSpeakTimeRef.current = Date.now();
 
       // 7. Done speaking - transition back to listening (matches original PWA)
       setStatus('listening');
