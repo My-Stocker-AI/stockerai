@@ -1267,19 +1267,25 @@ export function useVoice(options: UseVoiceOptions = {}) {
           // iOS/DESKTOP: Use Web Audio API (better quality, works fine on iOS)
           console.log('[Voice] iOS/Desktop - using Web Audio API');
 
-          // Close old context if exists
-          if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-            try {
-              await audioContextRef.current.close();
-            } catch (e) {
-              console.warn('[Voice] Failed to close old AudioContext:', e);
-            }
-          }
-
-          // Create FRESH AudioContext
+          // Reuse existing AudioContext if healthy — creating a new one on every speak() adds latency
           const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-          const audioContext = new AudioContextClass({ sampleRate: 44100 });
-          audioContextRef.current = audioContext;
+          let audioContext: AudioContext;
+          if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
+            audioContext = new AudioContextClass({ sampleRate: 44100 });
+            audioContextRef.current = audioContext;
+            console.log('[Voice] AudioContext created (new or was closed)');
+          } else {
+            audioContext = audioContextRef.current;
+            if (audioContext.state === 'suspended') {
+              try {
+                await audioContext.resume();
+                console.log('[Voice] AudioContext resumed for playback');
+              } catch (e) {
+                console.warn('[Voice] AudioContext resume failed:', e);
+              }
+            }
+            console.log('[Voice] AudioContext reused (state:', audioContext.state, ')');
+          }
 
           await new Promise<void>((resolve, reject) => {
             if (stoppedRef.current) {
