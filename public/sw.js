@@ -60,9 +60,12 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Skip API calls and webhooks (always go to network)
+  // Skip API calls and webhooks (always go to network) — the service worker
+  // must never intercept, cache, or rewrite a backend request, or it can
+  // silently re-introduce the mobile "Failed to fetch" failures.
   if (url.pathname.startsWith('/api') ||
       url.hostname.includes('supabase') ||
+      url.hostname.includes('onrender') ||
       url.hostname.includes('n8n')) {
     return;
   }
