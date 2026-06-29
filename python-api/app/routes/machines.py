@@ -150,7 +150,13 @@ def skip_machine(req: SkipMachineRequest):
             "display": f"Returning to: {skipped['machine_name']}",
         }
 
-    # Step 6: All machines done/skipped — route complete
+    # Step 6: All machines done/skipped — route complete.
+    # Mark the session 'completed' here too (same gap as the get_next_item path):
+    # without this the session stays 'stocking' and jams the next route.
+    db.table("sessions").update({
+        "status": "completed",
+    }).eq("id", session["id"]).execute()
+
     complete_phrase = "All machines are done or skipped. Route complete!"
     return {
         "action": "route_complete",

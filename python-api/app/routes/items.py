@@ -89,6 +89,15 @@ def get_next_item(req: GetNextItemRequest):
             "current_machine_id": row["new_machine_id"],
         }).eq("id", row["session_record_id"]).execute()
 
+    # Step 3b: Mark the session 'completed' when the route finishes. The old Edge
+    # Function did this server-side; the RPC returns the complete action but never
+    # updates the session, leaving it stuck 'stocking' — which then collides with
+    # the next route start and blocks deleting the route. (n8n->Python regression.)
+    if action == "complete" and row.get("session_record_id"):
+        db.table("sessions").update({
+            "status": "completed",
+        }).eq("id", row["session_record_id"]).execute()
+
     # Step 4: Format output based on action type
     if action == "next_item":
         return _format_next_item(row, req.count)
@@ -265,26 +274,37 @@ def start_machine(req: StartMachineRequest):
     if not items:
         raise HTTPException(status_code=404, detail="No items found for machine")
 
-    # Step 4: Select item(s) based on direction
-    if pick_direction == "forward":
-        item1_data = items[0]
-        item2_data = items[1] if req.count == 2 and len(items) > 1 else None
-    else:
-        item1_data = items[-1]
-        item2_data = items[-2] if req.count == 2 and len(items) > 1 else None
-
-    # Step 5: Update machine status to in_progress AND pre-count displayed items
-    # CRITICAL: Without this, the first get_next_item RPC returns the SAME items
-    # start_machine showed (because completed_items=0), causing a "wasted" call where
-    # the frontend dedup filters everything and the Done card doesn't grow.
-    items_shown = 1 + (1 if item2_data else 0)
-    # Idempotency guard: only pre-count the displayed items when the machine FIRST
-    # enters in_progress. A network retry or double-tap can call start_machine again;
-    # without this guard the read-modify-write below would add items_shown a second
-    # time and inflate the count. (Regression from the n8n->Python rewrite: the old
-    # engine SET completed_items, which was naturally idempotent; the rewrite ADDs.)
+    # Step 4: Select item(s) from the RESUME POINT — not always item 1.
+    # `completed_items` is how many items have already been revealed/accounted on
+    # this machine: 0 for a fresh machine, but carried forward for a machine being
+    # resumed after a skip (go_back leaves status='pending' and preserves the count).
+    # `base` is the index to read from. On a retry the machine is already
+    # in_progress and `completed` was advanced by the items THIS call shows, so we
+    # subtract them back out to recompute the same base — keeping it idempotent
+    # (same item, same count), exactly as the old n8n engine's SET behaved.
+    completed = machine.get("completed_items", 0) or 0
     already_started = machine.get("status") == "in_progress"
-    new_completed = machine.get("completed_items", 0) + (0 if already_started else items_shown)
+    want = 2 if (req.count == 2 and len(items) > 1) else 1
+    base = (completed - want) if already_started else completed
+    base = max(0, min(base, len(items) - 1))
+
+    if pick_direction == "forward":
+        item1_data = items[base]
+        item2_data = items[base + 1] if want == 2 and base + 1 < len(items) else None
+    else:
+        idx = max(0, len(items) - 1 - base)
+        item1_data = items[idx]
+        item2_data = items[idx - 1] if want == 2 and idx - 1 >= 0 else None
+
+    # Step 5: Update machine status to in_progress AND pre-count displayed items.
+    # Pre-counting is why the first get_next_item RPC returns the NEXT items rather
+    # than re-showing these. We SET completed_items = base + items shown (not ADD),
+    # so a network retry / double-tap recomputes the same value instead of inflating
+    # the count, and a resumed machine continues from its saved progress.
+    # (Regression from the n8n->Python rewrite: the old engine SET; the rewrite ADDed
+    # from item 1, which both re-announced stocked items and double-counted.)
+    items_shown = 1 + (1 if item2_data else 0)
+    new_completed = base + items_shown
     db.table("machines").update({
         "status": "in_progress",
         "completed_items": new_completed,
