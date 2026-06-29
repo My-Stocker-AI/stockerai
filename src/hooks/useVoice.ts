@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
+import { readEnvVoiceTuning, EnvVoiceTuning } from '@/lib/settingsCore';
 
 export type VoiceStatus = 'idle' | 'listening' | 'speaking' | 'thinking' | 'paused' | 'muted' | 'error';
 
@@ -87,6 +88,12 @@ export function useVoice(options: UseVoiceOptions = {}) {
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const tokenRefreshTimerRef = useRef<NodeJS.Timeout | null>(null);
   const MAX_RECONNECT_ATTEMPTS = 5;
+
+  // Scope 2 — a STABLE snapshot of the environment-derived voice tuning. Captured only
+  // at connection boundaries (route-start / resume-after-stop) and reused for the whole
+  // session, so transient mid-session reconnects keep the same tuning and a setting
+  // change made mid-pick can't disrupt the live connection.
+  const envTuningRef = useRef<EnvVoiceTuning>(readEnvVoiceTuning(environmentEndpointing));
 
   // Echo filtering refs (from original PWA)
   const lastSpokenTextRef = useRef('');
@@ -649,9 +656,11 @@ export function useVoice(options: UseVoiceOptions = {}) {
       standardBoost: 1.5
     });
 
-    // Use environment-specific endpointing value (from environment detection) or default to 100ms
-    const endpointingMs = environmentEndpointing || 100;
-    console.log('[Voice] Deepgram endpointing:', endpointingMs + 'ms');
+    // Scope 2 — endpointing comes from the environment-tuning snapshot captured at the
+    // last connection boundary (route-start / resume). Transient reconnects reuse it, so
+    // the value is stable for the whole session.
+    const endpointingMs = envTuningRef.current.endpointing || 100;
+    console.log('[Voice] Deepgram endpointing:', endpointingMs + 'ms', '(env tuning:', envTuningRef.current, ')');
 
     const wsUrl = 'wss://api.deepgram.com/v1/listen?' +
       'model=nova-2&' +  // Latest Nova 2 model (nova-3 not yet available)
@@ -847,8 +856,26 @@ export function useVoice(options: UseVoiceOptions = {}) {
     return stream;
   }, []);
 
+  // Scope 2 — capture the environment-tuning snapshot at a connection boundary. The
+  // GUARD: if a connection is already open, do nothing — a setting change made mid-pick
+  // must not disturb the live session. Only a real route-start/resume (socket closed)
+  // refreshes the snapshot.
+  const refreshEnvTuningSnapshot = useCallback(() => {
+    const open = socketRef.current && socketRef.current.readyState === WebSocket.OPEN;
+    if (open) {
+      console.log('[Voice] Env tuning refresh skipped — connection open (mid-session guard)');
+      return;
+    }
+    envTuningRef.current = readEnvVoiceTuning(environmentEndpointing);
+    console.log('[Voice] Env tuning snapshot captured at connection boundary:', envTuningRef.current);
+  }, [environmentEndpointing]);
+
   const startListening = useCallback(async () => {
     console.log('[Voice] startListening called');
+
+    // Scope 2 — route-start / resume-after-stop boundary: refresh the env-tuning snapshot
+    // (guard inside no-ops if a connection is somehow still open).
+    refreshEnvTuningSnapshot();
 
     // STOP FIX: Reset all state flags to clean state
     stoppedRef.current = false;
