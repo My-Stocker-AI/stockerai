@@ -60,6 +60,13 @@ async def upload_pdf(
     )
 
     for existing in existing_routes.data or []:
+        # Cascade-delete children (the FK does NOT auto-cascade) so re-uploading a route
+        # doesn't orphan the old copy's machines/items.
+        old_mids = [m["id"] for m in (db.table("machines").select("id").eq("route_id", existing["id"]).execute().data or [])]
+        for mid in old_mids:
+            db.table("items").delete().eq("machine_id", mid).execute()
+        db.table("machines").delete().eq("route_id", existing["id"]).execute()
+        db.table("sessions").delete().eq("current_route_id", existing["id"]).execute()
         db.table("routes").delete().eq("id", existing["id"]).execute()
 
     # Step 4: Upload PDF to Supabase Storage and get URL

@@ -124,6 +124,14 @@ export function useSessionPersistence() {
 
   // Save minimal session metadata to Supabase sessions table for backend workflow tracking
   const saveToServer = useCallback(async (data: SessionData, userId: string): Promise<void> => {
+    // NO-OP (disabled): the backend (set_route_sequence creates the row; start_machine /
+    // get_next_item update current_machine_id, pick_direction, status, completed_items) is
+    // the sole owner of the server `sessions` row. The frontend writing here created a
+    // SECOND competing session row with pick_direction=NULL and a divergent
+    // current_machine_id, so picks landed on one row while the UI read another — the core
+    // save/resume bug. Progress now lives server-side only; the phone keeps IndexedDB.
+    return;
+    // eslint-disable-next-line no-unreachable
     try {
       // CRITICAL FIX: Must match Python API's session_key format (stocking_{route_id})
       // so frontend UPDATES the session created by set_route_sequence instead of creating a duplicate.
@@ -327,11 +335,12 @@ export function useSessionPersistence() {
   }, [loadLocal]);
 
   const clear = useCallback(async (userId: string | null): Promise<void> => {
+    // LOCAL ONLY. The backend (set_route_sequence / start_machine / get_next_item) is
+    // the sole owner of the server session + machine progress. The frontend must NEVER
+    // reset machines->0 or delete server sessions — doing exactly that on "Continue
+    // Picking" was wiping real progress. Reset-vs-resume is decided server-side now.
     await clearLocal();
-    if (userId) {
-      await clearServer(userId);
-    }
-  }, [clearLocal, clearServer]);
+  }, [clearLocal]);
 
   const isValidSession = useCallback((data: SessionData | null): boolean => {
     if (!data || !data.savedAt) return false;

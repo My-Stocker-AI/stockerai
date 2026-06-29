@@ -93,7 +93,14 @@ def delete_route(req: DeleteRouteRequest):
 
     route_name = route["route_name"]
 
-    # Delete route (CASCADE handles machines/items)
+    # Explicitly delete children first — the FK does NOT cascade (verified: deleting a
+    # route was leaving its machines + items orphaned in the DB, which then confused later
+    # re-uploads of the same route name). Order: items -> machines -> sessions -> route.
+    machine_ids = [m["id"] for m in (db.table("machines").select("id").eq("route_id", req.route_id).execute().data or [])]
+    for mid in machine_ids:
+        db.table("items").delete().eq("machine_id", mid).execute()
+    db.table("machines").delete().eq("route_id", req.route_id).execute()
+    db.table("sessions").delete().eq("current_route_id", req.route_id).execute()
     db.table("routes").delete().eq("id", req.route_id).execute()
 
     return {

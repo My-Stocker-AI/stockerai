@@ -1055,6 +1055,9 @@ export function useVoice(options: UseVoiceOptions = {}) {
   }, [setStatus]);
 
   const resumeListening = useCallback(async () => {
+    // Clear the TTS kill-switch — backgrounding/lock latches stoppedRef=true via pagehide;
+    // resuming must un-latch it or speech stays muted while the mic appears to work.
+    stoppedRef.current = false;
     // Re-acquire wake lock when resuming (keep screen awake again)
     if ('wakeLock' in navigator && !wakeLockRef.current) {
       try {
@@ -1151,6 +1154,10 @@ export function useVoice(options: UseVoiceOptions = {}) {
   }, [setStatus]);
 
   const unmute = useCallback(async () => {
+    // Clear the TTS kill-switch on resume. Backgrounding / screen-lock fires pagehide ->
+    // stopEverything() which latches stoppedRef=true; without this, the mic comes back but
+    // speech stays permanently muted ("nothing out the speaker"). Resuming != stopped.
+    stoppedRef.current = false;
     // iOS/Safari suspends the AudioContext after idle or a screen-lock. resumeListening
     // already checks for this; unmute must too — otherwise the recorder "resumes" while
     // the audio engine is still asleep: the UI says "listening" but nothing is recorded.
