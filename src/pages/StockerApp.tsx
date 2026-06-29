@@ -12,6 +12,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { HelpSheet } from '@/components/stocker/HelpSheet';
+import { SettingsSheet } from '@/components/stocker/SettingsSheet';
 import { useEnvironmentDetection } from '@/hooks/useEnvironmentDetection';
 import { RouteSelectionCard } from '@/components/stocker/RouteSelectionCard';
 import { MachineListPanel } from '@/components/stocker/MachineListPanel';
@@ -173,6 +174,7 @@ export default function StockerApp() {
   const [isClearing, setIsClearing] = useState(false);
   const [showMicHelp, setShowMicHelp] = useState(false);
   const [showHelpSheet, setShowHelpSheet] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [savedSession, setSavedSession] = useState<any>(null);
@@ -2118,6 +2120,9 @@ export default function StockerApp() {
           <Button variant="ghost" size="icon" onClick={() => setShowHelpSheet(true)} title="Voice Commands Help">
             <HelpCircle className="h-5 w-5 text-gray-400" />
           </Button>
+          <Button variant="ghost" size="icon" onClick={() => setShowSettings(true)} title="Settings — AI voice volume">
+            <Settings className="h-5 w-5 text-gray-400" />
+          </Button>
           <Button variant="ghost" size="icon" onClick={handleBackToDashboard} title="Back to Dashboard">
             <ArrowLeft className="h-5 w-5 text-gray-400" />
           </Button>
@@ -2184,6 +2189,7 @@ export default function StockerApp() {
 
       {/* Help Sheet */}
       <HelpSheet isOpen={showHelpSheet} onClose={() => setShowHelpSheet(false)} />
+      <SettingsSheet isOpen={showSettings} onClose={() => setShowSettings(false)} />
 
       {/* Diagnostic Overlay - Triple-tap to reveal */}
       <DiagnosticOverlay
