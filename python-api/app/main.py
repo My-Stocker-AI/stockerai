@@ -47,9 +47,12 @@ async def global_exception_handler(request: Request, exc: Exception):
     """Catch unhandled exceptions so CORS headers are still included."""
     tb = traceback.format_exc()
     print(f"[ERROR] {request.method} {request.url.path}: {exc}\n{tb}")
+    # Log the full detail server-side, but never return it to the client — raw
+    # exception text leaks DB schema (table/column/constraint names) and stack
+    # traces, which enable reconnaissance. Clients get a generic message.
     return JSONResponse(
         status_code=500,
-        content={"error": str(exc), "detail": tb.split("\n")[-3].strip()},
+        content={"error": "Internal server error. Please try again."},
     )
 
 

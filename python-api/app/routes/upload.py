@@ -24,6 +24,12 @@ async def upload_pdf(
     # Step 1: Read PDF and extract text
     pdf_bytes = await pdf.read()
 
+    # Real route PDFs are ~150 KB; cap the size so an oversized upload can't exhaust
+    # server memory.
+    MAX_PDF_BYTES = 25 * 1024 * 1024  # 25 MB
+    if len(pdf_bytes) > MAX_PDF_BYTES:
+        raise HTTPException(status_code=413, detail="PDF too large (max 25 MB).")
+
     try:
         text = extract_text_from_pdf(pdf_bytes)
     except Exception as e:
@@ -160,6 +166,12 @@ async def upload_pdf(
                 db.table("items").insert(items_to_insert).execute()
                 total_items += len(items_to_insert)
 
+    # Guard: if every machine parsed empty, we'd otherwise leave a 0-machine route
+    # that the driver sees listed but errors on ("No machines found"). Reject cleanly.
+    if total_machines == 0:
+        db.table("routes").delete().eq("id", route_id).execute()
+        raise HTTPException(status_code=400, detail="No machines with items found in PDF.")
+
     # Step 7: Update route totals
     db.table("routes").update({
         "total_machines": total_machines,
@@ -220,7 +232,10 @@ def _combine_same_product_items(items: list[dict]) -> list[dict]:
         if len(slots) == 1:
             slot_display = slots[0]
         else:
-            slot_display = f"{slots[0]} to {slots[-1]}"
+            # Sort so the range reads low->high. PDF extraction order can be jumbled,
+            # producing confusing reverse-looking ranges like "045 to 037".
+            ordered = sorted(slots, key=lambda s: (int(s) if s.isdigit() else 1_000_000, s))
+            slot_display = f"{ordered[0]} to {ordered[-1]}"
 
         result.append({
             "product_name": group["product_name"],
