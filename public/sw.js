@@ -1,91 +1,53 @@
-// Stocker AI Service Worker
-const CACHE_NAME = 'stocker-ai-v7-NEVER-CACHE-JS';
+// Stocker AI Service Worker — self-cleaning recovery build.
+//
+// Purpose: break the "stuck old app" deadlock. A previous service worker cached
+// the old app shell + JS, so devices kept running pre-February code (which called
+// the retired n8n backend) even after uninstall/clear-history — because clearing
+// history does NOT remove a service worker or its caches.
+//
+// This worker caches NOTHING and intercepts NOTHING (every request goes straight
+// to the network, always fresh). On activation it purges ALL old caches and, if
+// any existed, reloads open windows ONCE so they pick up fresh code immediately.
+// The "hadOldCaches" guard prevents a reload loop on subsequent loads.
+//
+// The browser always re-checks this script from the network on navigation
+// (registration uses updateViaCache:'none'), so a stuck device gets this update
+// the next time the app is opened — no manual data-clearing required.
 
-// Handle skip waiting message from client
+const SW_VERSION = 'stocker-ai-v8-selfclean';
+
 self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SKIP_WAITING') {
     self.skipWaiting();
   }
 });
 
-// Files to cache for offline use
-const STATIC_ASSETS = [
-  '/',
-  '/icon-192.png',
-  '/icon-512.png',
-  '/manifest.json'
-];
-
-// Install event - cache static assets
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(STATIC_ASSETS);
-    })
-  );
-  // Activate immediately
+self.addEventListener('install', () => {
+  // Take over as soon as possible.
   self.skipWaiting();
 });
 
-// Activate event - clean up old caches
 self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames
-          .filter((name) => name !== CACHE_NAME)
-          .map((name) => caches.delete(name))
-      );
-    })
-  );
-  // Take control immediately
-  self.clients.claim();
+  event.waitUntil((async () => {
+    // Purge every cache this origin holds (old app shells, old JS, everything).
+    const names = await caches.keys();
+    const hadOldCaches = names.length > 0;
+    await Promise.all(names.map((n) => caches.delete(n)));
+
+    await self.clients.claim();
+
+    // If we just cleared stale caches, the open page is still running old code in
+    // memory — reload it ONCE so the device immediately loads fresh code. The guard
+    // means a clean device (no old caches) never triggers a reload, so no loop.
+    if (hadOldCaches) {
+      const clients = await self.clients.matchAll({ type: 'window' });
+      for (const client of clients) {
+        try { client.navigate(client.url); } catch (e) { /* best effort */ }
+      }
+    }
+  })());
 });
 
-// Fetch event - network first, fallback to cache
-self.addEventListener('fetch', (event) => {
-  // Skip non-GET requests
-  if (event.request.method !== 'GET') return;
-
-  const url = new URL(event.request.url);
-
-  // NEVER cache JavaScript or CSS - always fetch fresh from network
-  // This prevents stale code from being served by PWA
-  const isCodeFile = url.pathname.endsWith('.js') ||
-                     url.pathname.endsWith('.css') ||
-                     url.pathname.includes('/assets/');
-
-  if (isCodeFile) {
-    // Network only - no caching for code files
-    return;
-  }
-
-  // Skip API calls and webhooks (always go to network) — the service worker
-  // must never intercept, cache, or rewrite a backend request, or it can
-  // silently re-introduce the mobile "Failed to fetch" failures.
-  if (url.pathname.startsWith('/api') ||
-      url.hostname.includes('supabase') ||
-      url.hostname.includes('onrender') ||
-      url.hostname.includes('n8n')) {
-    return;
-  }
-
-  // For non-code files (icons, manifest, etc): cache them
-  event.respondWith(
-    fetch(event.request)
-      .then((response) => {
-        // Cache successful responses (only icons/manifest/etc)
-        if (response.ok) {
-          const responseClone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseClone);
-          });
-        }
-        return response;
-      })
-      .catch(() => {
-        // Fallback to cache if network fails
-        return caches.match(event.request);
-      })
-  );
-});
+// No 'fetch' handler on purpose: nothing is ever served from cache, so the app can
+// never be stale again. (Offline shell-caching can be reintroduced later, carefully,
+// once everyone is off the stuck build.)
