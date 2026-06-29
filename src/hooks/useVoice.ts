@@ -421,7 +421,13 @@ export function useVoice(options: UseVoiceOptions = {}) {
     playCommandChime();
     // Pass to handler - use ref to avoid stale closure
     onTranscriptRef.current?.(text, true);
-  }, [hasWakePhrase, extractWakeCommand, isEcho, playCommandChime, stopAudio, setStatus]); // Removed callback deps - using refs
+    // NOTE: stopAudio is intentionally NOT listed in this dependency array.
+    // stopAudio is a stable useCallback([]) declared further down this file.
+    // Listing it here evaluated the binding during render — before its own
+    // declaration — throwing "Cannot access 'on' before initialization" and
+    // crashing the picking screen. The body above calls it via closure at
+    // runtime (after it is initialized), so omitting it is safe and correct.
+  }, [hasWakePhrase, extractWakeCommand, isEcho, playCommandChime, setStatus]); // refs used elsewhere to avoid stale closures
 
   const handleDeepgramMessage = useCallback((data: any) => {
     if (data.type === 'Results' && data.channel?.alternatives?.[0]) {
