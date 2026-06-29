@@ -23,3 +23,11 @@ dist-ssr
 *.sln
 *.sw?
 MEMORY.md
+
+# Credentials — never commit; secrets live in the deploy platform's env vars.
+# (These were committed historically — rotation + untracking is a separate coordinated step.)
+.env
+.env.*
+!.env.example
+.mcp.json
+**/INCREMENT_*KEY*.js
