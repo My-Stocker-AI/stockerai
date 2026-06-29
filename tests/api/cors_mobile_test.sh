@@ -19,6 +19,10 @@
 set -u
 BASE="${STOCKER_API:-https://stockerai-api.onrender.com}"
 ORIGIN="https://my-stocker-ai.com"
+# Every real install origin must be granted. The Cloudflare Pages domain (NO hyphen)
+# is a real origin for installed apps — a hyphen typo once silently blocked it,
+# which read to the driver as "failed to fetch".
+GRANTED_ORIGINS=("https://my-stocker-ai.com" "https://stockerai.pages.dev")
 BAD_ORIGIN="https://not-allowed.example.com"
 
 # Every backend endpoint the StockerAI mobile app calls.
@@ -57,9 +61,12 @@ for ep in "${ENDPOINTS[@]}"; do
   granted=$(acao_for "$ORIGIN" "$ep")
   denied=$(acao_for "$BAD_ORIGIN" "$ep")
 
-  # 1) the real app origin is granted, echoed EXACTLY
-  if [ "$granted" = "$ORIGIN" ]; then ok "grants the real app origin"; \
-     else bad "grants the real app origin" "got: '${granted:-none}'"; fi
+  # 1) every real install origin is granted, echoed EXACTLY (catches origin typos)
+  for o in "${GRANTED_ORIGINS[@]}"; do
+    g=$(acao_for "$o" "$ep")
+    if [ "$g" = "$o" ]; then ok "grants $o"; \
+       else bad "grants $o" "got: '${g:-none}'"; fi
+  done
 
   # 2) the permission slip is specific, NOT a wildcard (the invalid combo)
   if [ -n "$granted" ] && [ "$granted" != "*" ]; then ok "permission slip is specific, not wildcard"; \
