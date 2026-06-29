@@ -354,17 +354,7 @@ def set_route_sequence(req: SetRouteSequenceRequest):
         )
         session_id = insert_result.data[0]["id"]
 
-    # Step 5: Only reset machines for NEW sessions (preserve progress on resume).
-    # Also clear skipped_at_item so a re-run of the same route doesn't inherit stale
-    # skip marks from a prior run (the skip trigger only ever sets it, never clears).
-    if is_new_session:
-        db.table("machines").update({
-            "status": "pending",
-            "completed_items": 0,
-            "skipped_at_item": None,
-        }).eq("route_id", route_id).execute()
-
-    # Step 6: Get machines for this route
+    # Step 5: Get machines for this route
     machines_result = (
         db.table("machines")
         .select("id, machine_name, machine_number, location_name, sequence, total_items, completed_items, status")
@@ -372,16 +362,31 @@ def set_route_sequence(req: SetRouteSequenceRequest):
         .order("sequence")
         .execute()
     )
-
     machines = machines_result.data or []
     if not machines:
         raise HTTPException(status_code=404, detail="No machines found for this route")
 
-    # Step 7: Set current machine — for resumed sessions, find first non-completed machine
-    if is_new_session:
+    # Step 6: Decide RESET vs RESUME by the ROUTE's actual progress, NOT by whether a
+    # session row exists. Logging out clears the session row, so a re-login looks
+    # brand-new even when the route was already worked — resetting on is_new_session
+    # WIPED a driver's real progress (the logout-then-login data-loss bug). A route with
+    # ANY progress always resumes; only a zero-progress route (fresh upload) starts clean.
+    route_has_progress = any(
+        (m.get("completed_items") or 0) > 0 or m["status"] in ("in_progress", "completed", "skipped")
+        for m in machines
+    )
+
+    if not route_has_progress:
+        # Genuine fresh start. (A re-upload already inserts machines at 0, so this is a
+        # no-op there; it only matters as belt-and-suspenders for a truly clean route.)
+        db.table("machines").update({
+            "status": "pending",
+            "completed_items": 0,
+            "skipped_at_item": None,
+        }).eq("route_id", route_id).execute()
         first_machine = machines[0]
     else:
-        # Resume: find first machine that isn't completed
+        # Resume: jump to the first machine that isn't finished/skipped.
         first_machine = next(
             (m for m in machines if m["status"] not in ("completed", "skipped")),
             machines[0],  # fallback to first if all done

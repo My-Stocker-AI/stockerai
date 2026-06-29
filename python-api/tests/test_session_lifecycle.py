@@ -95,10 +95,11 @@ def stale_skipped_route():
         "user_id": TEST_USER, "route_name": ROUTE_NAME, "delivery_date": DATE,
         "total_machines": 1, "total_items": 3,
     }).execute().data[0]["id"]
+    # A genuinely fresh route (no progress anywhere) — the only case that resets.
     mid = db.table("machines").insert({
         "route_id": rid, "route_name": ROUTE_NAME, "machine_name": "M1", "machine_number": 1,
-        "location_name": "L1", "sequence": 1, "total_items": 3, "completed_items": 2,
-        "status": "skipped", "skipped_at_item": 2,  # stale state from a "prior run"
+        "location_name": "L1", "sequence": 1, "total_items": 3, "completed_items": 0,
+        "status": "pending",
     }).execute().data[0]["id"]
     db.table("items").insert([{
         "machine_id": mid, "machine_name": "M1", "product_name": f"P{i}", "quantity": 1,
@@ -122,3 +123,46 @@ def test_fresh_session_sets_direction_and_clears_skip_marks(client, stale_skippe
     m = db.table("machines").select("status, completed_items, skipped_at_item").eq("id", mid).execute().data[0]
     assert m["skipped_at_item"] is None, f"stale skipped_at_item not cleared: {m['skipped_at_item']}"
     assert m["completed_items"] == 0 and m["status"] == "pending", f"machine not reset: {m}"
+
+
+# ─── 3. Logout-then-login must RESUME, never wipe progress ──────────────────────
+
+@pytest.fixture
+def worked_route_no_session():
+    """A route already worked (M1 done 3/3, M2 mid 1/2) with NO active session — the
+    exact state a logout leaves behind (session row gone, machine progress in the DB)."""
+    from app.services.database import get_client
+    db = get_client()
+    _cleanup(db)
+    rid = db.table("routes").insert({"user_id": TEST_USER, "route_name": ROUTE_NAME, "delivery_date": DATE,
+        "total_machines": 2, "total_items": 5}).execute().data[0]["id"]
+    m1 = db.table("machines").insert({"route_id": rid, "route_name": ROUTE_NAME, "machine_name": "M1",
+        "machine_number": 1, "location_name": "L", "sequence": 1, "total_items": 3, "completed_items": 3,
+        "status": "completed"}).execute().data[0]["id"]
+    m2 = db.table("machines").insert({"route_id": rid, "route_name": ROUTE_NAME, "machine_name": "M2",
+        "machine_number": 2, "location_name": "L", "sequence": 2, "total_items": 2, "completed_items": 1,
+        "status": "in_progress"}).execute().data[0]["id"]
+    for mid, n in ((m1, 3), (m2, 2)):
+        db.table("items").insert([{"machine_id": mid, "machine_name": "M", "product_name": f"P{i}",
+            "quantity": 1, "slot": str(i), "sequence": i, "status": "pending",
+            "inventory_current": 0, "inventory_parlevel": 0} for i in range(1, n + 1)]).execute()
+    yield {"db": db, "m1": m1, "m2": m2}
+    _cleanup(db)
+
+
+def test_relogin_resumes_and_preserves_progress(client, worked_route_no_session):
+    """THE logout/login data-loss bug: re-selecting a worked route must keep its
+    progress and resume at the right machine — not reset everything to zero."""
+    db, m1, m2 = worked_route_no_session["db"], worked_route_no_session["m1"], worked_route_no_session["m2"]
+    r = client.post("/api/set-route-sequence", json={
+        "session_id": "00000000-0000-0000-0000-0000000000ff",
+        "user_id": TEST_USER, "date": DATE, "route_name": ROUTE_NAME})
+    assert r.status_code == 200, r.text
+    # progress PRESERVED (the bug wiped these to 0)
+    a = db.table("machines").select("completed_items,status").eq("id", m1).execute().data[0]
+    b = db.table("machines").select("completed_items,status").eq("id", m2).execute().data[0]
+    assert a["completed_items"] == 3, f"M1 progress wiped: {a}"
+    assert b["completed_items"] == 1, f"M2 progress wiped: {b}"
+    # resumes at the in-progress machine (M2), not back at machine 1
+    sess = db.table("sessions").select("current_machine_id").eq("user_id", TEST_USER).eq("status", "stocking").execute().data
+    assert sess and sess[0]["current_machine_id"] == m2, f"did not resume at M2: {sess}"
