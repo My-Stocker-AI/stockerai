@@ -1330,14 +1330,15 @@ export default function StockerApp() {
             // Restore session state immediately
             // FIX: Clear stale currentItem if already in completedItems (prevents showing
             // a completed item as "current" after resume, especially when pick-count changed)
-            const completedKeys = new Set(
-              (saved.completedItems || []).map((item: any) => `${item.machineName}:${item.slot}:${item.product}`)
-            );
+            // Blank-slot-safe key — matches the live Done-card dedup: prefer the
+            // item's sequence position, fall back to slot only when it's absent.
+            const rkey = (it: any) => `${it.machineName}:${it.item_index != null ? 'i' + it.item_index : 's' + (it.slot || '')}:${it.product}`;
+            const completedKeys = new Set((saved.completedItems || []).map(rkey));
             const restoredItem1 = saved.currentItem
-              && completedKeys.has(`${saved.currentItem.machineName}:${saved.currentItem.slot}:${saved.currentItem.product}`)
+              && completedKeys.has(rkey(saved.currentItem))
               ? null : saved.currentItem;
             const restoredItem2 = saved.currentItem2
-              && completedKeys.has(`${saved.currentItem2.machineName}:${saved.currentItem2.slot}:${saved.currentItem2.product}`)
+              && completedKeys.has(rkey(saved.currentItem2))
               ? null : (saved.currentItem2 || null);
 
             setRouteState({
@@ -1446,14 +1447,15 @@ export default function StockerApp() {
 
     // FIX: Clear stale currentItem if already in completedItems (prevents showing
     // a completed item as "current" after resume, especially when pick-count changed)
-    const completedKeys = new Set(
-      (savedSession.completedItems || []).map((item: any) => `${item.machineName}:${item.slot}:${item.product}`)
-    );
+    // Blank-slot-safe key — matches the live Done-card dedup: prefer the item's
+    // sequence position, fall back to slot only when it's absent.
+    const rkey = (it: any) => `${it.machineName}:${it.item_index != null ? 'i' + it.item_index : 's' + (it.slot || '')}:${it.product}`;
+    const completedKeys = new Set((savedSession.completedItems || []).map(rkey));
     const restoredItem1 = savedSession.currentItem
-      && completedKeys.has(`${savedSession.currentItem.machineName}:${savedSession.currentItem.slot}:${savedSession.currentItem.product}`)
+      && completedKeys.has(rkey(savedSession.currentItem))
       ? null : savedSession.currentItem;
     const restoredItem2 = savedSession.currentItem2
-      && completedKeys.has(`${savedSession.currentItem2.machineName}:${savedSession.currentItem2.slot}:${savedSession.currentItem2.product}`)
+      && completedKeys.has(rkey(savedSession.currentItem2))
       ? null : (savedSession.currentItem2 || null);
 
     setRouteState({

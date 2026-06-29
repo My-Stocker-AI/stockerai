@@ -328,7 +328,10 @@ def set_route_sequence(req: SetRouteSequenceRequest):
             "started_at": datetime.utcnow().isoformat(),
         }).eq("id", session_id).execute()
     else:
-        # Create new session — fresh start
+        # Create new session — fresh start. Set pick_direction explicitly rather
+        # than relying on a DB default (the old set-route-sequence did this); a
+        # get_next_item issued before start_machine would otherwise read a NULL
+        # direction and pick in reverse.
         is_new_session = True
         insert_result = (
             db.table("sessions")
@@ -339,16 +342,20 @@ def set_route_sequence(req: SetRouteSequenceRequest):
                 "current_route_id": route_id,
                 "delivery_date": req.date,
                 "started_at": datetime.utcnow().isoformat(),
+                "pick_direction": "forward",
             })
             .execute()
         )
         session_id = insert_result.data[0]["id"]
 
-    # Step 5: Only reset machines for NEW sessions (preserve progress on resume)
+    # Step 5: Only reset machines for NEW sessions (preserve progress on resume).
+    # Also clear skipped_at_item so a re-run of the same route doesn't inherit stale
+    # skip marks from a prior run (the skip trigger only ever sets it, never clears).
     if is_new_session:
         db.table("machines").update({
             "status": "pending",
             "completed_items": 0,
+            "skipped_at_item": None,
         }).eq("route_id", route_id).execute()
 
     # Step 6: Get machines for this route
