@@ -285,6 +285,59 @@ describe('CommandRecognizer', () => {
     });
   });
 
+  // ─── NATURAL PHRASES WITH FILLER (one-word regression fix) ─────────────────
+  // Drivers don't speak in clean keywords — they say "okay, next one" not "next".
+  // The matcher must pull the command out of natural speech with leading/trailing
+  // filler, NOT force the whole utterance to equal a command. Regression: post-
+  // migration the app only accepted bare single words.
+
+  describe('natural phrases with filler words', () => {
+    it.each([
+      'okay, next one',
+      'okay next one',
+      'alright next',
+      'alright, next item',
+      'yeah next',
+      'got it, next',
+      'and next one',
+      'next one please',
+      "let's do the next one",
+    ])('"%s" → NEXT_ITEM', (input) => {
+      expect(r.recognize(input).command).toBe(PickingCommand.NEXT_ITEM);
+    });
+
+    it.each([
+      'okay, skip this machine',
+      'alright skip',
+      'yeah, skip it',
+      'go ahead and skip this machine',
+    ])('"%s" → SKIP_MACHINE', (input) => {
+      expect(r.recognize(input).command).toBe(PickingCommand.SKIP_MACHINE);
+    });
+
+    it('"yes, top" → DIRECTION_TOP', () => {
+      expect(r.recognize('yes, top').command).toBe(PickingCommand.DIRECTION_TOP);
+    });
+
+    it('"okay bottom" → DIRECTION_BOTTOM', () => {
+      expect(r.recognize('okay bottom').command).toBe(PickingCommand.DIRECTION_BOTTOM);
+    });
+
+    // GUARD: a bare filler word is still an affirmative, NOT stripped to nothing
+    it('"okay" alone stays AFFIRMATIVE', () => {
+      expect(r.recognize('okay').command).toBe(PickingCommand.AFFIRMATIVE);
+    });
+
+    // GUARD: filler-tolerance must not turn random speech into a command
+    it.each([
+      'completely random garbage text',
+      'hello how are you doing today',
+      'okay so what should we have for lunch',
+    ])('"%s" → UNKNOWN', (input) => {
+      expect(r.recognize(input).command).toBe(PickingCommand.UNKNOWN);
+    });
+  });
+
   // ─── PRIORITY ORDER ────────────────────────────────────────────────────────
 
   describe('priority ordering', () => {

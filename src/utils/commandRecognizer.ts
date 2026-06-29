@@ -311,6 +311,13 @@ export class CommandRecognizer {
       return exactMatch;
     }
 
+    // Tier 2b: Filler-tolerant match — drivers speak naturally ("okay, next one"),
+    // not in bare keywords. Runs only after a clean exact match fails.
+    const looseMatch = this.looseMatch(corrected);
+    if (looseMatch) {
+      return looseMatch;
+    }
+
     // Tier 3: Fuzzy match for STT errors (98% accuracy)
     const fuzzyMatch = this.fuzzyMatch(corrected);
     if (fuzzyMatch.confidence > 0.7) {
@@ -412,6 +419,60 @@ export class CommandRecognizer {
       };
     }
 
+    return null;
+  }
+
+  /**
+   * Filler-tolerant match (Tier 2b).
+   *
+   * Drivers don't speak in clean keywords — they say "okay, next one",
+   * "alright skip this machine", "let's do the next one". This strips leading
+   * and trailing filler/glue words, then re-runs the EXACT matcher on what's
+   * left. It runs ONLY after a clean exact match fails, so bare commands are
+   * never overridden (e.g. "okay" alone stays AFFIRMATIVE). It only ever
+   * STRIPS and re-matches — it never substring-scans — so random speech
+   * ("completely random garbage") can't be coerced into a command.
+   */
+  private looseMatch(text: string): CommandMatch | null {
+    // Leading filler/affirmative/glue words a driver naturally prepends.
+    const LEADING = [
+      "let's", 'lets', 'okay', 'ok', 'alright', 'all right', 'yeah', 'yep',
+      'yes', 'yea', 'sure', 'got it', 'and', 'so', 'um', 'uh', 'well', 'hey',
+      'now', 'just', 'please', 'go ahead and', 'go ahead', 'can you',
+      'could you', 'would you', 'do the', 'do', 'the', "i'll", 'ill', 'then',
+    ];
+    // Trailing filler words a driver naturally appends.
+    const TRAILING = ['please', 'now', 'then', 'one', 'for me', 'real quick', 'buddy', 'item'];
+
+    const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    // Normalize internal punctuation/whitespace.
+    let t = text.replace(/[.,!?;:]/g, ' ').replace(/\s+/g, ' ').trim();
+    const original = t;
+
+    // Strip leading filler iteratively ("okay so next" → "next").
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const f of LEADING) {
+        const re = new RegExp('^' + esc(f) + '\\b\\s*', 'i');
+        if (re.test(t)) { t = t.replace(re, '').trim(); changed = true; }
+      }
+    }
+    // Strip trailing filler iteratively ("next one please" → "next").
+    changed = true;
+    while (changed) {
+      changed = false;
+      for (const f of TRAILING) {
+        const re = new RegExp('\\s+' + esc(f) + '$', 'i');
+        if (re.test(t)) { t = t.replace(re, '').trim(); changed = true; }
+      }
+    }
+
+    // Only re-match if stripping actually changed the text AND left something.
+    if (t && t !== original) {
+      return this.exactMatch(t);
+    }
     return null;
   }
 
