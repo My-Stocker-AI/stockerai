@@ -97,6 +97,13 @@ export function DiagnosticOverlay({ voiceStatus, isDeepgramConnected, isVisible,
             break;
           case 'deepgram-disconnected':
             updated.deepgramConnected = false;
+            // Surface the close code + reason on-screen — this is the single fact that
+            // names WHY Deepgram refused the line (1011=concurrency, 4001/4008=token,
+            // 1006=network). Previously logged only to console, invisible on a phone.
+            if (data && typeof data === 'object' && 'code' in data) {
+              const why = `DG close ${data.code}${data.reason ? ' — ' + data.reason : ''} (try ${data.reconnectAttempt ?? 0})`;
+              updated.errors = [...prev.errors.slice(-4), why];
+            }
             break;
           case 'mediarecorder-state':
             updated.mediaRecorderState = data;
