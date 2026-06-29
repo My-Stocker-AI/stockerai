@@ -460,7 +460,7 @@ const UploadRoutes = () => {
                       {deliveryDate ? format(deliveryDate, "PPP") : "Pick a date"}
                     </Button>
                   </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0 bg-dashboard-bg border-dashboard-border" align="start">
+                  <PopoverContent style={{ backgroundColor: '#161b22' }} className="w-auto p-0 border-dashboard-border" align="start">
                     <CalendarComponent
                       mode="single"
                       selected={deliveryDate}
@@ -478,7 +478,7 @@ const UploadRoutes = () => {
                   <SelectTrigger className="bg-dashboard-bg border-dashboard-border text-dashboard-text">
                     <SelectValue placeholder="Select driver..." />
                   </SelectTrigger>
-                  <SelectContent className="bg-dashboard-bg border-dashboard-border">
+                  <SelectContent style={{ backgroundColor: '#161b22' }} className="border-dashboard-border">
                     <SelectItem value="self" className="text-dashboard-text">
                       Myself
                     </SelectItem>
