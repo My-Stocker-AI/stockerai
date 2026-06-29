@@ -143,7 +143,8 @@ async def upload_pdf(
             )
 
             if not machine_insert.data:
-                raise HTTPException(status_code=500, detail=f"Failed to insert machine: {machine_name}")
+                db.table("routes").delete().eq("id", route_id).execute()  # don't strand a half-built route
+                raise HTTPException(status_code=500, detail=f"Upload failed on machine '{machine_name}'. No partial route was saved — please retry.")
             machine_id = machine_insert.data[0]["id"]
             total_machines += 1
 
@@ -163,7 +164,11 @@ async def upload_pdf(
                 })
 
             if items_to_insert:
-                db.table("items").insert(items_to_insert).execute()
+                try:
+                    db.table("items").insert(items_to_insert).execute()
+                except Exception:
+                    db.table("routes").delete().eq("id", route_id).execute()  # don't strand a half-built route
+                    raise HTTPException(status_code=500, detail=f"Upload failed saving items for '{machine_name}'. No partial route was saved — please retry.")
                 total_items += len(items_to_insert)
 
     # Guard: if every machine parsed empty, we'd otherwise leave a 0-machine route
@@ -178,17 +183,18 @@ async def upload_pdf(
         "total_items": total_items,
     }).eq("id", route_id).execute()
 
+    warnings = parsed.get("warnings") or []
     response = {
         "route": route_name,
         "machines": total_machines,
         "items": total_items,
+        # Surfaced as a first-class field so the driver SEES partial parses instead
+        # of a silent short machine. The frontend can warn loudly when this is > 0.
+        "items_dropped": len(warnings),
         "date": date,
         "pdf_url": pdf_url,
+        "warnings": warnings,
     }
-
-    # Include parser warnings (partial items that couldn't be parsed)
-    if parsed.get("warnings"):
-        response["warnings"] = parsed["warnings"]
 
     return response
 

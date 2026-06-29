@@ -1121,22 +1121,31 @@ export default function StockerApp() {
   // This prevents mic from staying open when user navigates to other pages
   // CRITICAL: Save progress before app closes (prevents data loss on crash/close)
   useEffect(() => {
-    const handleBeforeUnload = async (e: BeforeUnloadEvent) => {
-      // Force synchronous save before close
+    // Persist progress before the app closes OR is backgrounded. On phones,
+    // `beforeunload` is unreliable — it frequently does NOT fire when the driver
+    // locks or pockets the phone mid-route, which is exactly when picks were being
+    // lost. `visibilitychange`→hidden and `pagehide` DO fire reliably on mobile
+    // backgrounding/lock, so we save on those too. Fire-and-forget (can't await in
+    // these lifecycle events anyway); the save's local write commits immediately.
+    const save = () => {
       if (routeState.routeName && userId) {
-        try {
-          await saveSessionState();
-          console.log('[Stocker] Progress saved before close');
-        } catch (error) {
-          console.error('[Stocker] Failed to save before close:', error);
-        }
+        saveSessionState().catch((error) =>
+          console.error('[Stocker] Background save failed:', error)
+        );
       }
     };
+    const handleVisibility = () => {
+      if (document.visibilityState === 'hidden') save();
+    };
 
-    window.addEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('beforeunload', save);
+    window.addEventListener('pagehide', save);
+    document.addEventListener('visibilitychange', handleVisibility);
 
     return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('beforeunload', save);
+      window.removeEventListener('pagehide', save);
+      document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, [routeState.routeName, userId, saveSessionState]);
 

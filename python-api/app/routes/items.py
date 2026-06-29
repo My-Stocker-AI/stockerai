@@ -5,7 +5,7 @@ Core item flow endpoints:
 """
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from app.services.database import get_client, rpc
 from app.services.formatting import (
     parse_product,
@@ -29,14 +29,14 @@ class GetNextItemRequest(BaseModel):
     session_id: str
     user_id: str
     date: str | None = None
-    count: int = 1
+    count: int = Field(1, ge=1, le=2)  # 1- or 2-pick only; reject malformed counts
 
 
 class StartMachineRequest(BaseModel):
     session_id: str
     user_id: str
     direction: str  # "beginning" or "end"
-    count: int = 1
+    count: int = Field(1, ge=1, le=2)  # 1- or 2-pick only; reject malformed counts
 
 
 # ─── GET NEXT ITEM ────────────────────────────────────────────────────────────
@@ -329,7 +329,7 @@ def start_machine(req: StartMachineRequest):
         "session_complete": False,
         "machine_id": machine_id,
         "machine_name": machine.get("machine_name", ""),
-        "items_remaining": machine["total_items"] - new_completed,
+        "items_remaining": max(0, (machine.get("total_items") or 0) - new_completed),
         "new_completed_items": new_completed,
         "total_items": machine["total_items"],
         "direction": pick_direction,

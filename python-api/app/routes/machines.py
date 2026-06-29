@@ -58,6 +58,12 @@ def skip_machine(req: SkipMachineRequest):
     machine_id = session["current_machine_id"]
     route_id = session["current_route_id"]
 
+    # Guard: a session can exist with no machine selected yet (route picked but
+    # start_machine never ran). Without this, the query below silently 404s with a
+    # confusing "Current machine not found" instead of the real cause.
+    if not machine_id:
+        raise HTTPException(status_code=400, detail="No machine selected yet. Say a route to start.")
+
     # Step 2: Get current machine
     machine_result = (
         db.table("machines")
