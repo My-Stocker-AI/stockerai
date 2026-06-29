@@ -119,22 +119,30 @@ export function UploadTab() {
       const uploadUrl = import.meta.env.VITE_API_BACKEND === 'python'
         ? 'https://stockerai-api.onrender.com/api/upload-pdf'
         : 'https://visionairy.app.n8n.cloud/webhook/upload';
-      let response: Response;
-      try {
-        response = await fetch(uploadUrl, {
-          method: 'POST',
-          body: formData,
-        });
-      } catch (netErr: any) {
-        // A bare "Failed to fetch" hides the real cause. Surface WHICH address was
-        // called and the app's build date so a stale cached app (old/dead address)
-        // is instantly distinguishable from a fresh app that truly can't reach the
-        // server — visible right on the device, no guessing.
+      // Mobile's FIRST request after the radio's been idle often fails to connect
+      // (DNS/TLS/radio wake), and the retry succeeds — confirmed in the server logs:
+      // the first upload never arrived, the second returned 200. So auto-retry the
+      // connection a few times; the driver never sees a transient "Failed to fetch".
+      let response: Response | null = null;
+      let lastNetErr: any = null;
+      for (let attempt = 1; attempt <= 4; attempt++) {
+        try {
+          response = await fetch(uploadUrl, { method: 'POST', body: formData });
+          break;
+        } catch (netErr: any) {
+          lastNetErr = netErr;
+          if (attempt < 4) {
+            // brief, growing pause so the radio/connection has time to come up
+            await new Promise((r) => setTimeout(r, 700 * attempt));
+          }
+        }
+      }
+      if (!response) {
         const build = typeof __BUILD_TIME__ !== 'undefined'
           ? new Date(__BUILD_TIME__).toLocaleString()
           : 'unknown';
         throw new Error(
-          `Couldn't reach the server · Address: ${uploadUrl} · Reason: ${netErr?.message || netErr} · App build: ${build}`
+          `Couldn't reach the server after several tries · Address: ${uploadUrl} · Reason: ${lastNetErr?.message || lastNetErr} · App build: ${build}`
         );
       }
 

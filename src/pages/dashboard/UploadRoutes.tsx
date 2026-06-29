@@ -262,10 +262,33 @@ const UploadRoutes = () => {
       const uploadUrl = import.meta.env.VITE_API_BACKEND === 'python'
         ? 'https://stockerai-api.onrender.com/api/upload-pdf'
         : 'https://visionairy.app.n8n.cloud/webhook/upload';
-      const response = await fetch(uploadUrl, {
-        method: 'POST',
-        body: formData,
-      });
+
+      // Mobile's FIRST request after the radio's been idle often fails to connect
+      // (DNS/TLS/radio wake) and the retry succeeds — confirmed in the server logs:
+      // a driver's first upload never arrived, the second returned 200. Auto-retry
+      // the connection so that transient drop never surfaces as "Failed to fetch".
+      // Safe to retry: the backend de-dupes routes by name+date before inserting.
+      let response: Response | null = null;
+      let lastNetErr: any = null;
+      for (let attempt = 1; attempt <= 4; attempt++) {
+        try {
+          response = await fetch(uploadUrl, { method: 'POST', body: formData });
+          break;
+        } catch (netErr: any) {
+          lastNetErr = netErr;
+          if (attempt < 4) {
+            await new Promise((r) => setTimeout(r, 700 * attempt));
+          }
+        }
+      }
+      if (!response) {
+        const build = typeof __BUILD_TIME__ !== 'undefined'
+          ? new Date(__BUILD_TIME__).toLocaleString()
+          : 'unknown';
+        throw new Error(
+          `Couldn't reach the server after several tries · Address: ${uploadUrl} · Reason: ${lastNetErr?.message || lastNetErr} · App build: ${build}`
+        );
+      }
 
       if (!response.ok) {
         const errorText = await response.text();
