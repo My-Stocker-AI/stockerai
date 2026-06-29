@@ -69,7 +69,8 @@ export function useVoice(options: UseVoiceOptions = {}) {
   const audioStreamRef = useRef<MediaStream | null>(null);
   const keepAliveRef = useRef<NodeJS.Timeout | null>(null);
   const tokenRef = useRef<string | null>(null);
-  const tokenExpiryRef = useRef<number>(0);
+  const tokenExpiryRef = useRef<number>(0);       // when to PROACTIVELY refresh (60s early)
+  const tokenRawExpiryRef = useRef<number>(0);    // when the token ACTUALLY expires
   const encodingRef = useRef<string>('opus');  // Default to opus, updated by setupMediaRecorder
   const shouldReconnectRef = useRef(true);
   const isConnectedRef = useRef(false);
@@ -362,16 +363,29 @@ export function useVoice(options: UseVoiceOptions = {}) {
       return tokenRef.current;
     }
 
-    const response = await fetch(DEEPGRAM_TOKEN_URL, {
-      signal: AbortSignal.timeout(10000)
-    });
-    if (!response.ok) {
-      throw new Error('Failed to get Deepgram token');
+    try {
+      const response = await fetch(DEEPGRAM_TOKEN_URL, {
+        signal: AbortSignal.timeout(10000)
+      });
+      if (!response.ok) {
+        throw new Error('Failed to get Deepgram token');
+      }
+      const data = await response.json();
+      tokenRef.current = data.token;
+      tokenRawExpiryRef.current = now + (data.expires_in || 600) * 1000;
+      tokenExpiryRef.current = now + ((data.expires_in || 600) - 60) * 1000;
+      return tokenRef.current;
+    } catch (e) {
+      // Pass-issuer hiccup at refresh time (common after a long idle gap, since we
+      // refresh 60s early): if the current token hasn't ACTUALLY expired yet, keep
+      // using it instead of dropping voice entirely. Buys up to ~60s for the issuer
+      // to recover before voice is genuinely lost.
+      if (tokenRef.current && tokenRawExpiryRef.current > now) {
+        console.warn('[Voice] Token refresh failed; reusing still-valid cached token');
+        return tokenRef.current;
+      }
+      throw e;
     }
-    const data = await response.json();
-    tokenRef.current = data.token;
-    tokenExpiryRef.current = now + ((data.expires_in || 600) - 60) * 1000;
-    return tokenRef.current;
   }, []);
 
   // Process accumulated transcript as a command (matches original PWA handleCommand flow)
@@ -709,7 +723,9 @@ export function useVoice(options: UseVoiceOptions = {}) {
       socket.onerror = (event) => {
         clearTimeout(timeout);
         emitDiagnostic('error', 'Deepgram WebSocket error');
-        onErrorRef.current?.('WebSocket error');
+        // Plain-English, reassuring — the driver sees what's happening instead of a
+        // cryptic "WebSocket error" or dead silence during the auto-reconnect window.
+        onErrorRef.current?.('Reconnecting voice…');
       };
 
       socket.onclose = (event) => {

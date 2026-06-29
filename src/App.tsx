@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -6,36 +7,46 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/hooks/useAuth";
 import { VersionIndicator } from "@/components/VersionIndicator";
 import { PWAInstallBanner } from "@/components/PWAInstallBanner";
+// Entry points stay eager so the landing + auth screens paint instantly (no flash).
 import Home from "./pages/Home";
-import Pricing from "./pages/Pricing";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
-import SetPassword from "./pages/SetPassword";
-import AuthCallback from "./pages/AuthCallback";
-import Dashboard from "./pages/Dashboard";
-import UploadRoutes from "./pages/dashboard/UploadRoutes";
-import MyRoutes from "./pages/dashboard/MyRoutes";
-import Team from "./pages/dashboard/Team";
-import Usage from "./pages/dashboard/Usage";
-import Billing from "./pages/dashboard/Billing";
-import Settings from "./pages/dashboard/Settings";
 import NotFound from "./pages/NotFound";
-import StockerApp from "./pages/StockerApp";
+// Route guards must be eager — they decide what renders.
 import ProtectedRoute from "@/components/dashboard/ProtectedRoute";
 import PlatformAdminRoute from "@/components/admin/PlatformAdminRoute";
-import AdminOverview from "./pages/admin/AdminOverview";
-import AdminUsers from "./pages/admin/AdminUsers";
-import AdminSubscriptions from "./pages/admin/AdminSubscriptions";
-import AdminMetrics from "./pages/admin/AdminMetrics";
-import AdminDiscounts from "./pages/admin/AdminDiscounts";
-import Guide from "./pages/Guide";
-import Demo from "./pages/Demo";
-import DemoLive from "./pages/DemoLive";
-import Troubleshooting from "./pages/Troubleshooting";
-import Privacy from "./pages/Privacy";
-import Terms from "./pages/Terms";
+// Everything else loads on demand, so a first visit no longer downloads the
+// whole app (the 2,400-line picking screen + Deepgram voice stack + admin) up front.
+const Pricing = lazy(() => import("./pages/Pricing"));
+const SetPassword = lazy(() => import("./pages/SetPassword"));
+const AuthCallback = lazy(() => import("./pages/AuthCallback"));
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const UploadRoutes = lazy(() => import("./pages/dashboard/UploadRoutes"));
+const MyRoutes = lazy(() => import("./pages/dashboard/MyRoutes"));
+const Team = lazy(() => import("./pages/dashboard/Team"));
+const Usage = lazy(() => import("./pages/dashboard/Usage"));
+const Billing = lazy(() => import("./pages/dashboard/Billing"));
+const Settings = lazy(() => import("./pages/dashboard/Settings"));
+const StockerApp = lazy(() => import("./pages/StockerApp"));
+const AdminOverview = lazy(() => import("./pages/admin/AdminOverview"));
+const AdminUsers = lazy(() => import("./pages/admin/AdminUsers"));
+const AdminSubscriptions = lazy(() => import("./pages/admin/AdminSubscriptions"));
+const AdminMetrics = lazy(() => import("./pages/admin/AdminMetrics"));
+const AdminDiscounts = lazy(() => import("./pages/admin/AdminDiscounts"));
+const Guide = lazy(() => import("./pages/Guide"));
+const Demo = lazy(() => import("./pages/Demo"));
+const DemoLive = lazy(() => import("./pages/DemoLive"));
+const Troubleshooting = lazy(() => import("./pages/Troubleshooting"));
+const Privacy = lazy(() => import("./pages/Privacy"));
+const Terms = lazy(() => import("./pages/Terms"));
 
 const queryClient = new QueryClient();
+
+const PageLoader = () => (
+  <div className="flex items-center justify-center min-h-screen bg-[#0d1117]">
+    <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+  </div>
+);
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -46,6 +57,7 @@ const App = () => (
       <PWAInstallBanner />
       <BrowserRouter>
         <AuthProvider>
+          <Suspense fallback={<PageLoader />}>
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/pricing" element={<Pricing />} />
@@ -85,6 +97,7 @@ const App = () => (
 
             <Route path="*" element={<NotFound />} />
           </Routes>
+          </Suspense>
         </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>

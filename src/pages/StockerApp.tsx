@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, memo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, CheckCircle, Mic, MicOff, Pause, Play, Square, AlertTriangle, RefreshCw, HelpCircle, Zap, MapPin, Package, Truck, RotateCcw, Settings } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -124,6 +124,34 @@ function trimConversationHistory(history: any[]): any[] {
 
 // Command recognizer instance for pattern matching high-frequency commands
 const commandRecognizer = new CommandRecognizer();
+
+// One row of the Done list. Memoized on primitive props so that picking an item
+// re-renders only the new row, not all (up to ~269) rows — fixes the late-route
+// scroll stutter on slower Android phones.
+const DoneItem = memo(function DoneItem({
+  quantity, product, slot, showMachineSeparator, prevMachineName,
+}: {
+  quantity: number; product: string; slot: string;
+  showMachineSeparator: boolean; prevMachineName?: string;
+}) {
+  return (
+    <div>
+      {showMachineSeparator && (
+        <div className="flex items-center gap-2 py-2 my-1">
+          <div className="flex-1 h-px bg-teal-600/50" />
+          <span className="text-xs text-teal-400 font-medium px-2">{prevMachineName} ✓</span>
+          <div className="flex-1 h-px bg-teal-600/50" />
+        </div>
+      )}
+      <div className="flex items-center gap-3 text-sm text-gray-400">
+        <CheckCircle className="h-4 w-4 text-emerald-500" />
+        <span>{quantity}x</span>
+        <span className="flex-1 truncate">{product}</span>
+        <span className="text-gray-500">{slot}</span>
+      </div>
+    </div>
+  );
+});
 
 export default function StockerApp() {
   const navigate = useNavigate();
@@ -270,6 +298,17 @@ export default function StockerApp() {
     // Bug: Session updates before TTS plays, so interrupting skips items
     if (voiceRef.current?.status === 'speaking') {
       console.log('[Voice] Ignoring transcript while speaking:', transcript);
+      return;
+    }
+
+    // Drop stale commands once the session is invalidated — e.g. a command queued
+    // during the final "route complete" announcement replaying a beat later. Without
+    // this, undo/repeat/next could execute out-of-sequence on a finished route. The
+    // deeper tool-execution guards (below) already cover the AI path; this closes the
+    // local-command path. Starting the next route runs through selectRoute, not here,
+    // so this never blocks a fresh route.
+    if (routeState.sessionInvalidated) {
+      console.log('[Voice] Ignoring transcript — session invalidated:', transcript);
       return;
     }
 
@@ -2424,26 +2463,17 @@ export default function StockerApp() {
               <div className="space-y-2">
                 {[...routeState.completedItems].reverse().map((item, i, arr) => {
                   const prevItem = arr[i - 1];
-                  const showMachineSeparator = i > 0 && prevItem?.machineName && item.machineName && prevItem.machineName !== item.machineName;
+                  const showMachineSeparator = !!(i > 0 && prevItem?.machineName && item.machineName && prevItem.machineName !== item.machineName);
 
                   return (
-                    <div key={routeState.completedItems.length - 1 - i}>
-                      {showMachineSeparator && (
-                        <div className="flex items-center gap-2 py-2 my-1">
-                          <div className="flex-1 h-px bg-teal-600/50" />
-                          <span className="text-xs text-teal-400 font-medium px-2">
-                            {prevItem.machineName} ✓
-                          </span>
-                          <div className="flex-1 h-px bg-teal-600/50" />
-                        </div>
-                      )}
-                      <div className="flex items-center gap-3 text-sm text-gray-400">
-                        <CheckCircle className="h-4 w-4 text-emerald-500" />
-                        <span>{item.quantity}x</span>
-                        <span className="flex-1 truncate">{item.product}</span>
-                        <span className="text-gray-500">{item.slot}</span>
-                      </div>
-                    </div>
+                    <DoneItem
+                      key={routeState.completedItems.length - 1 - i}
+                      quantity={item.quantity}
+                      product={item.product}
+                      slot={item.slot}
+                      showMachineSeparator={showMachineSeparator}
+                      prevMachineName={prevItem?.machineName}
+                    />
                   );
                 })}
               </div>
