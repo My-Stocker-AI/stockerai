@@ -333,8 +333,15 @@ export function useStockerSession(userId: string | null) {
           if (itemsToAdd.length > 0) {
             // Deduplicate items to prevent duplicate logging
             // Key includes product name to prevent false collisions (different products, same slot range)
-            const existingKeys = new Set(prev.completedItems.map(item => `${item.machineName}:${item.slot}:${item.product}`));
-            const newItems = itemsToAdd.filter(item => !existingKeys.has(`${item.machineName}:${item.slot}:${item.product}`));
+            // Unique key per pick. Prefer the item's sequence position (item_index),
+            // which the primary item always carries and which a blank/missing slot
+            // label cannot collapse; fall back to slot, then product. This guards
+            // against two distinct picks ever sharing a key (and one being hidden
+            // from the Done list) even if an item arrives with an empty slot.
+            const keyFor = (item: CurrentItem) =>
+              `${item.machineName}:${item.item_index != null ? 'i' + item.item_index : 's' + (item.slot || '')}:${item.product}`;
+            const existingKeys = new Set(prev.completedItems.map(keyFor));
+            const newItems = itemsToAdd.filter(item => !existingKeys.has(keyFor(item)));
 
             console.log('[Session] 🔍 Deduplication check:', {
               itemsToAdd: itemsToAdd.length,
