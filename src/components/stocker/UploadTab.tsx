@@ -119,10 +119,24 @@ export function UploadTab() {
       const uploadUrl = import.meta.env.VITE_API_BACKEND === 'python'
         ? 'https://stockerai-api.onrender.com/api/upload-pdf'
         : 'https://visionairy.app.n8n.cloud/webhook/upload';
-      const response = await fetch(uploadUrl, {
-        method: 'POST',
-        body: formData,
-      });
+      let response: Response;
+      try {
+        response = await fetch(uploadUrl, {
+          method: 'POST',
+          body: formData,
+        });
+      } catch (netErr: any) {
+        // A bare "Failed to fetch" hides the real cause. Surface WHICH address was
+        // called and the app's build date so a stale cached app (old/dead address)
+        // is instantly distinguishable from a fresh app that truly can't reach the
+        // server — visible right on the device, no guessing.
+        const build = typeof __BUILD_TIME__ !== 'undefined'
+          ? new Date(__BUILD_TIME__).toLocaleString()
+          : 'unknown';
+        throw new Error(
+          `Couldn't reach the server · Address: ${uploadUrl} · Reason: ${netErr?.message || netErr} · App build: ${build}`
+        );
+      }
 
       if (!response.ok) {
         const errorText = await response.text();

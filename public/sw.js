@@ -1,5 +1,5 @@
 // Stocker AI Service Worker
-const CACHE_NAME = 'stocker-ai-v6-NEVER-CACHE-JS';
+const CACHE_NAME = 'stocker-ai-v7-NEVER-CACHE-JS';
 
 // Handle skip waiting message from client
 self.addEventListener('message', (event) => {
