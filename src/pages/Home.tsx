@@ -94,10 +94,15 @@ const Home = () => {
                 {/* Subtle glow ring */}
                 <div className="absolute -inset-0.5 bg-gradient-to-r from-primary/40 to-cyan-400/40 rounded-2xl blur-sm"></div>
 
-                {/* Main image */}
+                {/* Main image — WebP (~172KB, was a 2.3MB PNG); high priority so it
+                    loads with the page instead of scrolling in late. PNG kept as fallback. */}
                 <img
-                  src="/hero-warehouse-v2.png"
+                  src="/hero-warehouse-v2.webp"
                   alt="Warehouse worker with earbuds picking items into bins"
+                  width={1536}
+                  height={1024}
+                  fetchPriority="high"
+                  decoding="async"
                   className="relative rounded-2xl w-full border border-primary/20"
                   style={{
                     boxShadow: '0 20px 40px -15px rgba(0, 0, 0, 0.4)'
