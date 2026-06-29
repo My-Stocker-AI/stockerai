@@ -278,7 +278,13 @@ def start_machine(req: StartMachineRequest):
     # start_machine showed (because completed_items=0), causing a "wasted" call where
     # the frontend dedup filters everything and the Done card doesn't grow.
     items_shown = 1 + (1 if item2_data else 0)
-    new_completed = machine.get("completed_items", 0) + items_shown
+    # Idempotency guard: only pre-count the displayed items when the machine FIRST
+    # enters in_progress. A network retry or double-tap can call start_machine again;
+    # without this guard the read-modify-write below would add items_shown a second
+    # time and inflate the count. (Regression from the n8n->Python rewrite: the old
+    # engine SET completed_items, which was naturally idempotent; the rewrite ADDs.)
+    already_started = machine.get("status") == "in_progress"
+    new_completed = machine.get("completed_items", 0) + (0 if already_started else items_shown)
     db.table("machines").update({
         "status": "in_progress",
         "completed_items": new_completed,

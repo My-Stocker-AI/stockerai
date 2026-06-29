@@ -1065,7 +1065,12 @@ export function useVoice(options: UseVoiceOptions = {}) {
       }
       mediaRecorderRef.current = null;
       isRecordingRef.current = false;
-      startListening();
+      // startListening self-recovers to 'error' on internal failure, but guard the
+      // rare pre-try throw so resume can never leave voice silently stuck.
+      try { await startListening(); } catch (e: any) {
+        setStatus('error');
+        onErrorRef.current?.(e?.message || 'Voice reconnect failed — tap to retry');
+      }
     } else if (!mediaRecorderRef.current && socketRef.current?.readyState === WebSocket.OPEN) {
       setupMediaRecorder();
       setStatus('listening');
@@ -1079,7 +1084,10 @@ export function useVoice(options: UseVoiceOptions = {}) {
       }
     } else if (!isConnectedRef.current) {
       pendingCommandRef.current = null; // Clear stale queued command — full reconnect needed, command too old to replay
-      startListening();
+      try { await startListening(); } catch (e: any) {
+        setStatus('error');
+        onErrorRef.current?.(e?.message || 'Voice reconnect failed — tap to retry');
+      }
     }
   }, [setupMediaRecorder, startListening, setStatus, playCommandChime]);
 
@@ -1099,7 +1107,18 @@ export function useVoice(options: UseVoiceOptions = {}) {
     setStatus('muted');
   }, [setStatus]);
 
-  const unmute = useCallback(() => {
+  const unmute = useCallback(async () => {
+    // iOS/Safari suspends the AudioContext after idle or a screen-lock. resumeListening
+    // already checks for this; unmute must too — otherwise the recorder "resumes" while
+    // the audio engine is still asleep: the UI says "listening" but nothing is recorded.
+    if (audioContextRef.current?.state === 'suspended') {
+      try {
+        await audioContextRef.current.resume();
+      } catch (e) {
+        onErrorRef.current?.('Tap screen to resume voice');
+        return;
+      }
+    }
     if (mediaRecorderRef.current?.state === 'paused' && socketRef.current?.readyState === WebSocket.OPEN) {
       // Socket alive — safe to resume
       mediaRecorderRef.current.resume();
