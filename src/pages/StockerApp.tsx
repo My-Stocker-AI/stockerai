@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, CheckCircle, Mic, MicOff, Pause, Play, Square, AlertTriangle, RefreshCw, HelpCircle, Zap, MapPin, Package, Truck, RotateCcw } from 'lucide-react';
+import { ArrowLeft, CheckCircle, Mic, MicOff, Pause, Play, Square, AlertTriangle, RefreshCw, HelpCircle, Zap, MapPin, Package, Truck, RotateCcw, Settings } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import { useVoice } from '@/hooks/useVoice';
