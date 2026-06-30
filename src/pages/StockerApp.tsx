@@ -1244,6 +1244,67 @@ export default function StockerApp() {
       if (routeIdFromUrl && !urlRouteProcessed) {
         setUrlRouteProcessed(true);
 
+        // TRUE RESUME (Continue Picking): pull the complete server snapshot and rehydrate
+        // the whole screen — exact machine, saved direction, position, and done-list — then
+        // continue. It NEVER re-runs the start-route / top-or-bottom flow (re-asking direction
+        // could flip it mid-machine and scramble progress). The next "Next" continues via the
+        // normal RPC off the saved count + direction.
+        if (resumeFromUrl) {
+          try {
+            const resp = await fetch('https://stockerai-api.onrender.com/api/resume-state', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ user_id: userId }),
+            });
+            const snap = await resp.json();
+            if (snap?.has_session) {
+              const mapItem = (it: any): any => it ? {
+                product: it.product_name,
+                quantity: it.quantity,
+                slot: it.slot,
+                slot_spoken: it.slot_spoken,
+                inventory_current: it.inventory_current,
+                inventory_parlevel: it.inventory_parlevel,
+              } : null;
+              const cm = snap.current_machine;
+              const ci = mapItem(snap.current_item);
+              setRouteState({
+                routeId: snap.route.id,
+                routeName: snap.route.route_name,
+                routeDate: snap.route.route_date,
+                totalMachines: snap.route.total_machines || 0,
+                currentMachineIndex: snap.current_machine_index || 1,
+                currentMachineName: cm.name,
+                currentMachineId: cm.id,
+                currentMachineTotalItems: cm.total_items || 0,
+                currentMachineItemsRemaining: snap.items_remaining || 0,
+                currentItem: ci,
+                currentItem2: null,
+                completedItems: (snap.completed_list || []).map(mapItem),
+                machines: snap.machines || [],
+                completed: false,
+                pendingMachineTransition: null,
+                pickDirection: snap.pick_direction || null,
+              });
+              if (snap.session_id) {
+                setSessionId(snap.session_id);
+                setSession(snap.session_id, userId);
+              }
+              await voice.startListening();
+              const msg = ci
+                ? `Welcome back ${userName}! Resuming ${cm.name}, ${cm.completed_items} of ${cm.total_items} done. Current item: ${ci.quantity} ${ci.product}, ${ci.slot_spoken || ci.slot}. Say next to continue.`
+                : `Welcome back ${userName}! Resuming ${snap.route.route_name}. Say next to continue.`;
+              setAiResponse(msg);
+              addMessage({ role: 'assistant', content: msg });
+              setInitialized(true);
+              await voice.speak(msg);
+              return;
+            }
+          } catch (e) {
+            console.error('[Resume] snapshot fetch failed — falling back to start flow', e);
+          }
+        }
+
         // Check if saved session matches this route (accidental refresh scenario)
         const savedForCheck = await sessionPersistence.load(userId);
         const isResumeRefresh = isRefresh &&
