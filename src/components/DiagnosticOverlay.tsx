@@ -1,4 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+
+// Voice diagnostics auto-ship to the backend → Render logs (read remotely). This means
+// device-side voice behavior is observable WITHOUT the driver doing anything — no copy,
+// no screenshot. Fire-and-forget + batched so it never touches the voice pipeline timing.
+const DIAG_ENDPOINT = 'https://stockerai-api.onrender.com/api/diag';
 import { Activity, Wifi, Mic, Volume2, AlertCircle, CheckCircle2, XCircle } from 'lucide-react';
 
 interface DiagnosticOverlayProps {
@@ -35,6 +40,13 @@ export function DiagnosticOverlay({ voiceStatus, isDeepgramConnected, isVisible,
   // support can read the exact sequence instead of guessing. Capped to bound memory.
   const [fullLog, setFullLog] = useState<Array<{ t: number; type: string; data: any }>>([]);
   const [copied, setCopied] = useState(false);
+
+  // Buffer of events not yet shipped to the server + a stable id for this app load so the
+  // backend logs can be filtered to one driver's walk.
+  const pendingRef = useRef<Array<{ t: number; type: string; data: any }>>([]);
+  const sessionTagRef = useRef<string>(
+    `${new Date().toISOString().slice(11, 19)}-${Math.random().toString(36).slice(2, 7)}`
+  );
 
   const copyLog = async () => {
     const header =
@@ -123,7 +135,10 @@ export function DiagnosticOverlay({ voiceStatus, isDeepgramConnected, isVisible,
     const handleDiagnosticEvent = (e: CustomEvent) => {
       const { type, data } = e.detail;
       // Capture EVERY event into the full trail (cap at 800 to bound memory).
-      setFullLog(prev => [...prev.slice(-799), { t: Date.now(), type, data }]);
+      const entry = { t: Date.now(), type, data };
+      setFullLog(prev => [...prev.slice(-799), entry]);
+      // Queue it for auto-ship to the server (read remotely from Render logs).
+      pendingRef.current.push(entry);
       setDiagnostics(prev => {
         const updated = { ...prev };
 
@@ -161,6 +176,30 @@ export function DiagnosticOverlay({ voiceStatus, isDeepgramConnected, isVisible,
 
     window.addEventListener('voice-diagnostic' as any, handleDiagnosticEvent);
     return () => window.removeEventListener('voice-diagnostic' as any, handleDiagnosticEvent);
+  }, []);
+
+  // Auto-ship queued events to the server every 3s (fire-and-forget, errors swallowed —
+  // can never block or slow the voice pipeline). Read remotely from Render logs.
+  useEffect(() => {
+    const flush = () => {
+      if (pendingRef.current.length === 0) return;
+      const events = pendingRef.current;
+      pendingRef.current = [];
+      try {
+        fetch(DIAG_ENDPOINT, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            session_id: sessionTagRef.current,
+            user_agent: navigator.userAgent,
+            events,
+          }),
+          keepalive: true,
+        }).catch(() => { /* offline / blocked — drop, never retry-storm */ });
+      } catch { /* never throw into the app */ }
+    };
+    const id = setInterval(flush, 3000);
+    return () => { clearInterval(id); flush(); };
   }, []);
 
   if (!isVisible) return null;

@@ -3,7 +3,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.routes import session, routes, proxy, items, machines, upload
+from app.routes import session, routes, proxy, items, machines, upload, diag
 
 app = FastAPI(title="StockerAI API", version="1.0.0")
 
@@ -42,6 +42,7 @@ app.include_router(proxy.router, prefix="/api")
 app.include_router(items.router, prefix="/api")
 app.include_router(machines.router, prefix="/api")
 app.include_router(upload.router, prefix="/api")
+app.include_router(diag.router, prefix="/api")
 
 
 @app.exception_handler(Exception)
