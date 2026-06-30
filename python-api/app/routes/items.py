@@ -366,3 +366,138 @@ def start_machine(req: StartMachineRequest):
     output["spoken"] = output["voice_text"]
 
     return output
+
+
+# ─── RESUME STATE (read-only complete snapshot) ───────────────────────────────
+
+
+class ResumeStateRequest(BaseModel):
+    user_id: str
+
+
+def _item_at_sequence(db, machine_id: str, seq) -> dict | None:
+    """Read one item by sequence and format it for the response (no increment)."""
+    if seq is None or seq < 1:
+        return None
+    rows = (
+        db.table("items")
+        .select("product_name, quantity, slot, sequence, inventory_current, inventory_parlevel")
+        .eq("machine_id", machine_id)
+        .eq("sequence", seq)
+        .limit(1)
+        .execute()
+        .data
+    )
+    if not rows:
+        return None
+    it = rows[0]
+    parsed = parse_product(it.get("product_name"))
+    return format_item_for_response(
+        product_name=it.get("product_name", ""),
+        quantity=it.get("quantity", 0),
+        slot=it.get("slot"),
+        slot_spoken=None,
+        inventory_current=it.get("inventory_current", 0),
+        inventory_parlevel=it.get("inventory_parlevel", 0),
+        parsed=parsed,
+    )
+
+
+@router.post("/resume-state")
+def resume_state(req: ResumeStateRequest):
+    """
+    READ-ONLY complete snapshot for RESUME — restores the exact state at stop/pause and
+    advances NOTHING. The frontend rehydrates the picking screen from this; the next
+    'Next' continues via the normal RPC. Resume never re-runs the start-route /
+    top-or-bottom flow, so the saved direction + position carry through unchanged.
+
+    Position model (matches get_next_item_and_increment exactly):
+      - completed_items counts every item already revealed (incl. the one on screen).
+      - On-screen ("current") item = the LAST revealed:
+          forward -> sequence = completed_items
+          reverse -> sequence = total_items - completed_items + 1
+      - The done-list is the (completed_items - 1) items revealed before it, in pick order.
+    """
+    db = get_client()
+
+    session = (
+        db.table("sessions")
+        .select("id, current_route_id, current_machine_id, pick_direction, status")
+        .eq("user_id", req.user_id)
+        .eq("status", "stocking")
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    if not session.data:
+        return {"has_session": False}
+    s = session.data[0]
+    route_id = s.get("current_route_id")
+    if not route_id:
+        return {"has_session": False}
+
+    route = (
+        db.table("routes")
+        .select("id, route_name, delivery_date, total_machines, total_items")
+        .eq("id", route_id).limit(1).execute().data
+    )
+    if not route:
+        return {"has_session": False}
+    r = route[0]
+
+    machines = (
+        db.table("machines")
+        .select("id, machine_name, location_name, sequence, total_items, completed_items, status")
+        .eq("route_id", route_id).order("sequence").execute().data or []
+    )
+    if not machines:
+        return {"has_session": False}
+
+    cur_mid = s.get("current_machine_id") or machines[0]["id"]
+    cur = next((m for m in machines if m["id"] == cur_mid), machines[0])
+    direction = s.get("pick_direction") or "forward"
+    completed = cur.get("completed_items") or 0
+    total = cur.get("total_items") or 0
+
+    current_item = None
+    done_list = []
+    if completed > 0:
+        if direction == "forward":
+            cur_seq = completed
+            done_seqs = list(range(1, completed))                      # 1 .. completed-1
+        else:  # reverse
+            cur_seq = total - completed + 1
+            done_seqs = list(range(total, total - completed + 1, -1))  # total .. cur_seq+1
+        current_item = _item_at_sequence(db, cur_mid, cur_seq)
+        for sq in done_seqs:
+            it = _item_at_sequence(db, cur_mid, sq)
+            if it:
+                done_list.append(it)
+
+    machine_index = next((i + 1 for i, m in enumerate(machines) if m["id"] == cur_mid), 1)
+
+    return {
+        "has_session": True,
+        "session_id": s["id"],
+        "route": {
+            "id": r["id"], "route_name": r["route_name"], "route_date": r["delivery_date"],
+            "total_machines": r.get("total_machines"), "total_items": r.get("total_items"),
+        },
+        "machines": [
+            {
+                "id": m["id"], "name": m["machine_name"], "location": m["location_name"],
+                "sequence": m["sequence"], "totalItems": m["total_items"],
+                "completedItems": m["completed_items"], "status": m["status"],
+            } for m in machines
+        ],
+        "current_machine": {
+            "id": cur["id"], "name": cur["machine_name"],
+            "total_items": total, "completed_items": completed,
+            "items_remaining": max(0, total - completed),
+        },
+        "current_machine_index": machine_index,
+        "pick_direction": direction,
+        "current_item": current_item,
+        "completed_list": done_list,
+        "items_remaining": max(0, total - completed),
+    }
