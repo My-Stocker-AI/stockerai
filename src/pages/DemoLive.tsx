@@ -259,7 +259,25 @@ export default function DemoLive() {
     setAiResponse(text);
     const v = voiceRef.current;
     if (v) {
+      // ONE-TURN-LAG FIX: mark the hook 'thinking' the instant we start speaking, so any
+      // utterance the driver speaks while this response plays is QUEUED and drained
+      // deterministically (mirrors StockerApp.tsx:452) instead of racing the status flips
+      // and landing one command behind. This is the SINGLE chokepoint every spoken response
+      // flows through, so only paths that actually speak go 'thinking'; speak() then drives
+      // status back to 'listening' on completion (and in its finally), so no path is left
+      // stuck in 'thinking'. Non-speaking returns in handleTranscript never reach here.
+      v.setThinking?.();
       await v.speak(text);
+      // SAFETY NET — guarantees no path is left stuck in 'thinking' (which would queue the
+      // next command and re-create the lag). When speak() runs normally it has already
+      // returned status to 'listening' by the time this await resolves, so re-asserting
+      // 'listening' here is a no-op on the happy path. But speak() has early-return paths
+      // that exit BEFORE setting any status (empty text, stoppedRef set by an exit, or the
+      // single-voice lock suppressing a non-owning instance); on those it would leave us in
+      // 'thinking'. Unconditionally asserting 'listening' after the await closes every one
+      // of those paths. (If the user exited, stoppedRef is set and voice is being torn down,
+      // so the status no longer matters.)
+      v.setStatus?.('listening');
     }
     if (startTimer) {
       startStuckTimer();
@@ -428,7 +446,7 @@ export default function DemoLive() {
         if (route === 1) {
           setShowMidCTA(true);
           await speakResponse(
-            `Amazing work, ${user?.firstName}! You just completed your first route — ${newTotal} items, completely hands-free. Ready for the real thing, or want to try Route 2?`,
+            `Amazing work, ${user?.firstName}! First route done — ${newTotal} items, completely hands-free. Ready for the real thing, or want to try Route 2?`,
             false
           );
         } else {
@@ -450,7 +468,7 @@ export default function DemoLive() {
           }
 
           await speakResponse(
-            `Incredible, ${user?.firstName}! You picked ${newTotal} items across both routes using only your voice. Zero screen touches. Imagine doing this every morning with your real routes.`,
+            `Incredible, ${user?.firstName}! ${newTotal} items across both routes, all by voice. Zero screen touches.`,
             false
           );
         }
@@ -471,11 +489,11 @@ export default function DemoLive() {
     const machines = getRouteMachines(route);
     const machinesRemaining = machines.length - machine;
 
-    let response = `${itemsRemaining} items left to pick on this machine.`;
+    let response = `${itemsRemaining} left on this machine.`;
     if (machinesRemaining > 0) {
-      response += ` Then ${machinesRemaining} more machine${machinesRemaining > 1 ? 's' : ''} to go.`;
+      response += ` Then ${machinesRemaining} more machine${machinesRemaining > 1 ? 's' : ''}.`;
     } else {
-      response += ` This is the last machine on the route!`;
+      response += ` Last machine on the route!`;
     }
 
     await speakResponse(response);

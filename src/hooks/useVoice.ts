@@ -956,11 +956,20 @@ export function useVoice(options: UseVoiceOptions = {}) {
     // SINGLE-VOICE LOCK: if another app instance already owns voice, stay silent — never
     // start a second listener that would talk over the first. (Same-instance reconnects
     // already own the lock, so this is a no-op for them.)
+    //
+    // RESILIENCE (2026-06-30): a page reload or a leftover/duplicate tab can leave the lock
+    // momentarily held by a context that is tearing down — denying the fresh instance and
+    // leaving voice SILENTLY dead (the desktop-demo symptom). So on denial we wait briefly
+    // for the other context to release, then retry ONCE before giving up. A genuine second
+    // concurrent tab still loses (correct), but now with a visible message, never silence.
     if (!(await ensureVoiceOwnership())) {
-      console.warn('[Voice] startListening blocked — another instance owns voice');
-      emitDiagnostic('voice-lock-denied', 'startListening');
-      onErrorRef.current?.('Voice is already running in another window. Close it, then tap to resume.');
-      return false;
+      await new Promise(r => setTimeout(r, 600));
+      if (!(await ensureVoiceOwnership())) {
+        console.warn('[Voice] startListening blocked — another instance owns voice');
+        emitDiagnostic('voice-lock-denied', 'startListening');
+        onErrorRef.current?.('Voice is already running in another window. Close it, then tap to resume.');
+        return false;
+      }
     }
 
     // Scope 2 — route-start / resume-after-stop boundary: refresh the env-tuning snapshot
