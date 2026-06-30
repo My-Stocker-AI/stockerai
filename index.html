@@ -27,17 +27,103 @@
     <meta name="description" content="Stocker AI helps vending machine operators pick routes 40% faster with voice-guided instructions. No training required." />
     <meta name="author" content="Stocker AI" />
     <meta name="keywords" content="vending machine software, route optimization, warehouse picking, voice guided picking, vending operator software" />
+    <link rel="canonical" href="https://my-stocker-ai.com/" />
 
     <meta property="og:title" content="Stocker AI - Voice-Guided Picking for Vending Operators" />
     <meta property="og:description" content="Pick routes 40% faster with voice-guided instructions. No training required." />
     <meta property="og:type" content="website" />
-    <meta property="og:image" content="/icon-512.png" />
+    <meta property="og:url" content="https://my-stocker-ai.com/" />
+    <meta property="og:site_name" content="Stocker AI" />
+    <meta property="og:image" content="https://my-stocker-ai.com/icon-512.png" />
 
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:site" content="@StockerAI" />
     <meta name="twitter:title" content="Stocker AI - Voice-Guided Picking for Vending Operators" />
     <meta name="twitter:description" content="Pick routes 40% faster with voice-guided instructions. No training required." />
-    <meta name="twitter:image" content="/icon-512.png" />
+    <meta name="twitter:image" content="https://my-stocker-ai.com/icon-512.png" />
+
+    <!-- Structured data (Schema.org) — baked into static HTML so AI answer engines and
+         crawlers read what Stocker AI is, what it costs, and the FAQ without running JS.
+         FAQ text mirrors the live landing page (src/pages/Home.tsx landingFAQs). -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "SoftwareApplication",
+          "name": "Stocker AI",
+          "applicationCategory": "BusinessApplication",
+          "operatingSystem": "Web, iOS, Android",
+          "url": "https://my-stocker-ai.com/",
+          "description": "Voice-guided picking for vending machine route operators. Upload your route PDF and pick routes 40% faster with hands-free voice instructions — no training required.",
+          "offers": {
+            "@type": "Offer",
+            "price": "20.00",
+            "priceCurrency": "USD",
+            "description": "$20/driver/month for 1-5 drivers, $18 for 6-20, $15 for 21-50. 2 driver minimum. 14-day free trial."
+          },
+          "featureList": [
+            "Hands-free voice-guided route picking",
+            "Upload route PDFs from Parlevel, Nayax, or VendSoft",
+            "Works on a smartphone with optional Bluetooth earbuds",
+            "5-minute setup, productive in 15 minutes with zero training"
+          ]
+        },
+        {
+          "@type": "Organization",
+          "name": "Stocker AI",
+          "url": "https://my-stocker-ai.com/",
+          "logo": "https://my-stocker-ai.com/icon-512.png",
+          "sameAs": ["https://twitter.com/StockerAI"]
+        },
+        {
+          "@type": "FAQPage",
+          "mainEntity": [
+            {
+              "@type": "Question",
+              "name": "How does pricing work?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "$20/driver/month for 1-5 drivers, $18 for 6-20 drivers, $15 for 21-50 drivers. Adjust your driver count anytime - changes apply next billing cycle."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "Is there a minimum?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "2 driver minimum ($40/month). Each driver can service up to 10 machines per day."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "What do I need to get started?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "A smartphone, Bluetooth earbuds (optional), and your route PDFs from Parlevel, Nayax, or VendSoft. A laptop makes generating and uploading PDFs easier, but it works from a phone too."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "How long does setup take?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "5 minutes. Upload your PDF and start picking. New drivers are productive in 15 minutes with zero training."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "What's the trial?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "14 days free with credit card signup. Cancel anytime - no questions asked."
+              }
+            }
+          ]
+        }
+      ]
+    }
+    </script>
   </head>
 
   <body>
