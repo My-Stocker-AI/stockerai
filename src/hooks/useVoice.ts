@@ -846,13 +846,14 @@ export function useVoice(options: UseVoiceOptions = {}) {
     console.log('[Voice] Creating new audio stream');
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
-        // echoCancellation MUST stay true: barge-in (driver interrupts the AI mid-sentence)
-        // depends on hardware AEC so the live mic doesn't hear the TTS and fire a false
-        // command (Session 76 voice-reliability overhaul, 2026-03; isEcho() text filter is
-        // only the backstop). It does NOT control speaker-vs-earpiece routing — a live mic
-        // forces the earpiece on BOTH iOS and Android regardless of this flag or the audio
-        // player; that routing is fixed in the native Capacitor shell, not here.
-        echoCancellation: true,
+        // echoCancellation OFF — deliberate (Russ, 2026-06-29: "there is never a need to
+        // interrupt the AI", so barge-in is dropped). Requesting hardware AEC puts Android
+        // into communication / phone-call audio mode → routes the AI's voice to the EARPIECE;
+        // with AEC off the device stays in media mode → the loud SPEAKER (this is the config
+        // that worked handsfree earlier today). We no longer need AEC to keep the live mic
+        // from hearing the TTS — barge-in is gone, and the isEcho() text filter remains the
+        // backstop against the AI mis-hearing its own announcement.
+        echoCancellation: false,
         noiseSuppression: true,
         autoGainControl: true,
         sampleRate: 48000
