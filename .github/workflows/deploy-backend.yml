@@ -1,0 +1,24 @@
+name: Deploy Backend (Render)
+
+# Auto-deploy the Python API on every push to main that touches python-api/.
+# Triggers Render via its API directly — does NOT depend on the GitHub→Render
+# webhook (the org move wiped it). Render still pulls the latest main commit.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'python-api/**'
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Render deploy
+        run: |
+          curl -fsS -X POST \
+            -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            "https://api.render.com/v1/services/${{ secrets.RENDER_SERVICE_ID }}/deploys" \
+            -d '{"clearCache":"do_not_clear"}'
+          echo "Render deploy triggered for the latest main commit."

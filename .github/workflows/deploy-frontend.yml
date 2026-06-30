@@ -1,0 +1,45 @@
+name: Deploy Frontend (Cloudflare Pages)
+
+# Auto-deploy the site on every push to main. Self-contained: builds, prerenders
+# the public pages (headless Chromium), and uploads to Cloudflare Pages using the
+# API token directly — does NOT depend on any GitHub→Cloudflare webhook (the org
+# move wiped those). Skips when only the Python backend changed.
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'python-api/**'
+      - 'docs/**'
+      - '**/*.md'
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install headless Chromium (for prerender)
+        run: npx playwright install --with-deps chromium
+
+      - name: Build + prerender public pages
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          VITE_API_BACKEND: ${{ secrets.VITE_API_BACKEND }}
+          VITE_SUPABASE_PROJECT_ID: ${{ secrets.VITE_SUPABASE_PROJECT_ID }}
+        run: npm run build:deploy
+
+      - name: Deploy to Cloudflare Pages
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler pages deploy dist --project-name stockerai --branch main --commit-hash "$GITHUB_SHA"
