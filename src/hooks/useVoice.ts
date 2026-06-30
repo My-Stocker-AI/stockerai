@@ -846,10 +846,16 @@ export function useVoice(options: UseVoiceOptions = {}) {
     console.log('[Voice] Creating new audio stream');
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
+        // echoCancellation MUST stay true: barge-in (driver interrupts the AI mid-sentence)
+        // depends on hardware AEC so the live mic doesn't hear the TTS and fire a false
+        // command (Session 76 voice-reliability overhaul, 2026-03; isEcho() text filter is
+        // only the backstop). It does NOT control speaker-vs-earpiece routing — a live mic
+        // forces the earpiece on BOTH iOS and Android regardless of this flag or the audio
+        // player; that routing is fixed in the native Capacitor shell, not here.
         echoCancellation: true,
         noiseSuppression: true,
         autoGainControl: true,
-        sampleRate: 48000  // HD audio quality for better word recognition
+        sampleRate: 48000
       }
     });
     audioStreamRef.current = stream;
