@@ -29,6 +29,40 @@ export function DiagnosticOverlay({ voiceStatus, isDeepgramConnected, isVisible,
     errors: []
   });
 
+  // Full timestamped trail of EVERY voice-diagnostic event this session — the real
+  // debugging record (the snapshot fields above only show the latest of each). Captured
+  // from app mount (this listener is always active); copied out via the button below so
+  // support can read the exact sequence instead of guessing. Capped to bound memory.
+  const [fullLog, setFullLog] = useState<Array<{ t: number; type: string; data: any }>>([]);
+  const [copied, setCopied] = useState(false);
+
+  const copyLog = async () => {
+    const header =
+      `StockerAI voice log — ${fullLog.length} events\n` +
+      `when=${new Date().toISOString()}  voiceStatus=${voiceStatus}  deepgram=${isDeepgramConnected}\n` +
+      `ua=${navigator.userAgent}\n──────\n`;
+    const body = fullLog
+      .map(e => {
+        const ts = new Date(e.t).toISOString().slice(11, 23);
+        const d = e.data == null ? '' : (typeof e.data === 'object' ? JSON.stringify(e.data) : String(e.data));
+        return `${ts}  ${e.type}${d ? '  | ' + d : ''}`;
+      })
+      .join('\n');
+    const text = header + body;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } catch { /* ignore */ }
+      document.body.removeChild(ta);
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
   // Update Deepgram connection state when prop changes
   useEffect(() => {
     setDiagnostics(prev => ({
@@ -88,6 +122,8 @@ export function DiagnosticOverlay({ voiceStatus, isDeepgramConnected, isVisible,
   useEffect(() => {
     const handleDiagnosticEvent = (e: CustomEvent) => {
       const { type, data } = e.detail;
+      // Capture EVERY event into the full trail (cap at 800 to bound memory).
+      setFullLog(prev => [...prev.slice(-799), { t: Date.now(), type, data }]);
       setDiagnostics(prev => {
         const updated = { ...prev };
 
@@ -154,12 +190,20 @@ export function DiagnosticOverlay({ voiceStatus, isDeepgramConnected, isVisible,
           <Activity className="h-4 w-4 text-blue-400" />
           <h3 className="font-semibold text-white">Voice Diagnostics</h3>
         </div>
-        <button
-          onClick={onClose}
-          className="text-gray-400 hover:text-white"
-        >
-          ✕
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={copyLog}
+            className="px-2 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold"
+          >
+            {copied ? '✓ Copied' : `Copy log (${fullLog.length})`}
+          </button>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-white"
+          >
+            ✕
+          </button>
+        </div>
       </div>
 
       <div className="space-y-2">
@@ -254,7 +298,7 @@ export function DiagnosticOverlay({ voiceStatus, isDeepgramConnected, isVisible,
       {/* Instructions */}
       <div className="mt-3 pt-3 border-t border-gray-700 text-gray-400">
         <p className="text-xs">
-          Take a screenshot of this panel when the issue occurs and send to support.
+          When the issue happens, tap <span className="text-blue-400 font-semibold">Copy log</span> and paste it to support — it captures the full sequence, not just what's on screen.
         </p>
       </div>
     </div>
