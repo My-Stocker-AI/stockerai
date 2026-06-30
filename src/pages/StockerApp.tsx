@@ -160,6 +160,7 @@ export default function StockerApp() {
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const routeIdFromUrl = searchParams.get('route'); // Get route ID from URL
+  const resumeFromUrl = searchParams.get('resume') === '1'; // "Continue Picking" sets this — distinguishes a resume from a fresh Start so we don't replay the intro
   const { user, userProfile, loading } = useAuth();
   const [aiResponse, setAiResponse] = useState('');
   const [lastItemPair, setLastItemPair] = useState<{
@@ -1277,7 +1278,9 @@ export default function StockerApp() {
               setSession(newSessionId, userId); // Set session immediately to avoid race condition
 
               // Set greeting BEFORE async voice ops so user sees feedback immediately
-              const greeting = `Hi ${userName}! Starting ${route.route_name} route. Ready to go?`;
+              const greeting = resumeFromUrl
+                ? `Welcome back ${userName}! Resuming ${route.route_name} route where you left off.`
+                : `Hi ${userName}! Starting ${route.route_name} route. Ready to go?`;
               setAiResponse(greeting);
               addMessage({ role: 'assistant', content: greeting });
               setInitialized(true);
@@ -1440,7 +1443,7 @@ export default function StockerApp() {
         setInitialized(true);
       });
     }
-  }, [loading, user, userId, initialized, sessionPersistence, routeIdFromUrl, urlRouteProcessed, voice, userName, addMessage, reset, generateNewSessionId, audioUnlocked]);
+  }, [loading, user, userId, initialized, sessionPersistence, routeIdFromUrl, resumeFromUrl, urlRouteProcessed, voice, userName, addMessage, reset, generateNewSessionId, audioUnlocked]);
 
   const resumeSession = useCallback(async () => {
     if (!savedSession) return;

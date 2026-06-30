@@ -309,7 +309,7 @@ const MyRoutes = () => {
               asChild
               className={`flex-1 ${highlighted ? 'bg-primary hover:bg-primary-hover' : 'bg-dashboard-bg hover:bg-dashboard-card border border-dashboard-border text-dashboard-text'}`}
             >
-              <Link to={`/app?route=${route.id}`}>
+              <Link to={status === 'in_progress' ? `/app?route=${route.id}&resume=1` : `/app?route=${route.id}`}>
                 <Play className="mr-2 h-4 w-4" />
                 {status === 'in_progress' ? 'Continue Picking' : 'Start Picking'}
               </Link>
