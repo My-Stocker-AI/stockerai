@@ -853,7 +853,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
         // that worked handsfree earlier today). We no longer need AEC to keep the live mic
         // from hearing the TTS — barge-in is gone, and the isEcho() text filter remains the
         // backstop against the AI mis-hearing its own announcement.
-        echoCancellation: false,
+        echoCancellation: true,
         noiseSuppression: true,
         autoGainControl: true,
         sampleRate: 48000
