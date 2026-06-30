@@ -5,6 +5,14 @@ import { useVoice } from '@/hooks/useVoice';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { DiagnosticOverlay } from '@/components/DiagnosticOverlay';
+
+// Ship demo voice events to the SAME diagnostic pipe the main app uses
+// (window 'voice-diagnostic' -> DiagnosticOverlay -> POST /api/diag -> Render logs)
+// so a desktop or phone demo failure is READABLE in the logs, never guessed at.
+const demoLog = (type: string, data?: unknown) => {
+  try { window.dispatchEvent(new CustomEvent('voice-diagnostic', { detail: { type, data } })); } catch { /* noop */ }
+};
 
 // Demo-specific types
 interface DemoItem {
@@ -70,6 +78,7 @@ export default function DemoLive() {
   const [showNextButton, setShowNextButton] = useState(false);
   const [stuckTimer, setStuckTimer] = useState<NodeJS.Timeout | null>(null);
   const [micPermission, setMicPermission] = useState<'prompt' | 'granted' | 'denied' | 'checking'>('checking');
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [expandedMachines, setExpandedMachines] = useState<number[]>([]);
 
@@ -140,17 +149,31 @@ export default function DemoLive() {
 
   // Check mic permission on load
   useEffect(() => {
+    // One-shot environment snapshot — desktop vs mobile + capability gaps, so a silent
+    // failure is explained by the logs (e.g. desktop, no secure context, missing API).
+    demoLog('demo-env', {
+      ua: navigator.userAgent,
+      mobile: /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent),
+      secureContext: window.isSecureContext,
+      hasGetUserMedia: !!navigator.mediaDevices?.getUserMedia,
+      hasAudioContext: !!(window.AudioContext || (window as any).webkitAudioContext),
+      hasWebSocket: typeof WebSocket !== 'undefined',
+      hasWebLocks: 'locks' in navigator,
+    });
     const checkMicPermission = async () => {
       try {
         if (navigator.permissions) {
           const result = await navigator.permissions.query({ name: 'microphone' as PermissionName });
           setMicPermission(result.state as 'prompt' | 'granted' | 'denied');
-          result.onchange = () => setMicPermission(result.state as 'prompt' | 'granted' | 'denied');
+          demoLog('demo-mic-permission', { state: result.state });
+          result.onchange = () => { setMicPermission(result.state as 'prompt' | 'granted' | 'denied'); demoLog('demo-mic-permission', { state: result.state, changed: true }); };
         } else {
           setMicPermission('prompt');
+          demoLog('demo-mic-permission', { state: 'prompt', note: 'permissions API unavailable' });
         }
-      } catch {
+      } catch (e: any) {
         setMicPermission('prompt');
+        demoLog('demo-mic-permission', { state: 'prompt', error: String(e?.message || e) });
       }
     };
     checkMicPermission();
@@ -758,7 +781,7 @@ export default function DemoLive() {
   // Initialize voice
   const voice = useVoice({
     onTranscript: handleTranscript,
-    onError: (err) => console.error('Voice error:', err),
+    onError: (err) => { console.error('Voice error:', err); demoLog('demo-voice-error', { message: String(err) }); },
     onWakePhrase: handleWakePhrase,
     continuous: true
   });
@@ -771,7 +794,10 @@ export default function DemoLive() {
   // Start voice on mount
   useEffect(() => {
     if (demoUser && !isLoading && demoRoutes.length > 0) {
-      voice.startListening();
+      demoLog('demo-start-listening', { calling: true });
+      Promise.resolve(voice.startListening())
+        .then((ok) => demoLog('demo-start-listening-result', { ok }))
+        .catch((e) => demoLog('demo-start-listening-result', { ok: false, error: String(e?.message || e) }));
 
       setTimeout(async () => {
         await speakResponse(
@@ -821,6 +847,15 @@ export default function DemoLive() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#0d1117] via-[#161b22] to-[#0d1117] text-white flex flex-col">
+
+      {/* Diagnostics: auto-ships every voice event to /api/diag so demo failures are
+          readable in the logs. Triple-tap the status dot reveals it on-device. */}
+      <DiagnosticOverlay
+        voiceStatus={voice.status}
+        isDeepgramConnected={voice.isDeepgramConnected}
+        isVisible={showDiagnostics}
+        onClose={() => setShowDiagnostics(false)}
+      />
 
       {/* Mid-Demo CTA Popup (After Route 1) */}
       {showMidCTA && (
