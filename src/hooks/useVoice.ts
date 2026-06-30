@@ -451,6 +451,15 @@ export function useVoice(options: UseVoiceOptions = {}) {
   }, [hasWakePhrase, extractWakeCommand, isEcho, playCommandChime, setStatus]); // refs used elsewhere to avoid stale closures
 
   const handleDeepgramMessage = useCallback((data: any) => {
+    // Capture Deepgram's OWN error/metadata messages — these name WHY it drops (e.g.
+    // NET-0001 inactivity, concurrency/rate limit, encoding mismatch), which a bare close
+    // code (1006) never reveals. Skip the high-frequency transcript/utterance types.
+    if (data.type && data.type !== 'Results' && data.type !== 'UtteranceEnd') {
+      emitDiagnostic('dg-msg', {
+        type: data.type,
+        reason: data.reason ?? data.description ?? data.message ?? data.error ?? null,
+      });
+    }
     if (data.type === 'Results' && data.channel?.alternatives?.[0]) {
       const alt = data.channel.alternatives[0];
       const transcript = alt.transcript || '';
