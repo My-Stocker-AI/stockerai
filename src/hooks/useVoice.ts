@@ -88,6 +88,11 @@ export function useVoice(options: UseVoiceOptions = {}) {
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const tokenRefreshTimerRef = useRef<NodeJS.Timeout | null>(null);
   const MAX_RECONNECT_ATTEMPTS = 5;
+  // Single-flight connection guard: only ONE connect/reconnect attempt may run at a time.
+  // Without it, the drop-handler, the resume path, AND "OK Stocker"/unmute each fire their
+  // own reconnect → stacked loops pile up sockets → Deepgram refuses them all (the 1006
+  // storm that never recovers, proven in the 2026-06-30 device logs).
+  const isConnectingRef = useRef(false);
 
   // Scope 2 — a STABLE snapshot of the environment-derived voice tuning. Captured only
   // at connection boundaries (route-start / resume-after-stop) and reused for the whole
@@ -618,9 +623,34 @@ export function useVoice(options: UseVoiceOptions = {}) {
     if (socketRef.current?.readyState === WebSocket.OPEN) {
       return;
     }
+    // Single-flight: if an attempt is already running, do NOT start a second one. This is the
+    // fix for the stacked-reconnect 1006 storm — let the in-flight attempt finish; its
+    // onclose will schedule the next retry on the backoff if it fails.
+    if (isConnectingRef.current) {
+      console.warn('[Voice] connectDeepgram skipped — an attempt is already in flight');
+      return;
+    }
+    isConnectingRef.current = true;
 
-    const token = await ensureToken();
-    if (!token) throw new Error('No token available');
+    // Close any lingering previous socket BEFORE opening a new one so dead/closing sockets
+    // don't accumulate against Deepgram's connection limit. Detach its handlers first so the
+    // old socket can't trigger yet another reconnect as it closes.
+    if (socketRef.current && socketRef.current.readyState !== WebSocket.CLOSED) {
+      try {
+        socketRef.current.onclose = null;
+        socketRef.current.onerror = null;
+        socketRef.current.close();
+      } catch (e) { /* ignore — replacing a stale socket */ }
+    }
+
+    let token: string;
+    try {
+      token = await ensureToken();
+      if (!token) throw new Error('No token available');
+    } catch (e) {
+      isConnectingRef.current = false;  // release so a later backoff retry can run
+      throw e;
+    }
 
     // Build keywords list: common commands + dynamic route names + products
     // CRITICAL: top/bottom are highest priority (3x boost via separate parameter)
@@ -688,6 +718,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
 
       const timeout = setTimeout(() => {
         if (!isConnectedRef.current) {
+          isConnectingRef.current = false;
           socket.close();
           reject(new Error('Connection timeout'));
         }
@@ -695,6 +726,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
 
       socket.onopen = () => {
         clearTimeout(timeout);
+        isConnectingRef.current = false;
         isConnectedRef.current = true;
         setIsDeepgramConnected(true);
         reconnectAttemptsRef.current = 0; // Reset reconnection counter on successful connect
@@ -740,6 +772,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
 
       socket.onerror = (event) => {
         clearTimeout(timeout);
+        isConnectingRef.current = false;
         emitDiagnostic('error', 'Deepgram WebSocket error');
         // Plain-English, reassuring — the driver sees what's happening instead of a
         // cryptic "WebSocket error" or dead silence during the auto-reconnect window.
@@ -748,6 +781,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
 
       socket.onclose = (event) => {
         clearTimeout(timeout);
+        isConnectingRef.current = false;
         isConnectedRef.current = false;
         setIsDeepgramConnected(false);
         isRecordingRef.current = false;
