@@ -265,8 +265,11 @@ export function UploadTab() {
               <Users className="mr-2 h-4 w-4 text-gray-400" />
               <SelectValue placeholder="Select driver..." />
             </SelectTrigger>
-            <SelectContent className="bg-[#161b22] border-gray-700">
-              <SelectItem value="self" className="text-white">
+            <SelectContent className="bg-[#161b22] border-gray-700 text-white">
+              <SelectItem
+                value="self"
+                className="text-white focus:bg-gray-700 focus:text-white data-[highlighted]:bg-gray-700 data-[highlighted]:text-white cursor-pointer"
+              >
                 Myself
               </SelectItem>
               {teamMembers
@@ -284,7 +287,7 @@ export function UploadTab() {
                   <SelectItem
                     key={member.user_id}
                     value={member.user_id}
-                    className="text-white"
+                    className="text-white focus:bg-gray-700 focus:text-white data-[highlighted]:bg-gray-700 data-[highlighted]:text-white cursor-pointer"
                   >
                     {member.profiles?.first_name} {member.profiles?.last_name}
                   </SelectItem>
