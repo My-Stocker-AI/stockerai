@@ -165,24 +165,18 @@ const MyRoutes = () => {
     setDeleteDialogOpen(true);
   };
 
-  // Delete route mutation with active session protection
+  // Delete route mutation — delete SUPERSEDES any active/paused/stocking session
   const deleteRouteMutation = useMutation({
     mutationFn: async (routeId: string) => {
-      // CRITICAL: Check for active sessions FIRST
-      const { data: activeSessions, error: sessionError } = await supabase
+      // Delete ALWAYS wins (Russ, 2026-06-29): never block delete on a running/paused
+      // session. Remove this route's session(s) first so nothing is left pointing at a
+      // deleted route, then cascade the rest.
+      const { error: sessionsError } = await supabase
         .from('sessions')
-        .select('id, status')
-        .eq('current_route_id', routeId)
-        .in('status', ['stocking', 'paused', 'in_progress']);
+        .delete()
+        .eq('current_route_id', routeId);
 
-      if (sessionError) throw sessionError;
-
-      if (activeSessions && activeSessions.length > 0) {
-        throw new Error(
-          'Cannot delete active route. This route is currently being used in an active session. ' +
-          'Please complete or pause the session before deleting.'
-        );
-      }
+      if (sessionsError) throw sessionsError;
 
       // Delete items first (cascade should handle this, but being explicit)
       const { data: machines } = await supabase
