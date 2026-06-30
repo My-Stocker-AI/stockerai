@@ -94,6 +94,15 @@ export function useVoice(options: UseVoiceOptions = {}) {
   // storm that never recovers, proven in the 2026-06-30 device logs).
   const isConnectingRef = useRef(false);
 
+  // Single-voice lock: only ONE app instance (tab / reload / PWA) may speak or listen
+  // at a time. Two instances both greeting on resume = the "two voices talking over each
+  // other" the driver hears (proven: two distinct session tags greeted 9s apart in the
+  // 2026-06-30 device logs). Uses the Web Locks API — a held lock auto-releases when the
+  // owning tab closes or crashes, so there's no stale-lock problem. owned = this instance
+  // holds it; release = the resolver that frees it for another instance to claim.
+  const voiceLockOwnedRef = useRef(false);
+  const voiceLockReleaseRef = useRef<(() => void) | null>(null);
+
   // Scope 2 — a STABLE snapshot of the environment-derived voice tuning. Captured only
   // at connection boundaries (route-start / resume-after-stop) and reused for the whole
   // session, so transient mid-session reconnects keep the same tuning and a setting
@@ -734,31 +743,16 @@ export function useVoice(options: UseVoiceOptions = {}) {
         startKeepAlive();
         setupMediaRecorder();
 
-        // Proactive token refresh: close and reconnect 90s before token expires.
-        // Only fires when status is safe (between commands) to avoid disrupting active operations.
+        // NO proactive token refresh. The temporary token only authenticates the
+        // initial WebSocket handshake — once this connection is open, it stays open
+        // even after the token expires (Deepgram docs + GitHub discussion #673; proven
+        // in our own logs: one connection ran 7m41s healthy until a refresh broke it).
+        // KeepAlive (every 8s) holds the live connection, not the token. Closing a
+        // healthy socket to swap tokens was self-inflicted: the immediate reconnect
+        // hit Deepgram's connection limit before the old socket fully released → 1006
+        // storm → voice died → robotic phone-voice fallback kicked in. Removed.
+        // A REAL network drop still reconnects with a fresh token via ensureToken().
         if (tokenRefreshTimerRef.current) clearTimeout(tokenRefreshTimerRef.current);
-        const msUntilRefresh = tokenExpiryRef.current - Date.now() - 90000;
-        if (msUntilRefresh > 0) {
-          const SAFE_STATUSES = ['listening', 'paused', 'muted'];
-          const attemptTokenRefresh = () => {
-            if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN || !shouldReconnectRef.current) {
-              return; // Socket already closed or stopped — nothing to do
-            }
-            if (SAFE_STATUSES.includes(statusRef.current)) {
-              // Safe to refresh now (user is between commands)
-              console.log('[Voice] Proactive token refresh: closing socket for fresh token (status:', statusRef.current, ')');
-              emitDiagnostic('token-refresh', 'proactive');
-              tokenExpiryRef.current = 0; // Force ensureToken to fetch fresh token on next connect
-              reconnectAttemptsRef.current = 0; // Reset counter — proactive refresh is not a failure
-              socketRef.current.close(1000, 'Token refresh');
-            } else {
-              // Not safe yet (speaking/thinking) — poll again in 3s
-              console.log('[Voice] Proactive token refresh deferred (status:', statusRef.current, ') — retrying in 3s');
-              tokenRefreshTimerRef.current = setTimeout(attemptTokenRefresh, 3000);
-            }
-          };
-          tokenRefreshTimerRef.current = setTimeout(attemptTokenRefresh, msUntilRefresh);
-        }
 
         resolve();
       };
@@ -920,8 +914,54 @@ export function useVoice(options: UseVoiceOptions = {}) {
     console.log('[Voice] Env tuning snapshot captured at connection boundary:', envTuningRef.current);
   }, [environmentEndpointing]);
 
+  // Claim the single-voice lock for THIS instance. Returns true if we own it (now or
+  // already), false if another live instance holds it. Resolves the moment ownership is
+  // known; the underlying lock stays held in the background until releaseVoiceLock() runs.
+  // Never blocks voice if the Web Locks API is missing (old browser) — degrade open.
+  const ensureVoiceOwnership = useCallback(async (): Promise<boolean> => {
+    if (voiceLockOwnedRef.current) return true;          // already ours
+    if (typeof navigator === 'undefined' || !('locks' in navigator)) return true;
+    return new Promise<boolean>((resolveOwnership) => {
+      let settled = false;
+      const settle = (v: boolean) => { if (!settled) { settled = true; resolveOwnership(v); } };
+      try {
+        navigator.locks.request(
+          'stocker-voice-active',
+          { mode: 'exclusive', ifAvailable: true },
+          (lock) => {
+            if (!lock) { settle(false); return; }        // another instance owns voice
+            voiceLockOwnedRef.current = true;
+            settle(true);
+            // Hold the lock until we explicitly release it (or this tab closes).
+            return new Promise<void>((release) => { voiceLockReleaseRef.current = release; });
+          }
+        ).catch(() => settle(true));                      // lock error → don't block voice
+      } catch (e) {
+        settle(true);
+      }
+    });
+  }, []);
+
+  const releaseVoiceLock = useCallback(() => {
+    if (voiceLockReleaseRef.current) {
+      try { voiceLockReleaseRef.current(); } catch (e) {}
+      voiceLockReleaseRef.current = null;
+    }
+    voiceLockOwnedRef.current = false;
+  }, []);
+
   const startListening = useCallback(async () => {
     console.log('[Voice] startListening called');
+
+    // SINGLE-VOICE LOCK: if another app instance already owns voice, stay silent — never
+    // start a second listener that would talk over the first. (Same-instance reconnects
+    // already own the lock, so this is a no-op for them.)
+    if (!(await ensureVoiceOwnership())) {
+      console.warn('[Voice] startListening blocked — another instance owns voice');
+      emitDiagnostic('voice-lock-denied', 'startListening');
+      onErrorRef.current?.('Voice is already running in another window. Close it, then tap to resume.');
+      return false;
+    }
 
     // Scope 2 — route-start / resume-after-stop boundary: refresh the env-tuning snapshot
     // (guard inside no-ops if a connection is somehow still open).
@@ -1331,6 +1371,14 @@ export function useVoice(options: UseVoiceOptions = {}) {
     // Bail out immediately if audio was stopped (user closed/navigated away)
     if (stoppedRef.current) {
       console.log('[Voice] Speak cancelled - audio was stopped');
+      return;
+    }
+
+    // SINGLE-VOICE LOCK: a non-owning instance must never speak — this is what stops two
+    // instances from greeting over each other on resume. (If this instance is the one
+    // driving voice it already owns the lock, so this is a no-op.)
+    if (!(await ensureVoiceOwnership())) {
+      console.warn('[Voice] Speak suppressed — another instance owns voice');
       return;
     }
 
@@ -1770,6 +1818,9 @@ export function useVoice(options: UseVoiceOptions = {}) {
         }
         audioContextRef.current = null;
       }
+      // Release the single-voice lock so another instance can take over. (The Web Locks
+      // API also auto-releases this if the tab is hard-closed or crashes.)
+      releaseVoiceLock();
     };
 
     // Handle window/tab close

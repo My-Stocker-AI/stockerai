@@ -1258,6 +1258,11 @@ export default function StockerApp() {
             });
             const snap = await resp.json();
             if (snap?.has_session) {
+              const cm = snap.current_machine;
+              // Stamp every resumed item with the current machine's name — the progress
+              // bar counts done items by machineName match (line ~2240). Without this,
+              // all resumed done items read as "no machine" and the bar shows 0 of N
+              // until you pick live items. All resume done-list items belong to cm.
               const mapItem = (it: any): any => it ? {
                 product: it.product_name,
                 quantity: it.quantity,
@@ -1265,8 +1270,8 @@ export default function StockerApp() {
                 slot_spoken: it.slot_spoken,
                 inventory_current: it.inventory_current,
                 inventory_parlevel: it.inventory_parlevel,
+                machineName: cm.name,
               } : null;
-              const cm = snap.current_machine;
               const ci = mapItem(snap.current_item);
               setRouteState({
                 routeId: snap.route.id,
