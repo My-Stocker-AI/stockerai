@@ -78,6 +78,9 @@ export function useVoice(options: UseVoiceOptions = {}) {
   const encodingRef = useRef<string>('opus');  // Default to opus, updated by setupMediaRecorder
   const shouldReconnectRef = useRef(true);
   const isConnectedRef = useRef(false);
+  // Always-current pointer to startListening so the screen-wake handler can trigger a
+  // clean reconnect without capturing a stale closure.
+  const startListeningRef = useRef<(() => Promise<boolean>) | null>(null);
   const stoppedRef = useRef(false); // Flag to prevent new audio after stopAudio()
   const isRecordingRef = useRef(false);
   const accumulatedTranscriptRef = useRef('');  // Accumulated transcript for utterance (matches original PWA this.transcript)
@@ -806,6 +809,20 @@ export function useVoice(options: UseVoiceOptions = {}) {
         const currentStatus = statusRef.current;
         if (shouldReconnectRef.current && (currentStatus === 'listening' || currentStatus === 'paused' || currentStatus === 'muted' || currentStatus === 'thinking')) {
 
+          // Phone locked / app backgrounded: the page is frozen or throttled, so a reconnect
+          // can't succeed — it just storms (2026-07-01 device logs showed endless
+          // error→retry→max-reached→recovery on BOTH iPhone and Android). Halt attempts here;
+          // the visibilitychange handler does ONE clean reconnect the moment the screen wakes.
+          if (typeof document !== 'undefined' && document.hidden) {
+            emitDiagnostic('reconnect-deferred-hidden', { timestamp });
+            if (reconnectTimeoutRef.current) {
+              clearTimeout(reconnectTimeoutRef.current);
+              reconnectTimeoutRef.current = null;
+            }
+            reconnectAttemptsRef.current = 0;
+            return;
+          }
+
           // Check if we've exceeded max attempts
           if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
             console.warn('[Voice] Max reconnect attempts reached — waiting 30s before recovery attempt', {
@@ -1075,6 +1092,9 @@ export function useVoice(options: UseVoiceOptions = {}) {
       return false;
     }
   }, [connectDeepgram, setStatus, unlockAudio, getOrCreateAudioStream]); // Using ref for onError
+
+  // Keep the ref pointed at the latest startListening for the screen-wake reconnect.
+  startListeningRef.current = startListening;
 
   const stopListening = useCallback(() => {
     console.log('[Voice] stopListening called - cleaning up resources');
@@ -1874,18 +1894,44 @@ export function useVoice(options: UseVoiceOptions = {}) {
       stopEverything();
     };
 
+    // Screen lock / app background handling — the CALM version.
+    // The old handler stopped ALL voice on `hidden` and misfired during active picking, so it
+    // was removed. This one NEVER tears down voice; it only manages reconnection:
+    //   • hidden (screen locked / backgrounded): halt the reconnect storm — a socket can't open
+    //     on a frozen page, so retrying just burns battery and never recovers.
+    //   • visible (screen woke): if we should be listening but the socket dropped while away,
+    //     do ONE clean reconnect. If still connected, do nothing — safe against a false 'hidden'.
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        if (reconnectTimeoutRef.current) {
+          clearTimeout(reconnectTimeoutRef.current);
+          reconnectTimeoutRef.current = null;
+        }
+        return;
+      }
+      const s = statusRef.current;
+      const shouldBeListening = s === 'listening' || s === 'paused' || s === 'muted' || s === 'thinking';
+      if (shouldReconnectRef.current && shouldBeListening && !isConnectedRef.current) {
+        if (reconnectTimeoutRef.current) {
+          clearTimeout(reconnectTimeoutRef.current);
+          reconnectTimeoutRef.current = null;
+        }
+        reconnectAttemptsRef.current = 0;
+        emitDiagnostic('reconnect-on-resume', { timestamp: new Date().toISOString(), status: s });
+        startListeningRef.current?.();
+      }
+    };
+
     // Add event listeners
     window.addEventListener('beforeunload', handleBeforeUnload);
     window.addEventListener('pagehide', handlePageHide);
-    // REMOVED: visibilitychange listener - was stopping voice during active picking
-    // document.addEventListener('visibilitychange', handleVisibilityChange);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     // Cleanup on unmount
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
       window.removeEventListener('pagehide', handlePageHide);
-      // REMOVED: visibilitychange cleanup (listener no longer added)
-      // document.removeEventListener('visibilitychange', handleVisibilityChange);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       // Clear reconnection timeout
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
