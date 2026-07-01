@@ -35,22 +35,25 @@ interface UseVoiceOptions {
   continuous?: boolean;
   keywords?: string[];  // Dynamic keywords for improved recognition (route names, commands)
   environmentEndpointing?: number;  // Deepgram endpointing from environment detection (ms)
+  preferredDeviceId?: string;  // Optional: force a specific mic (from a pre-flight mic check). Undefined = default device (unchanged behavior).
 }
 
 export function useVoice(options: UseVoiceOptions = {}) {
-  const { onTranscript, onError, onWakePhrase, keywords, environmentEndpointing } = options;
+  const { onTranscript, onError, onWakePhrase, keywords, environmentEndpointing, preferredDeviceId } = options;
 
   // Store callbacks in refs to avoid stale closures in WebSocket handlers
   const onTranscriptRef = useRef(onTranscript);
   const onErrorRef = useRef(onError);
   const onWakePhraseRef = useRef(onWakePhrase);
   const keywordsRef = useRef<string[]>(keywords || []);
+  const preferredDeviceIdRef = useRef<string | undefined>(preferredDeviceId);
 
   // Keep refs updated when callbacks change
   onTranscriptRef.current = onTranscript;
   onErrorRef.current = onError;
   onWakePhraseRef.current = onWakePhrase;
   keywordsRef.current = keywords || [];
+  preferredDeviceIdRef.current = preferredDeviceId;
 
   const [status, setStatusState] = useState<VoiceStatus>('idle');
   const [lastInput, setLastInput] = useState('');
@@ -881,6 +884,10 @@ export function useVoice(options: UseVoiceOptions = {}) {
     }
 
     console.log('[Voice] Creating new audio stream');
+    // Additive: if a pre-flight mic check chose a specific device, prefer it. `ideal` (not
+    // `exact`) so it never hard-fails if that device vanished. When undefined this key is
+    // omitted entirely, so the constraints are byte-for-byte identical to before.
+    const preferred = preferredDeviceIdRef.current;
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         // echoCancellation OFF — deliberate (Russ, 2026-06-29: "there is never a need to
@@ -893,7 +900,8 @@ export function useVoice(options: UseVoiceOptions = {}) {
         echoCancellation: true,
         noiseSuppression: true,
         autoGainControl: true,
-        sampleRate: 48000
+        sampleRate: 48000,
+        ...(preferred ? { deviceId: { ideal: preferred } } : {})
       }
     });
     audioStreamRef.current = stream;

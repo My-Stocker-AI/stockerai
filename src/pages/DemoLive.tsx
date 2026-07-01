@@ -105,6 +105,13 @@ export default function DemoLive() {
   const [isLoading, setIsLoading] = useState(true);
   const [expandedMachines, setExpandedMachines] = useState<number[]>([]);
 
+  // Pre-flight mic check (desktop fix): voice must not start until we've confirmed a working
+  // mic. On desktop the browser opened a muted/wrong input that produced ZERO audio for 40s
+  // (Deepgram connected + recording, but no SpeechStarted). micReady gates the start-voice
+  // effect; micDeviceId is the confirmed device, passed to useVoice as preferredDeviceId.
+  const [micReady, setMicReady] = useState(false);
+  const [micDeviceId, setMicDeviceId] = useState<string | undefined>(undefined);
+
   // Refs
   const processingRef = useRef(false);
   const voiceRef = useRef<any>(null);
@@ -862,7 +869,8 @@ export default function DemoLive() {
     onTranscript: handleTranscript,
     onError: (err) => { console.error('Voice error:', err); demoLog('demo-voice-error', { message: String(err) }); },
     onWakePhrase: handleWakePhrase,
-    continuous: true
+    continuous: true,
+    preferredDeviceId: micDeviceId  // Use the mic confirmed by the pre-flight check
   });
 
   // Store voice ref
@@ -870,10 +878,11 @@ export default function DemoLive() {
     voiceRef.current = voice;
   }, [voice]);
 
-  // Start voice on mount
+  // Start voice on mount — GATED on micReady so voice only starts AFTER the pre-flight mic
+  // check passes (and uses the confirmed device via preferredDeviceId above).
   useEffect(() => {
-    if (demoUser && !isLoading && demoRoutes.length > 0) {
-      demoLog('demo-start-listening', { calling: true });
+    if (demoUser && !isLoading && demoRoutes.length > 0 && micReady) {
+      demoLog('demo-start-listening', { calling: true, micDeviceId });
       Promise.resolve(voice.startListening())
         .then((ok) => demoLog('demo-start-listening-result', { ok }))
         .catch((e) => demoLog('demo-start-listening-result', { ok: false, error: String(e?.message || e) }));
@@ -890,7 +899,7 @@ export default function DemoLive() {
       voice.stopListening();
       voice.stopAudio();
     };
-  }, [demoUser, isLoading, demoRoutes.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [demoUser, isLoading, demoRoutes.length, micReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Toggle machine expansion in completed list
   const toggleMachineExpand = (machineNum: number) => {
@@ -907,6 +916,22 @@ export default function DemoLive() {
       <div className="min-h-screen bg-[#0d1117] flex items-center justify-center">
         <Loader2 className="h-8 w-8 text-primary animate-spin" />
       </div>
+    );
+  }
+
+  // PRE-FLIGHT MIC CHECK — front gate. The demo's voice engine does not start until this
+  // passes. On pass it stores the confirmed deviceId and flips micReady, which unblocks the
+  // start-voice effect above.
+  if (!micReady) {
+    return (
+      <MicCheck
+        firstName={demoUser.firstName}
+        onPass={(deviceId, deviceLabel) => {
+          demoLog('demo-mic-check-result', { passed: true, deviceLabel });
+          setMicDeviceId(deviceId);
+          setMicReady(true);
+        }}
+      />
     );
   }
 
@@ -1354,6 +1379,319 @@ export default function DemoLive() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ============================================================================
+// PRE-FLIGHT MIC CHECK
+// A front gate that confirms a working microphone BEFORE the voice engine starts.
+// Fixes the desktop failure where the browser opened a muted/wrong input that produced
+// zero audio. Opens its OWN short-lived probe stream + AnalyserNode level meter; the
+// instant it hears sustained audio it auto-passes; if it hears nothing for ~4.5s it shows a
+// device picker + "Start anyway". On pass it releases its probe stream and hands the chosen
+// deviceId back so useVoice opens the real stream with preferredDeviceId.
+// ============================================================================
+
+const MIC_AUTOPASS_RMS = 0.03;        // sustained RMS above this = "we can hear you"
+const MIC_AUTOPASS_FRAMES = 6;        // ~6 frames (~100ms) above threshold before passing (rejects a single click/pop)
+const MIC_NO_AUDIO_MS = 4500;         // no audio for this long → surface picker + guidance
+
+type MicPhase = 'requesting' | 'listening' | 'passed' | 'no-audio' | 'denied' | 'no-device' | 'insecure' | 'error';
+
+function MicCheck({ firstName, onPass }: { firstName: string; onPass: (deviceId: string | undefined, deviceLabel: string) => void }) {
+  const [phase, setPhase] = useState<MicPhase>('requesting');
+  const [level, setLevel] = useState(0);                       // 0..1 for the animated bars
+  const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
+  const [selectedId, setSelectedId] = useState<string | undefined>(undefined);
+  const [errorDetail, setErrorDetail] = useState('');
+
+  const streamRef = useRef<MediaStream | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const noAudioTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const passedRef = useRef(false);
+  const peakRef = useRef(0);
+
+  // Full teardown of the probe stream + audio graph. Called before every re-probe and on pass/unmount.
+  const teardown = useCallback(() => {
+    if (rafRef.current !== null) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
+    if (noAudioTimerRef.current) { clearTimeout(noAudioTimerRef.current); noAudioTimerRef.current = null; }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
+    }
+    if (audioCtxRef.current && audioCtxRef.current.state !== 'closed') {
+      try { audioCtxRef.current.close(); } catch { /* noop */ }
+    }
+    audioCtxRef.current = null;
+  }, []);
+
+  const finishPass = useCallback((deviceLabel: string) => {
+    if (passedRef.current) return;
+    passedRef.current = true;
+    setPhase('passed');
+    demoLog('demo-mic-check', { event: 'passed', deviceLabel, peakLevel: Number(peakRef.current.toFixed(3)), selectedId });
+    // Release the probe stream so useVoice can open its own with the confirmed device.
+    teardown();
+    // Brief "✓ We can hear you!" before handing off (~1s).
+    setTimeout(() => onPass(selectedId, deviceLabel), 1000);
+  }, [onPass, selectedId, teardown]);
+
+  // Open a probe stream on the given device and run the level meter.
+  const probe = useCallback(async (deviceId?: string) => {
+    teardown();
+    passedRef.current = false;
+    peakRef.current = 0;
+    setLevel(0);
+    setPhase('requesting');
+
+    // Insecure context / no API → can't get a mic at all.
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+      const insecure = typeof window !== 'undefined' && !window.isSecureContext;
+      demoLog('demo-mic-check', { event: 'unavailable', insecure });
+      setPhase(insecure ? 'insecure' : 'error');
+      setErrorDetail(insecure ? 'This page needs a secure (https) connection to use the microphone.' : 'Microphone access is not available in this browser.');
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: deviceId ? { deviceId: { ideal: deviceId } } : true
+      });
+      streamRef.current = stream;
+
+      const track = stream.getAudioTracks()[0];
+      const label = track?.label || 'Default microphone';
+
+      // Enumerate devices now that permission is granted (labels are populated post-grant).
+      let inputs: MediaDeviceInfo[] = [];
+      try {
+        const all = await navigator.mediaDevices.enumerateDevices();
+        inputs = all.filter(d => d.kind === 'audioinput');
+        setDevices(inputs);
+      } catch { /* enumerate is best-effort */ }
+
+      // Track the actually-selected device id so the picker reflects reality.
+      const activeId = track?.getSettings?.().deviceId || deviceId;
+      if (activeId) setSelectedId(activeId);
+
+      const permState = await (async () => {
+        try { return (await navigator.permissions?.query({ name: 'microphone' as PermissionName }))?.state || 'granted'; }
+        catch { return 'granted'; }
+      })();
+
+      demoLog('demo-mic-check', {
+        event: 'stream-open',
+        deviceLabel: label,
+        deviceId: activeId,
+        permissionState: permState,
+        deviceCount: inputs.length,
+      });
+
+      setPhase('listening');
+
+      // Build the analyser graph.
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      const ctx: AudioContext = new AudioCtx();
+      audioCtxRef.current = ctx;
+      if (ctx.state === 'suspended') { try { await ctx.resume(); } catch { /* noop */ } }
+      const source = ctx.createMediaStreamSource(stream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 512;
+      source.connect(analyser);
+      const buf = new Uint8Array(analyser.frequencyBinCount);
+
+      let framesAbove = 0;
+
+      // No-audio watchdog: if the meter never crosses the threshold in time, surface picker.
+      noAudioTimerRef.current = setTimeout(() => {
+        if (!passedRef.current) {
+          demoLog('demo-mic-check', { event: 'no-audio', deviceLabel: label, peakLevel: Number(peakRef.current.toFixed(3)), deviceCount: inputs.length });
+          setPhase('no-audio');
+        }
+      }, MIC_NO_AUDIO_MS);
+
+      const tick = () => {
+        if (passedRef.current || !audioCtxRef.current) return;
+        analyser.getByteFrequencyData(buf);
+        // RMS of the spectrum, normalized to 0..1.
+        let sum = 0;
+        for (let i = 0; i < buf.length; i++) { const v = buf[i] / 255; sum += v * v; }
+        const rms = Math.sqrt(sum / buf.length);
+        if (rms > peakRef.current) peakRef.current = rms;
+        setLevel(Math.min(1, rms * 3)); // scale for a lively bar display
+
+        if (rms > MIC_AUTOPASS_RMS) {
+          framesAbove++;
+          if (framesAbove >= MIC_AUTOPASS_FRAMES) {
+            finishPass(label);
+            return;
+          }
+        } else {
+          framesAbove = Math.max(0, framesAbove - 1); // decay so noise spikes don't accumulate
+        }
+        rafRef.current = requestAnimationFrame(tick);
+      };
+      rafRef.current = requestAnimationFrame(tick);
+    } catch (e: any) {
+      const name = e?.name || '';
+      teardown();
+      if (name === 'NotAllowedError' || name === 'SecurityError') {
+        demoLog('demo-mic-check', { event: 'denied', error: name });
+        setPhase('denied');
+      } else if (name === 'NotFoundError' || name === 'OverconstrainedError') {
+        demoLog('demo-mic-check', { event: 'no-device', error: name });
+        setPhase('no-device');
+      } else {
+        demoLog('demo-mic-check', { event: 'error', error: String(e?.message || name || e) });
+        setErrorDetail(String(e?.message || 'Could not open the microphone.'));
+        setPhase('error');
+      }
+    }
+  }, [teardown, finishPass]);
+
+  // Kick off the probe on mount; tear down on unmount.
+  useEffect(() => {
+    probe(undefined);
+    return () => teardown();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const selectedLabel = devices.find(d => d.deviceId === selectedId)?.label || 'Default microphone';
+
+  const bars = Array.from({ length: 7 });
+
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-[#0d1117] via-[#161b22] to-[#0d1117] text-white flex flex-col items-center justify-center p-4">
+      <div className="bg-[#161b22] rounded-2xl border border-gray-700 p-6 max-w-sm w-full text-center">
+        <div className={cn(
+          "w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4",
+          phase === 'passed' ? "bg-emerald-500/20" : phase === 'denied' || phase === 'no-audio' || phase === 'no-device' || phase === 'insecure' || phase === 'error' ? "bg-red-500/20" : "bg-emerald-500/10"
+        )}>
+          {phase === 'passed'
+            ? <CheckCircle className="h-10 w-10 text-emerald-400" />
+            : (phase === 'denied' || phase === 'no-device' || phase === 'insecure' || phase === 'error')
+              ? <MicOff className="h-10 w-10 text-red-400" />
+              : <Mic className="h-10 w-10 text-emerald-400" />}
+        </div>
+
+        {/* Passed */}
+        {phase === 'passed' && (
+          <>
+            <h2 className="text-xl font-bold text-white mb-2">✓ We can hear you!</h2>
+            <p className="text-gray-400">Starting the demo…</p>
+          </>
+        )}
+
+        {/* Requesting / Listening — live meter */}
+        {(phase === 'requesting' || phase === 'listening') && (
+          <>
+            <h2 className="text-xl font-bold text-white mb-2">Quick mic check, {firstName}</h2>
+            <p className="text-gray-400 mb-5">
+              {phase === 'requesting' ? 'Allow microphone access to continue…' : 'Say something — watch the bars move.'}
+            </p>
+            <div className="flex items-end justify-center gap-1.5 h-20 mb-2">
+              {bars.map((_, i) => {
+                const center = Math.abs(i - 3); // taller in the middle
+                const scale = Math.max(0.12, level * (1 - center * 0.12));
+                return (
+                  <div
+                    key={i}
+                    className="w-3 bg-gradient-to-t from-emerald-600 to-teal-400 rounded-full transition-all duration-75"
+                    style={{ height: `${Math.round(scale * 100)}%` }}
+                  />
+                );
+              })}
+            </div>
+            <p className="text-xs text-gray-600">Listening…</p>
+          </>
+        )}
+
+        {/* No audio detected — guidance + picker */}
+        {phase === 'no-audio' && (
+          <>
+            <h2 className="text-xl font-bold text-white mb-2">We can't hear your microphone</h2>
+            <p className="text-gray-400 mb-4">
+              Make sure it isn't muted, then try selecting a different mic below.
+            </p>
+          </>
+        )}
+
+        {/* Permission denied */}
+        {phase === 'denied' && (
+          <>
+            <h2 className="text-xl font-bold text-white mb-2">Microphone blocked</h2>
+            <p className="text-gray-400 mb-4">
+              Click the mic/lock icon in your browser's address bar, allow the microphone, then retry.
+            </p>
+          </>
+        )}
+
+        {/* No input device */}
+        {phase === 'no-device' && (
+          <>
+            <h2 className="text-xl font-bold text-white mb-2">No microphone found</h2>
+            <p className="text-gray-400 mb-4">Connect a microphone or headset, then retry.</p>
+          </>
+        )}
+
+        {/* Insecure context */}
+        {phase === 'insecure' && (
+          <>
+            <h2 className="text-xl font-bold text-white mb-2">Secure connection needed</h2>
+            <p className="text-gray-400 mb-4">{errorDetail}</p>
+          </>
+        )}
+
+        {/* Generic error */}
+        {phase === 'error' && (
+          <>
+            <h2 className="text-xl font-bold text-white mb-2">Microphone problem</h2>
+            <p className="text-gray-400 mb-4">{errorDetail}</p>
+          </>
+        )}
+
+        {/* Device picker — shown whenever we have a list and aren't mid-pass */}
+        {(phase === 'no-audio' || phase === 'denied' || phase === 'no-device' || phase === 'error') && devices.length > 0 && (
+          <div className="mb-4 text-left">
+            <label className="text-xs text-gray-500 uppercase font-semibold">Microphone</label>
+            <select
+              value={selectedId || ''}
+              onChange={(e) => { const id = e.target.value || undefined; setSelectedId(id); demoLog('demo-mic-check', { event: 'device-selected', deviceId: id }); probe(id); }}
+              className="mt-1 w-full bg-[#0d1117] border border-gray-700 rounded-lg px-3 py-2 text-white text-sm"
+            >
+              {devices.map((d, i) => (
+                <option key={d.deviceId || i} value={d.deviceId}>
+                  {d.label || `Microphone ${i + 1}`}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {/* Actions for the non-listening states */}
+        {(phase === 'no-audio' || phase === 'denied' || phase === 'no-device' || phase === 'insecure' || phase === 'error') && (
+          <div className="space-y-2">
+            <Button
+              onClick={() => probe(selectedId)}
+              className="w-full h-12 bg-emerald-600 hover:bg-emerald-700 rounded-xl font-semibold"
+            >
+              <RotateCcw className="h-4 w-4 mr-2" /> Retry mic check
+            </Button>
+            <Button
+              onClick={() => {
+                demoLog('demo-mic-check-result', { passed: false, startAnyway: true, deviceLabel: selectedLabel });
+                teardown();
+                onPass(selectedId, selectedLabel);
+              }}
+              variant="ghost"
+              className="w-full h-11 text-gray-400 hover:text-white border border-gray-700"
+            >
+              Start anyway
+            </Button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
