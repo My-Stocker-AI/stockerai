@@ -14,8 +14,8 @@ const ROICalculator = () => {
     const monthlyLaborHours = drivers * 8 * 22;
     // Monthly labor cost = hours × hourly wage
     const monthlyLaborCost = monthlyLaborHours * hourlyWage;
-    // Estimated savings (25%) = labor cost × 0.25
-    const estimatedSavings = monthlyLaborCost * 0.25;
+    // Estimated savings (35%) = labor cost × 0.35
+    const estimatedSavings = monthlyLaborCost * 0.35;
     // Stocker AI cost based on tier
     let perDriverCost = 20;
     if (drivers > 20) perDriverCost = 15;

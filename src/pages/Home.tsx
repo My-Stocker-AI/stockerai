@@ -213,7 +213,7 @@ const Home = () => {
               {
                 icon: Eye,
                 headline: "Stop Squinting at Screens",
-                body: "Screen-based picking slows drivers down and causes errors. Stocker AI's voice guidance calls out quantity, product, and slot - hands stay full, eyes stay up. Result: 25-30% faster picks with near-zero mistakes.",
+                body: "Screen-based picking slows drivers down and causes errors. Stocker AI's voice guidance calls out quantity, product, and slot - hands stay full, eyes stay up. Result: up to 35% faster picks with near-zero mistakes.",
               },
               {
                 icon: UserPlus,
@@ -253,7 +253,7 @@ const Home = () => {
               See Your Savings
             </h2>
             <p className="text-xl text-muted-foreground max-w-3xl mx-auto">
-              Voice guidance delivers 20-30% faster picking. At $15-20/driver/month,
+              Voice guidance delivers up to 35% faster picking. At $15-20/driver/month,
               that's typically less than 10% of your labor savings.
             </p>
           </div>
