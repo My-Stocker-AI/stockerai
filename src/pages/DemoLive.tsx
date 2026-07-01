@@ -54,13 +54,26 @@ interface CompletedMachine {
 type DemoPhase = 'welcome' | 'route_select' | 'direction_select' | 'stocking' | 'mid_cta' | 'complete';
 
 // Guided discovery prompt triggers - appear earlier so users learn commands faster
+// Coaching prompts. Each entry is the STATIC lead-in (encouragement / wow line) that is
+// preserved verbatim. The command-suggestion portion is now DYNAMIC (see pickCommandTip):
+// it only ever suggests a command the driver hasn't used yet, so we never coach a command
+// they've already done. MACHINE_1_DONE is a pure wow line with no command tip — untouched.
 const DISCOVERY_PROMPTS = {
-  ITEM_1: "Great! Remember: say 'next' after each item. Try 'how many left' or 'skip machine' anytime.",
-  ITEM_2: "Nice! Quick tip — ask me 'how many left?' to check your progress anytime.",
-  ITEM_4: "Perfect! By the way, say 'skip machine' if you need to come back later.",
+  ITEM_1: "Great! Remember: say 'next' after each item.",
+  ITEM_2: "Nice!",
+  ITEM_4: "Perfect!",
   MACHINE_1_DONE: "Machine done! Notice you didn't touch your screen once? That's the whole point.",
-  MACHINE_2_ITEM_1: "Got it. And remember, you can say 'go back' if you need to undo the last item."
+  MACHINE_2_ITEM_1: "Got it."
 };
+
+// Teachable commands, in the priority order they should be suggested. "next" is deliberately
+// excluded — it's used constantly and isn't a teachable tip. The dynamic picker walks this
+// list and suggests the first one the driver hasn't invoked yet.
+const COMMAND_TIPS: { key: 'how_many_left' | 'skip_machine' | 'go_back'; tip: string }[] = [
+  { key: 'how_many_left', tip: "Try 'how many left' to check your progress anytime." },
+  { key: 'skip_machine', tip: "Say 'skip machine' if you need to come back to one later." },
+  { key: 'go_back', tip: "You can say 'go back' to undo the last item." },
+];
 
 export default function DemoLive() {
   const navigate = useNavigate();
@@ -96,6 +109,10 @@ export default function DemoLive() {
   const processingRef = useRef(false);
   const voiceRef = useRef<any>(null);
   const discoveryShownRef = useRef<Set<string>>(new Set());
+  // DYNAMIC COACHING: which teachable commands the driver has actually invoked. A command is
+  // added here the moment its handler successfully fires, so the coaching picker never
+  // re-suggests something already done. (Reset per route in handleStartRoute2, like discovery.)
+  const usedCommandsRef = useRef<Set<'how_many_left' | 'skip_machine' | 'go_back'>>(new Set());
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   // SELF-HEARING GUARD (FIX 4): true for the entire duration a response is playing. The open
   // mic hears the AI's own voice and Deepgram emits phantom final transcripts (15-21 per long
@@ -379,6 +396,15 @@ export default function DemoLive() {
     }
   }, [currentRoute, currentMachine, getMachineItems, speakResponse]);
 
+  // Pick the highest-priority command the driver has NOT used yet (how many left → skip
+  // machine → go back). Returns a leading-space tip to append, or '' if all three are used
+  // (suppress — don't nag). Logs the choice so the logs prove only-unused commands are coached.
+  const pickCommandTip = useCallback((): string => {
+    const next = COMMAND_TIPS.find(c => !usedCommandsRef.current.has(c.key));
+    demoLog('demo-tip', { suggested: next ? next.key : null });
+    return next ? ' ' + next.tip : '';
+  }, []);
+
   // Handle next item (main progression)
   const handleNext = useCallback(async () => {
     if (processingRef.current) return;
@@ -418,25 +444,26 @@ export default function DemoLive() {
     const totalMachineItems = machineItems.length;
     let extraPrompt = '';
 
+    // Static lead-in + DYNAMIC command tip (only an unused command, or nothing if all used).
     // Item 1 (first item user picks) - remind them of key commands
     if (newTotal === 1 && !discoveryShownRef.current.has('ITEM_1')) {
       discoveryShownRef.current.add('ITEM_1');
-      extraPrompt = ' ' + DISCOVERY_PROMPTS.ITEM_1;
+      extraPrompt = ' ' + DISCOVERY_PROMPTS.ITEM_1 + pickCommandTip();
     }
-    // Item 2 - "how many left" hint
+    // Item 2 - command tip
     else if (newTotal === 2 && !discoveryShownRef.current.has('ITEM_2')) {
       discoveryShownRef.current.add('ITEM_2');
-      extraPrompt = ' ' + DISCOVERY_PROMPTS.ITEM_2;
+      extraPrompt = ' ' + DISCOVERY_PROMPTS.ITEM_2 + pickCommandTip();
     }
-    // Item 4 - "skip machine" hint
+    // Item 4 - command tip
     else if (newTotal === 4 && !discoveryShownRef.current.has('ITEM_4')) {
       discoveryShownRef.current.add('ITEM_4');
-      extraPrompt = ' ' + DISCOVERY_PROMPTS.ITEM_4;
+      extraPrompt = ' ' + DISCOVERY_PROMPTS.ITEM_4 + pickCommandTip();
     }
-    // Machine 2, item 1 - "go back" hint (earlier than before)
+    // Machine 2, item 1 - command tip (earlier than before)
     else if (machine === 2 && machineItemCount === 1 && !discoveryShownRef.current.has('MACHINE_2_ITEM_1')) {
       discoveryShownRef.current.add('MACHINE_2_ITEM_1');
-      extraPrompt = ' ' + DISCOVERY_PROMPTS.MACHINE_2_ITEM_1;
+      extraPrompt = ' ' + DISCOVERY_PROMPTS.MACHINE_2_ITEM_1 + pickCommandTip();
     }
 
     // Check if more items in current machine
@@ -525,10 +552,11 @@ export default function DemoLive() {
     }
 
     processingRef.current = false;
-  }, [clearStuckTimer, getRouteMachines, speakResponse]);
+  }, [clearStuckTimer, getRouteMachines, speakResponse, pickCommandTip]);
 
   // Handle "how many left?" command - items left to PICK (progress)
   const handleHowManyLeft = useCallback(async () => {
+    usedCommandsRef.current.add('how_many_left'); // dynamic-coaching: don't re-suggest this
     const machineItems = currentMachineItemsRef.current;
     const itemIdx = currentItemIndexRef.current;
     const machine = currentMachineRef.current;
@@ -563,6 +591,7 @@ export default function DemoLive() {
 
   // Handle "skip machine" command
   const handleSkipMachine = useCallback(async () => {
+    usedCommandsRef.current.add('skip_machine'); // dynamic-coaching: don't re-suggest this
     const machine = currentMachineRef.current;
     const route = currentRouteRef.current;
 
@@ -610,6 +639,7 @@ export default function DemoLive() {
 
   // Handle "go back" command
   const handleGoBack = useCallback(async () => {
+    usedCommandsRef.current.add('go_back'); // dynamic-coaching: don't re-suggest this
     const history = itemHistoryRef.current;
 
     if (history.length === 0) {
@@ -645,6 +675,7 @@ export default function DemoLive() {
     setCurrentMachineItems([]);
     setCompletedMachines([]);
     discoveryShownRef.current.clear();
+    usedCommandsRef.current.clear(); // fresh coaching for Route 2, matching discovery reset
 
     const machines = getRouteMachines(2);
     const firstMachine = machines[0];
