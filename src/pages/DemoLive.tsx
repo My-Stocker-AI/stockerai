@@ -924,14 +924,25 @@ export default function DemoLive() {
   // start-voice effect above.
   if (!micReady) {
     return (
-      <MicCheck
-        firstName={demoUser.firstName}
-        onPass={(deviceId, deviceLabel) => {
-          demoLog('demo-mic-check-result', { passed: true, deviceLabel });
-          setMicDeviceId(deviceId);
-          setMicReady(true);
-        }}
-      />
+      <>
+        {/* Mount the diagnostic pipe DURING the mic check too — otherwise its window-event
+            listener + 3s flusher only exist in the main return (after this gate), so every
+            demo-mic-check event fired here would run "dark" and never reach the Render logs. */}
+        <DiagnosticOverlay
+          voiceStatus={voice.status}
+          isDeepgramConnected={voice.isDeepgramConnected}
+          isVisible={showDiagnostics}
+          onClose={() => setShowDiagnostics(false)}
+        />
+        <MicCheck
+          firstName={demoUser.firstName}
+          onPass={(deviceId, deviceLabel) => {
+            demoLog('demo-mic-check-result', { passed: true, deviceLabel });
+            setMicDeviceId(deviceId);
+            setMicReady(true);
+          }}
+        />
+      </>
     );
   }
 
@@ -1412,11 +1423,15 @@ function MicCheck({ firstName, onPass }: { firstName: string; onPass: (deviceId:
   const noAudioTimerRef = useRef<NodeJS.Timeout | null>(null);
   const passedRef = useRef(false);
   const peakRef = useRef(0);
+  const levelSampleTimerRef = useRef<NodeJS.Timeout | null>(null);   // periodic level-sample interval
+  const gestureCleanupRef = useRef<(() => void) | null>(null);       // removes the resume-on-gesture listeners
 
   // Full teardown of the probe stream + audio graph. Called before every re-probe and on pass/unmount.
   const teardown = useCallback(() => {
     if (rafRef.current !== null) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
     if (noAudioTimerRef.current) { clearTimeout(noAudioTimerRef.current); noAudioTimerRef.current = null; }
+    if (levelSampleTimerRef.current) { clearInterval(levelSampleTimerRef.current); levelSampleTimerRef.current = null; }
+    if (gestureCleanupRef.current) { gestureCleanupRef.current(); gestureCleanupRef.current = null; }
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(t => t.stop());
       streamRef.current = null;
@@ -1495,22 +1510,76 @@ function MicCheck({ firstName, onPass }: { firstName: string; onPass: (deviceId:
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       const ctx: AudioContext = new AudioCtx();
       audioCtxRef.current = ctx;
+      const ctxStateBefore = ctx.state;
       if (ctx.state === 'suspended') { try { await ctx.resume(); } catch { /* noop */ } }
+      const ctxStateAfter = ctx.state;
+
+      // HARDEN THE RESUME: if the context is STILL suspended after resume() (desktop autoplay
+      // policy — resume needs a fresh user gesture), retry on the next pointerdown/click.
+      if (ctx.state === 'suspended') {
+        const onGesture = () => {
+          const c = audioCtxRef.current;
+          if (!c) return;
+          c.resume().then(() => {
+            demoLog('demo-mic-check', { event: 'ctx-resumed-on-gesture', ctxState: c.state });
+          }).catch(() => { /* noop */ });
+          cleanupGesture();
+        };
+        const cleanupGesture = () => {
+          document.removeEventListener('pointerdown', onGesture);
+          document.removeEventListener('click', onGesture);
+          gestureCleanupRef.current = null;
+        };
+        document.addEventListener('pointerdown', onGesture, { once: true });
+        document.addEventListener('click', onGesture, { once: true });
+        gestureCleanupRef.current = cleanupGesture;
+      }
+
       const source = ctx.createMediaStreamSource(stream);
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 512;
       source.connect(analyser);
       const buf = new Uint8Array(analyser.frequencyBinCount);
 
+      // RICH SENSORS: dump the audio-engine + track state so a silent meter can be diagnosed
+      // (context asleep vs. track handing over silence). track.muted here = the OS/hardware
+      // reporting no signal, distinct from a suspended context.
+      demoLog('demo-mic-check', {
+        event: 'analyser-ready',
+        ctxStateBefore,
+        ctxStateAfter,
+        trackLabel: track?.label,
+        enabled: track?.enabled,
+        muted: track?.muted,
+        readyState: track?.readyState,
+      });
+      // Track mute/unmute transitions (hardware/OS-level silence toggling).
+      if (track) {
+        track.onmute = () => demoLog('demo-mic-check', { event: 'track-mute-change', muted: true });
+        track.onunmute = () => demoLog('demo-mic-check', { event: 'track-mute-change', muted: false });
+      }
+
       let framesAbove = 0;
 
       // No-audio watchdog: if the meter never crosses the threshold in time, surface picker.
       noAudioTimerRef.current = setTimeout(() => {
         if (!passedRef.current) {
-          demoLog('demo-mic-check', { event: 'no-audio', deviceLabel: label, peakLevel: Number(peakRef.current.toFixed(3)), deviceCount: inputs.length });
+          demoLog('demo-mic-check', { event: 'no-audio', deviceLabel: label, peakLevel: Number(peakRef.current.toFixed(3)), ctxState: audioCtxRef.current?.state, deviceCount: inputs.length });
           setPhase('no-audio');
         }
       }, MIC_NO_AUDIO_MS);
+
+      // PERIODIC LEVEL SAMPLE: ~1/s, capped at 8 samples, so the logs show whether ANY signal
+      // is arriving and what the context state is over time (without spamming).
+      let levelSamples = 0;
+      levelSampleTimerRef.current = setInterval(() => {
+        if (passedRef.current || levelSamples >= 8) {
+          if (levelSampleTimerRef.current) { clearInterval(levelSampleTimerRef.current); levelSampleTimerRef.current = null; }
+          return;
+        }
+        levelSamples++;
+        demoLog('demo-mic-check', { event: 'level-sample', peak: Number(peakRef.current.toFixed(3)), ctxState: audioCtxRef.current?.state });
+      }, 1000);
 
       const tick = () => {
         if (passedRef.current || !audioCtxRef.current) return;
