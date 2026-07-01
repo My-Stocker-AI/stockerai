@@ -108,9 +108,10 @@ export default function DemoLive() {
   // Pre-flight mic check (desktop fix): voice must not start until we've confirmed a working
   // mic. On desktop the browser opened a muted/wrong input that produced ZERO audio for 40s
   // (Deepgram connected + recording, but no SpeechStarted). micReady gates the start-voice
-  // effect; micDeviceId is the confirmed device, passed to useVoice as preferredDeviceId.
+  // effect. The check ALWAYS tests the SYSTEM DEFAULT mic and the demo ALWAYS listens on the
+  // system default (no deviceId ever) — so the demo listens on the exact mic the check tested.
+  // (A prior picker let the check pass on one device and the demo start on another → silent.)
   const [micReady, setMicReady] = useState(false);
-  const [micDeviceId, setMicDeviceId] = useState<string | undefined>(undefined);
 
   // Refs
   const processingRef = useRef(false);
@@ -864,13 +865,14 @@ export default function DemoLive() {
     }
   }, [handleTranscript, currentMachineItems, currentItemIndex, speakResponse]);
 
-  // Initialize voice
+  // Initialize voice. NO preferredDeviceId — the demo listens on the SYSTEM DEFAULT mic, the
+  // same device the pre-flight check tests. This is the fix for the device-mismatch (check
+  // passed on one mic, demo listened on another → silence).
   const voice = useVoice({
     onTranscript: handleTranscript,
     onError: (err) => { console.error('Voice error:', err); demoLog('demo-voice-error', { message: String(err) }); },
     onWakePhrase: handleWakePhrase,
-    continuous: true,
-    preferredDeviceId: micDeviceId  // Use the mic confirmed by the pre-flight check
+    continuous: true
   });
 
   // Store voice ref
@@ -879,10 +881,10 @@ export default function DemoLive() {
   }, [voice]);
 
   // Start voice on mount — GATED on micReady so voice only starts AFTER the pre-flight mic
-  // check passes (and uses the confirmed device via preferredDeviceId above).
+  // check passes. Always opens the system default mic (no deviceId).
   useEffect(() => {
     if (demoUser && !isLoading && demoRoutes.length > 0 && micReady) {
-      demoLog('demo-start-listening', { calling: true, micDeviceId });
+      demoLog('demo-start-listening', { calling: true });
       Promise.resolve(voice.startListening())
         .then((ok) => demoLog('demo-start-listening-result', { ok }))
         .catch((e) => demoLog('demo-start-listening-result', { ok: false, error: String(e?.message || e) }));
@@ -936,9 +938,8 @@ export default function DemoLive() {
         />
         <MicCheck
           firstName={demoUser.firstName}
-          onPass={(deviceId, deviceLabel) => {
+          onPass={(deviceLabel) => {
             demoLog('demo-mic-check-result', { passed: true, deviceLabel });
-            setMicDeviceId(deviceId);
             setMicReady(true);
           }}
         />
@@ -1395,27 +1396,28 @@ export default function DemoLive() {
 }
 
 // ============================================================================
-// PRE-FLIGHT MIC CHECK
-// A front gate that confirms a working microphone BEFORE the voice engine starts.
-// Fixes the desktop failure where the browser opened a muted/wrong input that produced
-// zero audio. Opens its OWN short-lived probe stream + AnalyserNode level meter; the
-// instant it hears sustained audio it auto-passes; if it hears nothing for ~4.5s it shows a
-// device picker + "Start anyway". On pass it releases its probe stream and hands the chosen
-// deviceId back so useVoice opens the real stream with preferredDeviceId.
+// PRE-FLIGHT MIC CHECK (simplified — SYSTEM DEFAULT MIC ONLY)
+// A front gate that confirms a working microphone BEFORE the voice engine starts. It ALWAYS
+// tests the system default mic (getUserMedia({ audio: true }), no deviceId ever), because the
+// demo also always listens on the system default — so the check and the demo use the exact
+// same device. (An earlier device picker let the check pass on one mic and the demo start on
+// another → silence; that whole class of bug is removed by never switching devices.)
+// Opens its own short-lived probe stream + AnalyserNode level meter; the instant it hears
+// sustained audio it auto-passes; if it hears nothing for ~5s it shows a simple message with
+// Retry / Start-anyway. No device list, no picker.
 // ============================================================================
 
 const MIC_AUTOPASS_RMS = 0.03;        // sustained RMS above this = "we can hear you"
 const MIC_AUTOPASS_FRAMES = 6;        // ~6 frames (~100ms) above threshold before passing (rejects a single click/pop)
-const MIC_NO_AUDIO_MS = 4500;         // no audio for this long → surface picker + guidance
+const MIC_NO_AUDIO_MS = 4500;         // no audio for this long → surface the simple guidance
 
 type MicPhase = 'requesting' | 'listening' | 'passed' | 'no-audio' | 'denied' | 'no-device' | 'insecure' | 'error';
 
-function MicCheck({ firstName, onPass }: { firstName: string; onPass: (deviceId: string | undefined, deviceLabel: string) => void }) {
+function MicCheck({ firstName, onPass }: { firstName: string; onPass: (deviceLabel: string) => void }) {
   const [phase, setPhase] = useState<MicPhase>('requesting');
   const [level, setLevel] = useState(0);                       // 0..1 for the animated bars
-  const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
-  const [selectedId, setSelectedId] = useState<string | undefined>(undefined);
   const [errorDetail, setErrorDetail] = useState('');
+  const [deviceLabel, setDeviceLabel] = useState('Default microphone');
 
   const streamRef = useRef<MediaStream | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -1425,12 +1427,6 @@ function MicCheck({ firstName, onPass }: { firstName: string; onPass: (deviceId:
   const peakRef = useRef(0);
   const levelSampleTimerRef = useRef<NodeJS.Timeout | null>(null);   // periodic level-sample interval
   const gestureCleanupRef = useRef<(() => void) | null>(null);       // removes the resume-on-gesture listeners
-  // The device the user last EXPLICITLY picked, set synchronously in onChange so probe reads
-  // it without any state/closure timing gap. Undefined = no explicit pick yet (mount default).
-  const selectedDeviceIdRef = useRef<string | undefined>(undefined);
-  // Monotonic probe generation: each probe captures its gen; after every await it bails if a
-  // newer probe has started, so the LATEST pick always wins and stale streams can't overwrite.
-  const probeGenRef = useRef(0);
 
   // Full teardown of the probe stream + audio graph. Called before every re-probe and on pass/unmount.
   const teardown = useCallback(() => {
@@ -1448,30 +1444,21 @@ function MicCheck({ firstName, onPass }: { firstName: string; onPass: (deviceId:
     audioCtxRef.current = null;
   }, []);
 
-  const finishPass = useCallback((deviceLabel: string) => {
+  const finishPass = useCallback((label: string) => {
     if (passedRef.current) return;
     passedRef.current = true;
     setPhase('passed');
-    demoLog('demo-mic-check', { event: 'passed', deviceLabel, peakLevel: Number(peakRef.current.toFixed(3)), selectedId });
-    // Release the probe stream so useVoice can open its own with the confirmed device.
+    demoLog('demo-mic-check', { event: 'passed', deviceLabel: label, peakLevel: Number(peakRef.current.toFixed(3)) });
+    // Release the probe stream so useVoice can open its own (system default — same device).
     teardown();
     // Brief "✓ We can hear you!" before handing off (~1s).
-    setTimeout(() => onPass(selectedId, deviceLabel), 1000);
-  }, [onPass, selectedId, teardown]);
+    setTimeout(() => onPass(label), 1000);
+  }, [onPass, teardown]);
 
-  // Open a probe stream on the given device and run the level meter.
-  const probe = useCallback(async (deviceId?: string) => {
-    // DEFINITIVE TRACE — the very first thing, before teardown: what did probe actually receive?
-    demoLog('demo-mic-check', { event: 'probe-entry', arg: deviceId });
-
-    // Read the intended device SYNCHRONOUSLY from the ref (set in onChange before probe runs),
-    // falling back to the arg. This closes any state/closure timing gap between selection and
-    // probe. Undefined here = mount auto-probe = system default.
-    const wantId = deviceId ?? selectedDeviceIdRef.current;
-
-    // Bump the generation; capture ours. Any probe that started after us wins (below).
-    const myGen = ++probeGenRef.current;
-    const superseded = () => probeGenRef.current !== myGen;
+  // Open a probe stream on the SYSTEM DEFAULT mic and run the level meter. No deviceId, ever.
+  const probe = useCallback(async () => {
+    // DEFINITIVE TRACE — the very first thing, before teardown.
+    demoLog('demo-mic-check', { event: 'probe-entry', arg: undefined });
 
     teardown();
     passedRef.current = false;
@@ -1489,39 +1476,13 @@ function MicCheck({ firstName, onPass }: { firstName: string; onPass: (deviceId:
     }
 
     try {
-      // Initial auto-probe (no wantId) = system default. After an EXPLICIT picker choice
-      // (real deviceId) honor it with `exact` — Chrome ignores `ideal` and reopens the system
-      // default on some Windows machines (proven in the device logs: picked 5ec2… still opened
-      // QUAD-CAPTURE). `exact` throws if the device is gone, which the outer catch handles.
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: wantId ? { deviceId: { exact: wantId } } : true
-      });
-
-      // A newer probe started while our getUserMedia was resolving — discard this stale stream
-      // so it can't overwrite streamRef / meter the wrong device. The LATEST pick wins.
-      if (superseded()) {
-        demoLog('demo-mic-check', { event: 'probe-superseded', wantId, myGen });
-        stream.getTracks().forEach(t => t.stop());
-        return;
-      }
+      // SYSTEM DEFAULT mic only — the exact device the demo will listen on. No deviceId.
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
 
       const track = stream.getAudioTracks()[0];
       const label = track?.label || 'Default microphone';
-
-      // Enumerate devices now that permission is granted (labels are populated post-grant).
-      let inputs: MediaDeviceInfo[] = [];
-      try {
-        const all = await navigator.mediaDevices.enumerateDevices();
-        inputs = all.filter(d => d.kind === 'audioinput');
-        if (!superseded()) setDevices(inputs);
-      } catch { /* enumerate is best-effort */ }
-
-      if (superseded()) { stream.getTracks().forEach(t => t.stop()); return; }
-
-      // Track the actually-selected device id so the picker reflects reality.
-      const activeId = track?.getSettings?.().deviceId || wantId;
-      if (activeId) setSelectedId(activeId);
+      setDeviceLabel(label);
 
       const permState = await (async () => {
         try { return (await navigator.permissions?.query({ name: 'microphone' as PermissionName }))?.state || 'granted'; }
@@ -1530,11 +1491,8 @@ function MicCheck({ firstName, onPass }: { firstName: string; onPass: (deviceId:
 
       demoLog('demo-mic-check', {
         event: 'stream-open',
-        requestedDeviceId: wantId,     // what we ASKED for (undefined = default); compare to deviceLabel to confirm the switch took
-        deviceLabel: label,            // what the browser actually OPENED
-        deviceId: activeId,
+        deviceLabel: label,            // the system default the browser opened
         permissionState: permState,
-        deviceCount: inputs.length,
       });
 
       setPhase('listening');
@@ -1594,10 +1552,10 @@ function MicCheck({ firstName, onPass }: { firstName: string; onPass: (deviceId:
 
       let framesAbove = 0;
 
-      // No-audio watchdog: if the meter never crosses the threshold in time, surface picker.
+      // No-audio watchdog: if the meter never crosses the threshold in time, surface guidance.
       noAudioTimerRef.current = setTimeout(() => {
         if (!passedRef.current) {
-          demoLog('demo-mic-check', { event: 'no-audio', deviceLabel: label, peakLevel: Number(peakRef.current.toFixed(3)), ctxState: audioCtxRef.current?.state, deviceCount: inputs.length });
+          demoLog('demo-mic-check', { event: 'no-audio', deviceLabel: label, peakLevel: Number(peakRef.current.toFixed(3)), ctxState: audioCtxRef.current?.state });
           setPhase('no-audio');
         }
       }, MIC_NO_AUDIO_MS);
@@ -1655,11 +1613,9 @@ function MicCheck({ firstName, onPass }: { firstName: string; onPass: (deviceId:
 
   // Kick off the probe on mount; tear down on unmount.
   useEffect(() => {
-    probe(undefined);
+    probe();
     return () => teardown();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const selectedLabel = devices.find(d => d.deviceId === selectedId)?.label || 'Default microphone';
 
   const bars = Array.from({ length: 7 });
 
@@ -1709,12 +1665,12 @@ function MicCheck({ firstName, onPass }: { firstName: string; onPass: (deviceId:
           </>
         )}
 
-        {/* No audio detected — guidance + picker */}
+        {/* No audio detected — simple guidance (no device list) */}
         {phase === 'no-audio' && (
           <>
             <h2 className="text-xl font-bold text-white mb-2">We can't hear your microphone</h2>
             <p className="text-gray-400 mb-4">
-              Make sure it isn't muted, then try selecting a different mic below.
+              Make sure the right mic is set as your default in your computer's sound settings, then refresh.
             </p>
           </>
         )}
@@ -1753,47 +1709,20 @@ function MicCheck({ firstName, onPass }: { firstName: string; onPass: (deviceId:
           </>
         )}
 
-        {/* Device picker — shown whenever we have a list and aren't mid-pass */}
-        {(phase === 'no-audio' || phase === 'denied' || phase === 'no-device' || phase === 'error') && devices.length > 0 && (
-          <div className="mb-4 text-left">
-            <label className="text-xs text-gray-500 uppercase font-semibold">Microphone</label>
-            <select
-              value={selectedId || ''}
-              onChange={(e) => {
-                const id = e.target.value || undefined;
-                // Set the ref SYNCHRONOUSLY before probing — probe reads the ref, so there's no
-                // state-timing / stale-closure window for the pick to be lost.
-                selectedDeviceIdRef.current = id;
-                setSelectedId(id);
-                demoLog('demo-mic-check', { event: 'device-selected', deviceId: id });
-                probe(id);
-              }}
-              className="mt-1 w-full bg-[#0d1117] border border-gray-700 rounded-lg px-3 py-2 text-white text-sm"
-            >
-              {devices.map((d, i) => (
-                <option key={d.deviceId || i} value={d.deviceId}>
-                  {d.label || `Microphone ${i + 1}`}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-
-        {/* Actions for the non-listening states */}
+        {/* Actions for the non-listening states — Retry the default-mic check, or proceed */}
         {(phase === 'no-audio' || phase === 'denied' || phase === 'no-device' || phase === 'insecure' || phase === 'error') && (
           <div className="space-y-2">
             <Button
-              onClick={() => probe(selectedDeviceIdRef.current)}
+              onClick={() => probe()}
               className="w-full h-12 bg-emerald-600 hover:bg-emerald-700 rounded-xl font-semibold"
             >
-              <RotateCcw className="h-4 w-4 mr-2" /> Retry mic check
+              <RotateCcw className="h-4 w-4 mr-2" /> Retry
             </Button>
             <Button
               onClick={() => {
-                const id = selectedDeviceIdRef.current ?? selectedId;
-                demoLog('demo-mic-check-result', { passed: false, startAnyway: true, deviceLabel: selectedLabel });
+                demoLog('demo-mic-check-result', { passed: false, startAnyway: true, deviceLabel });
                 teardown();
-                onPass(id, selectedLabel);
+                onPass(deviceLabel);
               }}
               variant="ghost"
               className="w-full h-11 text-gray-400 hover:text-white border border-gray-700"
