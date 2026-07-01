@@ -1471,8 +1471,12 @@ function MicCheck({ firstName, onPass }: { firstName: string; onPass: (deviceId:
     }
 
     try {
+      // Initial auto-probe (no deviceId) = system default. After an EXPLICIT picker choice
+      // (real deviceId) honor it with `exact` — Chrome ignores `ideal` and reopens the system
+      // default on some Windows machines (proven in the device logs: picked 5ec2… still opened
+      // QUAD-CAPTURE). `exact` throws if the device is gone, which the outer catch handles.
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: deviceId ? { deviceId: { ideal: deviceId } } : true
+        audio: deviceId ? { deviceId: { exact: deviceId } } : true
       });
       streamRef.current = stream;
 
@@ -1498,7 +1502,8 @@ function MicCheck({ firstName, onPass }: { firstName: string; onPass: (deviceId:
 
       demoLog('demo-mic-check', {
         event: 'stream-open',
-        deviceLabel: label,
+        requestedDeviceId: deviceId,   // what we ASKED for (undefined = default); compare to deviceLabel to confirm the switch took
+        deviceLabel: label,            // what the browser actually OPENED
         deviceId: activeId,
         permissionState: permState,
         deviceCount: inputs.length,

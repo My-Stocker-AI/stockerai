@@ -884,26 +884,40 @@ export function useVoice(options: UseVoiceOptions = {}) {
     }
 
     console.log('[Voice] Creating new audio stream');
-    // Additive: if a pre-flight mic check chose a specific device, prefer it. `ideal` (not
-    // `exact`) so it never hard-fails if that device vanished. When undefined this key is
-    // omitted entirely, so the constraints are byte-for-byte identical to before.
+    // Base audio constraints — unchanged.
+    // echoCancellation OFF — deliberate (Russ, 2026-06-29: "there is never a need to
+    // interrupt the AI", so barge-in is dropped). Requesting hardware AEC puts Android
+    // into communication / phone-call audio mode → routes the AI's voice to the EARPIECE;
+    // with AEC off the device stays in media mode → the loud SPEAKER (this is the config
+    // that worked handsfree earlier today). We no longer need AEC to keep the live mic
+    // from hearing the TTS — barge-in is gone, and the isEcho() text filter remains the
+    // backstop against the AI mis-hearing its own announcement.
+    const baseAudio: MediaTrackConstraints = {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+      sampleRate: 48000,
+    };
     const preferred = preferredDeviceIdRef.current;
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        // echoCancellation OFF — deliberate (Russ, 2026-06-29: "there is never a need to
-        // interrupt the AI", so barge-in is dropped). Requesting hardware AEC puts Android
-        // into communication / phone-call audio mode → routes the AI's voice to the EARPIECE;
-        // with AEC off the device stays in media mode → the loud SPEAKER (this is the config
-        // that worked handsfree earlier today). We no longer need AEC to keep the live mic
-        // from hearing the TTS — barge-in is gone, and the isEcho() text filter remains the
-        // backstop against the AI mis-hearing its own announcement.
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-        sampleRate: 48000,
-        ...(preferred ? { deviceId: { ideal: preferred } } : {})
+
+    let stream: MediaStream;
+    if (preferred) {
+      // A pre-flight mic check confirmed a specific device — honor it with `exact` (Chrome
+      // overrides `ideal` back to the system default on some Windows machines). `exact`
+      // hard-fails (OverconstrainedError) if that device is gone, so fall back to the default
+      // (base constraints, no deviceId) on any throw — never hard-block voice.
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: { ...baseAudio, deviceId: { exact: preferred } }
+        });
+      } catch (e) {
+        console.warn('[Voice] Preferred mic (exact) unavailable — falling back to default:', e);
+        stream = await navigator.mediaDevices.getUserMedia({ audio: baseAudio });
       }
-    });
+    } else {
+      // No preferred device — single plain call, identical to before.
+      stream = await navigator.mediaDevices.getUserMedia({ audio: baseAudio });
+    }
     audioStreamRef.current = stream;
     return stream;
   }, []);
