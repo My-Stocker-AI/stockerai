@@ -37,6 +37,9 @@ describe('CommandRecognizer', () => {
       'give me the next item',
       "what's next",
       'next please',
+      'check',
+      'good',
+      'perfect',
     ])('recognizes "%s"', (input) => {
       expect(r.recognize(input).command).toBe(PickingCommand.NEXT_ITEM);
     });
@@ -67,6 +70,7 @@ describe('CommandRecognizer', () => {
       'from the beginning',
       'start from beginning',
       'start from the beginning',
+      'first',
     ])('recognizes "%s"', (input) => {
       const match = r.recognize(input);
       expect(match.command).toBe(PickingCommand.DIRECTION_TOP);
@@ -84,6 +88,8 @@ describe('CommandRecognizer', () => {
       'from the end',
       'start from end',
       'start from the end',
+      'last',
+      'reverse',
     ])('recognizes "%s"', (input) => {
       const match = r.recognize(input);
       expect(match.command).toBe(PickingCommand.DIRECTION_BOTTOM);
@@ -190,6 +196,8 @@ describe('CommandRecognizer', () => {
       'how much',
       "what's in stock",
       "what's the count",
+      "what's in the machine",
+      "what's in this machine",
     ])('recognizes "%s"', (input) => {
       expect(r.recognize(input).command).toBe(PickingCommand.INVENTORY_QUERY);
     });
@@ -243,6 +251,7 @@ describe('CommandRecognizer', () => {
       'go to previous',
       'last item',
       'go back one',
+      'back one',
     ])('recognizes "%s"', (input) => {
       expect(r.recognize(input).command).toBe(PickingCommand.PREVIOUS_ITEM);
     });
@@ -258,8 +267,52 @@ describe('CommandRecognizer', () => {
       'cancel that',
       'wrong',
       'that was wrong',
+      'oops',
+      'mistake',
+      'my mistake',
     ])('recognizes "%s"', (input) => {
       expect(r.recognize(input).command).toBe(PickingCommand.UNDO);
+    });
+  });
+
+  // ─── WHICH MACHINE / MACHINES LEFT (Guide "Questions & Status") ────────────
+
+  describe('which_machine command', () => {
+    it.each([
+      'what machine is this',
+      'which machine is this',
+      'which machine am i on',
+      'what machine am i on',
+      'what machine are we on',
+      'which machine',
+      'what machine',
+    ])('recognizes "%s"', (input) => {
+      expect(r.recognize(input).command).toBe(PickingCommand.WHICH_MACHINE);
+    });
+  });
+
+  describe('machines_left command', () => {
+    it.each([
+      'how many machines left',
+      'how many machines',
+      'machines left',
+      'how many machines are left',
+      'how many more machines',
+      'machines to go',
+      'machines remaining',
+    ])('recognizes "%s"', (input) => {
+      expect(r.recognize(input).command).toBe(PickingCommand.MACHINES_LEFT);
+    });
+
+    // GUARD: "how many machines left" must NOT collapse into item-inventory
+    // (the "how many" pattern) — that was the Guide-vs-app mismatch we fixed.
+    it('"how many machines left" → MACHINES_LEFT (not INVENTORY_QUERY)', () => {
+      expect(r.recognize('how many machines left').command).toBe(PickingCommand.MACHINES_LEFT);
+    });
+
+    // GUARD: bare "how many left" (no "machines") stays item inventory.
+    it('"how many left" → INVENTORY_QUERY (item level, unchanged)', () => {
+      expect(r.recognize('how many left').command).toBe(PickingCommand.INVENTORY_QUERY);
     });
   });
 

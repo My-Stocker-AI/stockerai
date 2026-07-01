@@ -506,6 +506,34 @@ export default function StockerApp() {
               return;
             }
 
+            case PickingCommand.WHICH_MACHINE: {
+              // Answered locally — the current machine name is already in state.
+              const wmMsg = routeState.currentMachineName
+                ? `You're on ${routeState.currentMachineName}.`
+                : "You haven't started a machine yet.";
+              console.log('[CommandRecognizer] WHICH_MACHINE answered locally:', wmMsg);
+              setAiResponse(wmMsg);
+              await v.speak(wmMsg);
+              processingRef.current = false;
+              return;
+            }
+
+            case PickingCommand.MACHINES_LEFT: {
+              // Answered locally — count completed vs total (matches the on-screen progress).
+              const completedCount = routeState.machines.filter(m => m.status === 'completed').length;
+              const remaining = Math.max(0, routeState.totalMachines - completedCount);
+              const mlMsg = remaining === 0
+                ? "No machines left — you're all done!"
+                : remaining === 1
+                  ? 'One machine left.'
+                  : `${remaining} machines left.`;
+              console.log('[CommandRecognizer] MACHINES_LEFT answered locally:', mlMsg);
+              setAiResponse(mlMsg);
+              await v.speak(mlMsg);
+              processingRef.current = false;
+              return;
+            }
+
             case PickingCommand.REPEAT:
               // Already handled by repeat handler above
               console.log('[CommandRecognizer] REPEAT already handled by repeat handler');

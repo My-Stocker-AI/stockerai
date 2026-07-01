@@ -21,6 +21,8 @@ export enum PickingCommand {
   GO_BACK = 'go_back',          // Return to skipped machine
   PREVIOUS_ITEM = 'previous_item', // Go back to previous item on current machine
   UNDO = 'undo',
+  WHICH_MACHINE = 'which_machine',   // "what machine is this" — answered locally from state
+  MACHINES_LEFT = 'machines_left',   // "how many machines left" — answered locally from state
   UNKNOWN = 'unknown'
 }
 
@@ -112,6 +114,9 @@ const NEXT_PATTERNS = [
   /^give me the next item$/,
   /^what'?s next$/,
   /^next please$/,
+  /^check$/,
+  /^good$/,
+  /^perfect$/,
 ];
 
 const SKIP_PATTERNS = [
@@ -135,6 +140,30 @@ const INVENTORY_PATTERNS = [
   /\bhow much\b/,                 // "how much"
   /\bstock\b/,                    // "what's in stock", "stock count"
   /\bcount\b/,                    // "what's the count"
+  /what'?s in (the|this) machine/, // "what's in the machine" → current item's par level
+];
+
+// Machine-level: which machine am I on right now (answered locally from state)
+const WHICH_MACHINE_PATTERNS = [
+  /what machine is this/,
+  /which machine is this/,
+  /which machine am i on/,
+  /what machine am i on/,
+  /what machine are we on/,
+  /^which machine$/,
+  /^what machine$/,
+];
+
+// Machine-level: how many machines remain (answered locally from state).
+// MUST be checked before INVENTORY so "how many machines" doesn't get eaten
+// by the generic "how many" item-inventory pattern.
+const MACHINES_LEFT_PATTERNS = [
+  /how many machines/,
+  /machines left/,
+  /machines to go/,
+  /machines are left/,
+  /machines remaining/,
+  /how many more machines/,
 ];
 
 const REPEAT_PATTERNS = [
@@ -160,6 +189,7 @@ const DIRECTION_TOP_PATTERNS = [
   /^from the beginning$/,
   /^start from beginning$/,
   /^start from the beginning$/,
+  /^first$/,
 ];
 
 const DIRECTION_BOTTOM_PATTERNS = [
@@ -171,6 +201,8 @@ const DIRECTION_BOTTOM_PATTERNS = [
   /^from the end$/,
   /^start from end$/,
   /^start from the end$/,
+  /^last$/,
+  /^reverse$/,
 ];
 
 // Machine-level: return to a skipped machine
@@ -195,6 +227,7 @@ const PREVIOUS_ITEM_PATTERNS = [
   /^go to previous$/,
   /^last item$/,
   /^go back one$/,
+  /^back one$/,
 ];
 
 const UNDO_PATTERNS = [
@@ -204,6 +237,9 @@ const UNDO_PATTERNS = [
   /^cancel that$/,
   /^wrong$/,
   /^that was wrong$/,
+  /^oops$/,
+  /^mistake$/,
+  /^my mistake$/,
 ];
 
 const AFFIRMATIVE_PATTERNS = [
@@ -346,6 +382,25 @@ export class CommandRecognizer {
     if (SKIP_PATTERNS.some(p => p.test(text))) {
       return {
         command: PickingCommand.SKIP_MACHINE,
+        confidence: 1.0,
+        requiresConfirmation: false,
+      };
+    }
+
+    // Machine-count query BEFORE inventory — "how many machines left" must not
+    // fall into the generic "how many" item-inventory pattern.
+    if (MACHINES_LEFT_PATTERNS.some(p => p.test(text))) {
+      return {
+        command: PickingCommand.MACHINES_LEFT,
+        confidence: 1.0,
+        requiresConfirmation: false,
+      };
+    }
+
+    // "What machine is this" — answered locally from state.
+    if (WHICH_MACHINE_PATTERNS.some(p => p.test(text))) {
+      return {
+        command: PickingCommand.WHICH_MACHINE,
         confidence: 1.0,
         requiresConfirmation: false,
       };
