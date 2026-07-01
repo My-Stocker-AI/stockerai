@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Mic, MicOff, Volume2, CheckCircle, X, Loader2, ArrowRight, ChevronDown, ChevronUp, RotateCcw, MapPin } from 'lucide-react';
 import { useVoice } from '@/hooks/useVoice';
+import { CommandRecognizer, PickingCommand } from '@/utils/commandRecognizer';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -13,6 +14,15 @@ import { DiagnosticOverlay } from '@/components/DiagnosticOverlay';
 const demoLog = (type: string, data?: unknown) => {
   try { window.dispatchEvent(new CustomEvent('voice-diagnostic', { detail: { type, data } })); } catch { /* noop */ }
 };
+
+// Real command matcher — the demo used to hand-roll `lower.includes(...)`, which collided
+// "skip machine" with the "how many / inventory" responses (both contain "machine") and made
+// "how many left" unreliable. For the STOCKING phase we now route through the same
+// CommandRecognizer the production app uses (anchored patterns + phonetic/fuzzy correction),
+// which disambiguates these cleanly. One shared instance (matches StockerApp.tsx). The
+// welcome / route-select / direction-select phases keep the demo's own matching — the
+// recognizer doesn't know "start my route" or route names like "Downtown"/"Hospital".
+const demoCommandRecognizer = new CommandRecognizer();
 
 // Demo-specific types
 interface DemoItem {
@@ -87,6 +97,14 @@ export default function DemoLive() {
   const voiceRef = useRef<any>(null);
   const discoveryShownRef = useRef<Set<string>>(new Set());
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
+  // SELF-HEARING GUARD (FIX 4): true for the entire duration a response is playing. The open
+  // mic hears the AI's own voice and Deepgram emits phantom final transcripts (15-21 per long
+  // response in the device logs), which stole the driver's next words and caused dual-voice
+  // overlap. The demo doesn't need barge-in (the real app dropped it), so we simply ignore any
+  // transcript that arrives while this is set. It flips off the instant playback ends, so the
+  // driver's real next command (spoken after the AI stops) is honored immediately. This is a
+  // demo-local, synchronous ref — no dependency on the hook's React status (which lags a render).
+  const isSpeakingRef = useRef(false);
 
   // Sync state to refs for voice callbacks
   const phaseRef = useRef(phase);
@@ -290,7 +308,15 @@ export default function DemoLive() {
       // status back to 'listening' on completion (and in its finally), so no path is left
       // stuck in 'thinking'. Non-speaking returns in handleTranscript never reach here.
       v.setThinking?.();
-      await v.speak(text);
+      // FIX 4: raise the self-hearing guard for the WHOLE playback window so phantom
+      // transcripts (the mic hearing the AI) are ignored in handleTranscript. Released in
+      // finally so an error can never leave the demo permanently deaf.
+      isSpeakingRef.current = true;
+      try {
+        await v.speak(text);
+      } finally {
+        isSpeakingRef.current = false;
+      }
       // SAFETY NET — guarantees no path is left stuck in 'thinking' (which would queue the
       // next command and re-create the lag). When speak() runs normally it has already
       // returned status to 'listening' by the time this await resolves, so re-asserting
@@ -327,7 +353,7 @@ export default function DemoLive() {
     const firstMachine = machines[0];
 
     await speakResponse(
-      `Great choice! ${routeName}. Let's start with ${firstMachine?.name}. Would you like to start at the top of the list, or the bottom?`,
+      `Great choice! ${routeName}. Starting with ${firstMachine?.name}. Start at the top or the bottom of the list?`,
       true
     );
   }, [getRouteMachines, speakResponse]);
@@ -422,7 +448,7 @@ export default function DemoLive() {
       const styles = [
         `${nextItem.item_quantity} ${nextItem.item_name}, slot ${nextItem.slot_number}.${extraPrompt}`,
         `Next up, ${nextItem.item_quantity} ${nextItem.item_name}, slot ${nextItem.slot_number}.${extraPrompt}`,
-        `Grab ${nextItem.item_quantity} ${nextItem.item_name} from slot ${nextItem.slot_number}.${extraPrompt}`,
+        `Grab ${nextItem.item_quantity} ${nextItem.item_name} for slot ${nextItem.slot_number}.${extraPrompt}`,
         `Got it! ${nextItem.item_quantity} ${nextItem.item_name}, slot ${nextItem.slot_number}.${extraPrompt}`,
       ];
       await speakResponse(styles[Math.floor(Math.random() * styles.length)]);
@@ -460,7 +486,7 @@ export default function DemoLive() {
         setCurrentMachineItems([]);
 
         await speakResponse(
-          `${extraPrompt ? extraPrompt + ' ' : ''}Moving to ${nextMachine?.name}. Would you like to start at the top of the list, or the bottom?`
+          `${extraPrompt ? extraPrompt + ' ' : ''}Moving to ${nextMachine?.name}. Start at the top or the bottom of the list?`
         );
       }
       // Route complete
@@ -555,7 +581,7 @@ export default function DemoLive() {
       setCurrentMachineItems([]);
 
       await speakResponse(
-        `No problem, we'll come back to it. Moving to ${nextMachine?.name}. Would you like to start at the top of the list, or the bottom?`
+        `No problem, we'll come back to it. Moving to ${nextMachine?.name}. Start at the top or the bottom of the list?`
       );
     } else {
       // No more machines - check for skipped ones
@@ -571,7 +597,7 @@ export default function DemoLive() {
         setCurrentMachineItems([]);
 
         await speakResponse(
-          `Let's circle back to ${skippedMachine?.name}. Would you like to start at the top of the list, or the bottom?`
+          `Let's circle back to ${skippedMachine?.name}. Start at the top or the bottom of the list?`
         );
       } else {
         // Route complete with skip
@@ -624,7 +650,7 @@ export default function DemoLive() {
     const firstMachine = machines[0];
 
     await speakResponse(
-      `Alright, let's do this! Route 2: Hospital Campus. Starting with ${firstMachine?.name}. Would you like to start at the top of the list, or the bottom?`
+      `Alright, let's do this! Route 2: Hospital Campus. Starting with ${firstMachine?.name}. Start at the top or the bottom of the list?`
     );
   }, [getRouteMachines, speakResponse]);
 
@@ -637,11 +663,20 @@ export default function DemoLive() {
     const v = voiceRef.current;
     const currentPhase = phaseRef.current;
 
-    // Handle stop/end at any time
+    // Handle stop/end at any time — must work even mid-response, so it sits ABOVE the
+    // self-hearing guard (the driver can always kill the demo).
     if (lower.includes('stop') || lower.includes('end demo') || lower.includes('quit')) {
       v?.stopAudio();
       v?.stopListening();
       setShowExitPopup(true);
+      return;
+    }
+
+    // FIX 4: while a response is playing, ignore transcripts — they are almost always the mic
+    // hearing the AI's own voice (phantom finals), not the driver. The guard drops the instant
+    // playback ends, so the driver's real next command (spoken after the AI stops) is honored.
+    if (isSpeakingRef.current) {
+      demoLog('demo-self-hearing-ignored', transcript);
       return;
     }
 
@@ -689,7 +724,7 @@ export default function DemoLive() {
         const machines = getRouteMachines(currentRouteRef.current);
         const machinesRemaining = machines.length - currentMachineRef.current + 1;
         await speakResponse(
-          `This machine has ${items.length} items to pick. You have ${machinesRemaining} machine${machinesRemaining > 1 ? 's' : ''} on this route. Would you like to start at the top of the list for this machine, or the bottom?`
+          `${items.length} items on this machine, ${machinesRemaining} machine${machinesRemaining > 1 ? 's' : ''} on the route. Start at the top or the bottom of the list?`
         );
       } else if (lower.includes('inventory') || lower.includes('par level') || lower.includes('capacity')) {
         await speakResponse(
@@ -703,65 +738,78 @@ export default function DemoLive() {
           'Say "top" or "bottom" to start. You can also ask "how many left" or "skip machine". Once stocking, say "next" after each item.'
         );
       } else {
-        await speakResponse('Would you like to start at the top of the list for this machine, or the bottom?');
+        await speakResponse('Top or bottom for this machine?');
       }
       return;
     }
 
-    // Stocking phase - main commands
+    // Stocking phase - main commands.
+    // ROUTE THROUGH THE REAL RECOGNIZER (FIX 1): the old `includes()` matcher collided
+    // "skip machine" with the inventory/how-many responses (both contain "machine") and made
+    // "how many left" flaky. CommandRecognizer uses anchored patterns and checks skip BEFORE
+    // inventory, so it disambiguates cleanly and also phonetically corrects Deepgram errors.
     if (currentPhase === 'stocking') {
-      // Next/confirmation commands
-      const nextPhrases = ['next', 'done', 'got it', 'okay', 'ok', 'yep', 'yes', 'yeah', 'yup', 'check', 'good', 'cool', 'great', 'perfect'];
-      if (nextPhrases.some(phrase => lower.includes(phrase))) {
-        await handleNext();
-        return;
-      }
-
-      // Inventory count (par level - what's in the machine)
-      if (lower.includes('inventory') || lower.includes('par level') || lower.includes('capacity') || (lower.includes('in') && lower.includes('machine'))) {
-        await handleInventoryCount();
-        return;
-      }
-
-      // How many left to pick (progress through route)
-      if (lower.includes('how many') || lower.includes('left') || lower.includes('remaining') || lower.includes('progress')) {
-        await handleHowManyLeft();
-        return;
-      }
-
-      // Skip machine
-      if (lower.includes('skip') && lower.includes('machine')) {
-        await handleSkipMachine();
-        return;
-      }
-
-      // Go back / undo
-      if (lower.includes('go back') || lower.includes('undo') || lower.includes('back') || lower.includes('previous')) {
-        await handleGoBack();
-        return;
-      }
-
-      // What's next / repeat current
-      if (lower.includes("what's next") || lower.includes('repeat') || lower.includes('again') || lower.includes('current')) {
-        const item = currentMachineItemsRef.current[currentItemIndexRef.current];
-        if (item) {
-          await speakResponse(`${item.item_quantity} ${item.item_name}, slot ${item.slot_number}.`);
-        }
-        return;
-      }
-
-      // Help
+      // "help" has no recognizer command — keep the demo's own escape hatch first.
       if (lower.includes('help') || lower.includes('what do i say') || lower.includes('commands')) {
         await speakResponse(
-          'Say "next" when done. "How many left" for picking progress. "Inventory" for machine stock levels. "Skip machine" to skip. "Go back" to undo.'
+          'Say "next" when done. "How many left" for progress. "Inventory" for stock levels. "Skip machine" to skip. "Go back" to undo.'
         );
         return;
       }
 
-      // Unknown command
-      await speakResponse("I didn't catch that. Say 'next' when you've grabbed the item, or 'help' for options.");
+      const match = demoCommandRecognizer.recognize(transcript);
+      // FIX 3: prove in the logs that a recognized stocking command was actually routed to a
+      // handler (never silently swallowed). Every branch below speaks, so there is no
+      // dead no-response path.
+      demoLog('demo-stocking-command', { transcript, command: match.command, confidence: match.confidence });
+
+      switch (match.command) {
+        case PickingCommand.NEXT_ITEM:
+        case PickingCommand.AFFIRMATIVE:
+          await handleNext();
+          return;
+
+        case PickingCommand.SKIP_MACHINE:
+          await handleSkipMachine();
+          return;
+
+        case PickingCommand.INVENTORY_QUERY: {
+          // The recognizer returns one type for both "how many left" (picking progress) and
+          // "inventory / par level" (machine stock). Keep the demo's two distinct handlers by
+          // splitting on the driver's actual words.
+          const asksProgress = /\b(how many|left|remaining|progress)\b/.test(lower);
+          if (asksProgress) {
+            await handleHowManyLeft();
+          } else {
+            await handleInventoryCount();
+          }
+          return;
+        }
+
+        case PickingCommand.GO_BACK:
+        case PickingCommand.PREVIOUS_ITEM:
+        case PickingCommand.UNDO:
+          await handleGoBack();
+          return;
+
+        case PickingCommand.REPEAT: {
+          const item = currentMachineItemsRef.current[currentItemIndexRef.current];
+          if (item) {
+            await speakResponse(`${item.item_quantity} ${item.item_name}, slot ${item.slot_number}.`);
+          } else {
+            await speakResponse("Say 'next' when you've grabbed the item.");
+          }
+          return;
+        }
+
+        // direction_top / direction_bottom aren't valid mid-stocking; fall through to unknown.
+        default:
+          // Unknown command — still always responds (never a dead drop).
+          await speakResponse("I didn't catch that. Say 'next' when you've grabbed the item, or 'help' for options.");
+          return;
+      }
     }
-  }, [getUniqueRoutes, handleRouteSelection, handleDirectionSelection, handleNext, handleHowManyLeft, handleSkipMachine, handleGoBack, speakResponse]);
+  }, [getUniqueRoutes, handleRouteSelection, handleDirectionSelection, handleNext, handleInventoryCount, handleHowManyLeft, handleSkipMachine, handleGoBack, speakResponse]);
 
   // Handle wake phrase
   const handleWakePhrase = useCallback(async (command: string | null) => {
