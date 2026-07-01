@@ -1425,6 +1425,12 @@ function MicCheck({ firstName, onPass }: { firstName: string; onPass: (deviceId:
   const peakRef = useRef(0);
   const levelSampleTimerRef = useRef<NodeJS.Timeout | null>(null);   // periodic level-sample interval
   const gestureCleanupRef = useRef<(() => void) | null>(null);       // removes the resume-on-gesture listeners
+  // The device the user last EXPLICITLY picked, set synchronously in onChange so probe reads
+  // it without any state/closure timing gap. Undefined = no explicit pick yet (mount default).
+  const selectedDeviceIdRef = useRef<string | undefined>(undefined);
+  // Monotonic probe generation: each probe captures its gen; after every await it bails if a
+  // newer probe has started, so the LATEST pick always wins and stale streams can't overwrite.
+  const probeGenRef = useRef(0);
 
   // Full teardown of the probe stream + audio graph. Called before every re-probe and on pass/unmount.
   const teardown = useCallback(() => {
@@ -1455,6 +1461,18 @@ function MicCheck({ firstName, onPass }: { firstName: string; onPass: (deviceId:
 
   // Open a probe stream on the given device and run the level meter.
   const probe = useCallback(async (deviceId?: string) => {
+    // DEFINITIVE TRACE — the very first thing, before teardown: what did probe actually receive?
+    demoLog('demo-mic-check', { event: 'probe-entry', arg: deviceId });
+
+    // Read the intended device SYNCHRONOUSLY from the ref (set in onChange before probe runs),
+    // falling back to the arg. This closes any state/closure timing gap between selection and
+    // probe. Undefined here = mount auto-probe = system default.
+    const wantId = deviceId ?? selectedDeviceIdRef.current;
+
+    // Bump the generation; capture ours. Any probe that started after us wins (below).
+    const myGen = ++probeGenRef.current;
+    const superseded = () => probeGenRef.current !== myGen;
+
     teardown();
     passedRef.current = false;
     peakRef.current = 0;
@@ -1471,13 +1489,21 @@ function MicCheck({ firstName, onPass }: { firstName: string; onPass: (deviceId:
     }
 
     try {
-      // Initial auto-probe (no deviceId) = system default. After an EXPLICIT picker choice
+      // Initial auto-probe (no wantId) = system default. After an EXPLICIT picker choice
       // (real deviceId) honor it with `exact` — Chrome ignores `ideal` and reopens the system
       // default on some Windows machines (proven in the device logs: picked 5ec2… still opened
       // QUAD-CAPTURE). `exact` throws if the device is gone, which the outer catch handles.
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: deviceId ? { deviceId: { exact: deviceId } } : true
+        audio: wantId ? { deviceId: { exact: wantId } } : true
       });
+
+      // A newer probe started while our getUserMedia was resolving — discard this stale stream
+      // so it can't overwrite streamRef / meter the wrong device. The LATEST pick wins.
+      if (superseded()) {
+        demoLog('demo-mic-check', { event: 'probe-superseded', wantId, myGen });
+        stream.getTracks().forEach(t => t.stop());
+        return;
+      }
       streamRef.current = stream;
 
       const track = stream.getAudioTracks()[0];
@@ -1488,11 +1514,13 @@ function MicCheck({ firstName, onPass }: { firstName: string; onPass: (deviceId:
       try {
         const all = await navigator.mediaDevices.enumerateDevices();
         inputs = all.filter(d => d.kind === 'audioinput');
-        setDevices(inputs);
+        if (!superseded()) setDevices(inputs);
       } catch { /* enumerate is best-effort */ }
 
+      if (superseded()) { stream.getTracks().forEach(t => t.stop()); return; }
+
       // Track the actually-selected device id so the picker reflects reality.
-      const activeId = track?.getSettings?.().deviceId || deviceId;
+      const activeId = track?.getSettings?.().deviceId || wantId;
       if (activeId) setSelectedId(activeId);
 
       const permState = await (async () => {
@@ -1502,7 +1530,7 @@ function MicCheck({ firstName, onPass }: { firstName: string; onPass: (deviceId:
 
       demoLog('demo-mic-check', {
         event: 'stream-open',
-        requestedDeviceId: deviceId,   // what we ASKED for (undefined = default); compare to deviceLabel to confirm the switch took
+        requestedDeviceId: wantId,     // what we ASKED for (undefined = default); compare to deviceLabel to confirm the switch took
         deviceLabel: label,            // what the browser actually OPENED
         deviceId: activeId,
         permissionState: permState,
@@ -1731,7 +1759,15 @@ function MicCheck({ firstName, onPass }: { firstName: string; onPass: (deviceId:
             <label className="text-xs text-gray-500 uppercase font-semibold">Microphone</label>
             <select
               value={selectedId || ''}
-              onChange={(e) => { const id = e.target.value || undefined; setSelectedId(id); demoLog('demo-mic-check', { event: 'device-selected', deviceId: id }); probe(id); }}
+              onChange={(e) => {
+                const id = e.target.value || undefined;
+                // Set the ref SYNCHRONOUSLY before probing — probe reads the ref, so there's no
+                // state-timing / stale-closure window for the pick to be lost.
+                selectedDeviceIdRef.current = id;
+                setSelectedId(id);
+                demoLog('demo-mic-check', { event: 'device-selected', deviceId: id });
+                probe(id);
+              }}
               className="mt-1 w-full bg-[#0d1117] border border-gray-700 rounded-lg px-3 py-2 text-white text-sm"
             >
               {devices.map((d, i) => (
@@ -1747,16 +1783,17 @@ function MicCheck({ firstName, onPass }: { firstName: string; onPass: (deviceId:
         {(phase === 'no-audio' || phase === 'denied' || phase === 'no-device' || phase === 'insecure' || phase === 'error') && (
           <div className="space-y-2">
             <Button
-              onClick={() => probe(selectedId)}
+              onClick={() => probe(selectedDeviceIdRef.current)}
               className="w-full h-12 bg-emerald-600 hover:bg-emerald-700 rounded-xl font-semibold"
             >
               <RotateCcw className="h-4 w-4 mr-2" /> Retry mic check
             </Button>
             <Button
               onClick={() => {
+                const id = selectedDeviceIdRef.current ?? selectedId;
                 demoLog('demo-mic-check-result', { passed: false, startAnyway: true, deviceLabel: selectedLabel });
                 teardown();
-                onPass(selectedId, selectedLabel);
+                onPass(id, selectedLabel);
               }}
               variant="ghost"
               className="w-full h-11 text-gray-400 hover:text-white border border-gray-700"
