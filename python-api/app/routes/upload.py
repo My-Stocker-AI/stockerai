@@ -6,8 +6,78 @@ PDF upload endpoint:
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from app.services.database import get_client
 from app.services.pdf_parser import extract_text_from_pdf, parse_route_pdf
+from app.services.notify import notify_russ
 
 router = APIRouter()
+
+# Vending management systems we present in the upload dropdown. "Other" (and any
+# report we can't parse) routes to the capture-and-wait holding pen.
+SUPPORTED_VENDORS = {
+    "Parlevel", "Nayax", "Cantaloupe/Seed", "Gimme",
+    "VendSoft", "VendSys", "Vagabond", "Vend-Trak", "VendMAX",
+}
+
+_SUPABASE_STORAGE_BASE = "https://wvtkuposrlvadyeixlke.supabase.co/storage/v1/object/public/route-pdfs"
+
+
+def _capture_pending(db, pdf_bytes: bytes, user_id: str, vendor, filename: str, reason: str) -> dict:
+    """Capture-and-wait: save an unparseable upload, log who sent it + which system,
+    alert Russ, and return a warm 'we'll email you' payload for the operator.
+
+    Every side-effect is best-effort — capture must never itself 500 the upload.
+    """
+    # Store the raw file so Russ can build a template from it.
+    pdf_url = None
+    try:
+        safe = (filename or "upload.pdf").replace(" ", "_")
+        storage_path = f"pending/{user_id}/{safe}"
+        db.storage.from_("route-pdfs").upload(
+            storage_path, pdf_bytes, {"content-type": "application/pdf", "upsert": "true"}
+        )
+        pdf_url = f"{_SUPABASE_STORAGE_BASE}/{storage_path}"
+    except Exception:
+        pass
+
+    # Look up the operator's email so Russ can follow up.
+    account_email = None
+    try:
+        pr = db.table("profiles").select("email").eq("id", user_id).limit(1).execute()
+        if pr.data:
+            account_email = pr.data[0].get("email")
+    except Exception:
+        pass
+
+    # Drop it in the review queue.
+    try:
+        db.table("pending_unrecognized_formats").insert({
+            "user_id": user_id,
+            "account_email": account_email,
+            "vendor": vendor,
+            "filename": filename,
+            "pdf_url": pdf_url,
+            "reason": reason,
+        }).execute()
+    except Exception:
+        pass
+
+    # Ping Russ (best-effort — never fails the upload).
+    notify_russ(
+        "New format to add — StockerAI\n"
+        f"System: {vendor or 'Unknown'}\n"
+        f"From: {account_email or user_id}\n"
+        f"File: {filename}\n"
+        f"Why: {reason}"
+    )
+
+    return {
+        "status": "pending_format",
+        "vendor": vendor,
+        "filename": filename,
+        "message": (
+            "We've got your report and we're setting up support for your format. "
+            "We'll email you the moment it's ready."
+        ),
+    }
 
 
 @router.post("/upload-pdf")
@@ -15,14 +85,20 @@ async def upload_pdf(
     pdf: UploadFile = File(...),
     date: str = Form(...),
     user_id: str = Form(...),
+    vendor: str = Form(None),
 ):
     """
-    Upload a Canteen/Compass PDF, parse it, and insert route/machines/items.
+    Upload a route PDF, parse it, and insert route/machines/items.
+
+    Today we parse the Parlevel "Prekitting Detail" layout. Anything we can't turn
+    into a route — or an explicit "Other" vendor selection — is routed to the
+    capture-and-wait holding pen instead of dead-ending on an error.
     """
     db = get_client()
 
     # Step 1: Read PDF and extract text
     pdf_bytes = await pdf.read()
+    filename = pdf.filename or "upload.pdf"
 
     # Real route PDFs are ~150 KB; cap the size so an oversized upload can't exhaust
     # server memory.
@@ -30,22 +106,26 @@ async def upload_pdf(
     if len(pdf_bytes) > MAX_PDF_BYTES:
         raise HTTPException(status_code=413, detail="PDF too large (max 25 MB).")
 
+    # The operator told us their system isn't one we support yet → capture-and-wait.
+    if vendor and vendor.strip().lower() == "other":
+        return _capture_pending(db, pdf_bytes, user_id, vendor, filename, "vendor_other")
+
+    # Try to read the report. A file we can't extract text from (scanned/image/corrupt)
+    # is a format we don't handle — capture it rather than error out.
     try:
         text = extract_text_from_pdf(pdf_bytes)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to read PDF: {str(e)}")
+    except Exception:
+        return _capture_pending(db, pdf_bytes, user_id, vendor, filename, "unreadable_pdf")
 
     if not text or len(text) < 50:
-        raise HTTPException(status_code=400, detail="PDF appears empty or unreadable")
+        return _capture_pending(db, pdf_bytes, user_id, vendor, filename, "empty_or_unreadable")
 
     # Step 2: Parse PDF text into structured data
     parsed = parse_route_pdf(text, date)
 
-    if not parsed["route_name"]:
-        raise HTTPException(status_code=400, detail="Could not find route information in PDF")
-
-    if not parsed["locations"]:
-        raise HTTPException(status_code=400, detail="No machines/items found in PDF")
+    # Recognized format but no route/machines found → treat as an unsupported layout.
+    if not parsed["route_name"] or not parsed["locations"]:
+        return _capture_pending(db, pdf_bytes, user_id, vendor, filename, "unrecognized_format")
 
     route_name = parsed["route_name"]
 

@@ -262,6 +262,35 @@ const Home = () => {
         </div>
       </section>
 
+      {/* 4b. Works With Your System — honest "built for" vendor list */}
+      <section className="section-padding">
+        <div className="section-container">
+          <div className="text-center mb-10">
+            <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
+              Works With the Reports You Already Pull
+            </h2>
+            <p className="text-xl text-muted-foreground max-w-3xl mx-auto">
+              Upload the stock report from your vending system and Stocker AI reads it aloud, pick by pick.
+              We read Parlevel reports today and are adding more. On another system? Tell us at signup and
+              we'll set up your format.
+            </p>
+          </div>
+          <div className="flex flex-wrap justify-center gap-3 max-w-4xl mx-auto">
+            {[
+              "Parlevel", "Nayax", "Cantaloupe / Seed", "Gimme", "VendSoft",
+              "VendSys", "Vagabond", "Vend-Trak", "VendMAX", "+ your system",
+            ].map((system) => (
+              <span
+                key={system}
+                className="px-4 py-2 rounded-full border border-border bg-alt text-foreground text-sm font-medium"
+              >
+                {system}
+              </span>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* 5. Social Proof Section - HIDDEN: Ready to populate with testimonials */}
       <section className="section-padding hidden">
         <div className="section-container">

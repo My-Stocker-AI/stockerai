@@ -73,6 +73,7 @@ const UploadRoutes = () => {
   const queryClient = useQueryClient();
   
   const [file, setFile] = useState<File | null>(null);
+  const [vendor, setVendor] = useState<string>(''); // Which vending system the report is from
   const [deliveryDate, setDeliveryDate] = useState<Date>(addDays(new Date(), 1));
   const [selectedDriverId, setSelectedDriverId] = useState<string>(''); // Driver to assign route to
   const [uploading, setUploading] = useState(false);
@@ -246,6 +247,11 @@ const UploadRoutes = () => {
       return;
     }
 
+    if (!vendor) {
+      toast({ title: "Which system is this report from?", description: "Pick your vending system so we read it correctly.", variant: "destructive" });
+      return;
+    }
+
     setUploading(true);
 
     try {
@@ -257,6 +263,7 @@ const UploadRoutes = () => {
       formData.append('pdf', file);
       formData.append('date', format(deliveryDate, 'yyyy-MM-dd'));
       formData.append('user_id', driverId); // Use selected driver ID
+      formData.append('vendor', vendor); // Which vending system the report is from
 
       // Send to API (Python or n8n based on env var)
       const uploadUrl = import.meta.env.VITE_API_BACKEND === 'python'
@@ -304,6 +311,20 @@ const UploadRoutes = () => {
       }
 
       const result = await response.json();
+
+      // Capture-and-wait: the report is a format we don't parse yet (or "Other").
+      // We've saved it and alerted the team — tell the operator warmly, no error.
+      if (result.status === 'pending_format') {
+        toast({
+          title: "Got your report — we're on it",
+          description: result.message || "We're setting up support for your format and will email you when it's ready.",
+          duration: 12000,
+        });
+        setFile(null);
+        setVendor('');
+        setSelectedDriverId('');
+        return;
+      }
 
       // Retry logic to find the newly created route (n8n may take time to insert)
       let newRoute = null;
@@ -426,7 +447,7 @@ const UploadRoutes = () => {
             <CardTitle className="text-dashboard-text">Upload New Route</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-3">
+            <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="pdf" className="text-dashboard-text">Route PDF</Label>
                 <div className="flex items-center gap-2">
@@ -494,11 +515,30 @@ const UploadRoutes = () => {
                   </SelectContent>
                 </Select>
               </div>
+
+              <div className="space-y-2">
+                <Label className="text-dashboard-text">Vending System</Label>
+                <Select value={vendor} onValueChange={setVendor}>
+                  <SelectTrigger className="bg-dashboard-bg border-dashboard-border text-dashboard-text">
+                    <SelectValue placeholder="Which system is this report from?" />
+                  </SelectTrigger>
+                  <SelectContent style={{ backgroundColor: '#161b22' }} className="border-dashboard-border">
+                    {['Parlevel', 'Nayax', 'Cantaloupe/Seed', 'Gimme', 'VendSoft', 'VendSys', 'Vagabond', 'Vend-Trak', 'VendMAX', 'Other'].map((v) => (
+                      <SelectItem key={v} value={v} className="text-dashboard-text">
+                        {v}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-dashboard-text-secondary">
+                  We read Parlevel reports today. Using another system? Pick it (or "Other") and we'll set up your format.
+                </p>
+              </div>
             </div>
-            
-            <Button 
+
+            <Button
               onClick={handleUpload} 
-              disabled={!file || uploading}
+              disabled={!file || !vendor || uploading}
               className="bg-primary hover:bg-primary-hover text-primary-foreground"
             >
               {uploading ? (
