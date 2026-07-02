@@ -5,6 +5,14 @@ Verifies the new routing: an "Other" vendor or an unrecognized report is capture
 report is NOT diverted into the capture path.
 """
 
+import os
+
+# These tests mock the Supabase client, so no real creds are needed — but app.config
+# reads SUPABASE_URL / SUPABASE_SERVICE_KEY at import time. Set dummy values before any
+# app import so the suite RUNS in CI (where secrets aren't injected) instead of erroring.
+os.environ.setdefault("SUPABASE_URL", "https://test.supabase.co")
+os.environ.setdefault("SUPABASE_SERVICE_KEY", "test-service-key")
+
 import io
 from unittest.mock import patch, MagicMock
 
