@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { readEnvVoiceTuning, EnvVoiceTuning } from '@/lib/settingsCore';
+import { reconnectDelayMs, nextAttempt } from './reconnectPolicy';
 
 export type VoiceStatus = 'idle' | 'listening' | 'speaking' | 'thinking' | 'paused' | 'muted' | 'error';
 
@@ -847,42 +848,26 @@ export function useVoice(options: UseVoiceOptions = {}) {
             return;
           }
 
-          // Check if we've exceeded max attempts
-          if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
-            console.warn('[Voice] Max reconnect attempts reached — waiting 30s before recovery attempt', {
-              timestamp,
-              totalAttempts: reconnectAttemptsRef.current,
-              maxAttempts: MAX_RECONNECT_ATTEMPTS
-            });
-            emitDiagnostic('reconnect-max-reached', { timestamp, attempts: reconnectAttemptsRef.current });
-            // Don't give up permanently — schedule recovery after 30s
-            // This handles transient network issues (dead zones, cellular handoff) in long sessions
-            if (reconnectTimeoutRef.current) {
-              clearTimeout(reconnectTimeoutRef.current);
-            }
-            reconnectTimeoutRef.current = setTimeout(() => {
-              if (shouldReconnectRef.current) {
-                console.log('[Voice] Recovery attempt after max retries — restarting connection');
-                emitDiagnostic('reconnect-recovery', { timestamp: new Date().toISOString() });
-                reconnectAttemptsRef.current = 0;
-                startListening();
-              }
-            }, 30000);
-            return;
-          }
+          // FAST, NEVER-GIVE-UP RECOVERY (foreground + session active).
+          // The old logic crawled out at 1→2→4→8→16s and then gave up for 30s after 5
+          // tries — Davy's 2026-07-01 iPhone logs show it hitting that give-up 3 times in
+          // two minutes, i.e. long stretches of dead voice mid-route. A picker can't wait.
+          // So: cap the wait low and keep retrying at that cap for as long as the session
+          // is active. The hidden-guard above already stops this from storming while the
+          // screen is locked/backgrounded, so this only runs on a real, recoverable
+          // foreground drop (his warehouse has steady wifi/cell — drops are transient, not
+          // dead-zone). Recovery is now sub-second to ~2.5s, indefinitely, never silent.
+          const attempt = reconnectAttemptsRef.current;
+          const backoffMs = reconnectDelayMs(attempt); // 0.5s, 1s, 2s, then capped at 2.5s
+          // Cap the counter so the wait never grows past 2.5s and we never reach a give-up.
+          reconnectAttemptsRef.current = nextAttempt(attempt);
 
-          // Calculate exponential backoff: 1s, 2s, 4s, 8s, 16s
-          const backoffMs = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 16000);
-          reconnectAttemptsRef.current++;
-
-          console.log(`[Voice] Deepgram disconnected - reconnecting in ${backoffMs}ms (attempt ${reconnectAttemptsRef.current}/${MAX_RECONNECT_ATTEMPTS})`, {
+          console.log(`[Voice] Deepgram dropped — fast reconnect in ${backoffMs}ms (never gives up while active)`, {
             timestamp,
             backoffMs,
-            attempt: reconnectAttemptsRef.current,
-            maxAttempts: MAX_RECONNECT_ATTEMPTS,
-            nextRetryAt: new Date(Date.now() + backoffMs).toISOString()
+            attempt: attempt + 1,
           });
-          emitDiagnostic('deepgram-reconnecting', { attempt: reconnectAttemptsRef.current, backoffMs, timestamp });
+          emitDiagnostic('deepgram-reconnecting', { attempt: attempt + 1, backoffMs, timestamp });
 
           // Clear any existing reconnect timeout
           if (reconnectTimeoutRef.current) {
@@ -899,7 +884,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
             } catch (e) {
               console.error('[Voice] Deepgram reconnection failed:', e);
               emitDiagnostic('error', 'Deepgram reconnection failed: ' + String(e));
-              // socket.onclose will fire again and retry with next backoff
+              // socket.onclose fires again → retry at the capped interval, indefinitely.
             }
           }, backoffMs);
         }
