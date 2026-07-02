@@ -81,6 +81,13 @@ export function useVoice(options: UseVoiceOptions = {}) {
   // Always-current pointer to startListening so the screen-wake handler can trigger a
   // clean reconnect without capturing a stale closure.
   const startListeningRef = useRef<(() => Promise<boolean>) | null>(null);
+  // Deaf-detector: Deepgram can stay connected but stop returning words (2026-07-01 logs:
+  // ~32 "speech detected" events, zero transcripts, 8 min — stranded the driver mid-machine).
+  // Track when we last heard a real word; if speech keeps arriving with no words for
+  // DEAF_TIMEOUT_MS, force ONE clean reconnect. The guard prevents repeat-firing per episode.
+  const lastTranscriptAtRef = useRef(0);
+  const deafGuardRef = useRef(false);
+  const DEAF_TIMEOUT_MS = 12000;
   const stoppedRef = useRef(false); // Flag to prevent new audio after stopAudio()
   const isRecordingRef = useRef(false);
   const accumulatedTranscriptRef = useRef('');  // Accumulated transcript for utterance (matches original PWA this.transcript)
@@ -479,6 +486,18 @@ export function useVoice(options: UseVoiceOptions = {}) {
         type: data.type,
         reason: data.reason ?? data.description ?? data.message ?? data.error ?? null,
       });
+      // DEAF-DETECTOR: Deepgram says it hears speech but we've gotten no words for too long →
+      // the socket is alive but not transcribing. Close it; onclose does one clean reconnect.
+      if (data.type === 'SpeechStarted') {
+        const sinceWord = Date.now() - lastTranscriptAtRef.current;
+        const listening = statusRef.current === 'listening' || statusRef.current === 'thinking';
+        if (listening && shouldReconnectRef.current && !deafGuardRef.current
+            && lastTranscriptAtRef.current > 0 && sinceWord > DEAF_TIMEOUT_MS) {
+          deafGuardRef.current = true;
+          emitDiagnostic('deaf-detected', { sinceWordMs: sinceWord });
+          try { socketRef.current?.close(); } catch { /* onclose reconnects */ }
+        }
+      }
     }
     if (data.type === 'Results' && data.channel?.alternatives?.[0]) {
       const alt = data.channel.alternatives[0];
@@ -490,6 +509,9 @@ export function useVoice(options: UseVoiceOptions = {}) {
       const isUtteranceEnd = speechFinal || data.speech_final;
 
       if (transcript) {
+        // Heard a real word — voice is alive. Reset the deaf-detector.
+        lastTranscriptAtRef.current = Date.now();
+        deafGuardRef.current = false;
         // Update display for interim results (only when listening, matches original PWA)
         if (!isFinal && statusRef.current === 'listening') {
           setLastInput(transcript.trim());
@@ -745,6 +767,8 @@ export function useVoice(options: UseVoiceOptions = {}) {
         isConnectedRef.current = true;
         setIsDeepgramConnected(true);
         reconnectAttemptsRef.current = 0; // Reset reconnection counter on successful connect
+        lastTranscriptAtRef.current = Date.now(); // deaf-detector baseline: don't fire before first word
+        deafGuardRef.current = false;
         emitDiagnostic('deepgram-connected', true);
         startKeepAlive();
         setupMediaRecorder();
