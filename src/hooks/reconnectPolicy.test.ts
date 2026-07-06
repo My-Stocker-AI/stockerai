@@ -1,85 +1,57 @@
 import { describe, it, expect } from 'vitest';
 import {
-  reconnectDelayMs,
-  nextAttempt,
+  gentleReconnect,
   legacyReconnect,
+  GENTLE_MAX_ATTEMPTS,
   MAX_RECONNECT_DELAY_MS,
 } from './reconnectPolicy';
 
 /**
- * Proof, not a claim. We replay the exact drop burst from Davy's iPhone on 2026-07-01
- * (Render VOICEDIAG logs, 19:36–19:38 UTC): the socket dropped repeatedly with steady
- * warehouse signal. We run that burst through the OLD policy and the NEW policy and
- * assert the difference in what the picker actually experiences.
- *
- * Old logs showed: backoff climbing 1s→16s and "reconnect-max-reached" firing 3 times
- * in two minutes — i.e. three separate 30-second stretches of dead voice mid-route.
+ * Proof, not a claim. Davy's iPhone on 2026-07-01 (Render VOICEDIAG logs) showed a drop
+ * burst that the OLD policy turned into repeated dead-voice give-ups. The real fix landed
+ * a layer deeper — raw 16 kHz PCM capture is headerless, so reconnects are now SAFE and a
+ * transient drop recovers in a try or two. The reconnect policy therefore no longer needs
+ * to storm forever: it retries a few times, then stops and hands control back to the driver.
  */
 
-// A burst of consecutive drops before the connection finally holds. Davy's logs show
-// bursts long enough to hit the 5-try give-up three times, so 20 is representative.
 const DROP_BURST = 20;
 
-function simulate(policy: 'old' | 'new') {
-  let attempt = 0;
-  let giveUps = 0;
-  let maxWaitMs = 0;
-  let totalWaitMs = 0;
-
-  for (let i = 0; i < DROP_BURST; i++) {
-    if (policy === 'old') {
-      const { delayMs, giveUp } = legacyReconnect(attempt);
-      if (giveUp) {
-        giveUps += 1;
-        attempt = 0; // old code reset after the 30s dead recovery
-      } else {
-        attempt += 1;
-      }
-      maxWaitMs = Math.max(maxWaitMs, delayMs);
-      totalWaitMs += delayMs;
-    } else {
-      const delayMs = reconnectDelayMs(attempt);
-      attempt = nextAttempt(attempt);
-      maxWaitMs = Math.max(maxWaitMs, delayMs);
-      totalWaitMs += delayMs;
-    }
-  }
-  return { giveUps, maxWaitMs, totalWaitMs };
-}
-
-describe('voice reconnect policy — Davy 2026-07-01 drop burst', () => {
-  it('OLD policy stranded him: it gave up (went dead 30s) and waited up to 16s', () => {
-    const old = simulate('old');
-    // eslint-disable-next-line no-console
-    console.log('[PROOF] OLD:', old);
-    expect(old.giveUps).toBeGreaterThan(0);        // it DID go silent mid-route (3x)
-    expect(old.maxWaitMs).toBe(30000);             // worst case = the 30s dead-voice give-up gap
-    expect(legacyReconnect(4).delayMs).toBe(16000); // and the backoff climbed to 16s before that
+describe('voice reconnect policy — bounded gentle recovery (raw-PCM era)', () => {
+  it('LEGACY policy stranded him: it gave up (went dead 30s) and climbed to 16s', () => {
+    // The regression we removed — kept as a contrast so the proof is explicit.
+    expect(legacyReconnect(4).delayMs).toBe(16000);
+    expect(legacyReconnect(5).giveUp).toBe(true);
+    expect(legacyReconnect(5).delayMs).toBe(30000);
   });
 
-  it('NEW policy never gives up and never waits more than 2.5s', () => {
-    const neu = simulate('new');
-    // eslint-disable-next-line no-console
-    console.log('[PROOF] NEW:', neu);
-    expect(neu.giveUps).toBe(0);                   // never goes silent while active
-    expect(neu.maxWaitMs).toBeLessThanOrEqual(MAX_RECONNECT_DELAY_MS); // ≤ 2.5s, always
+  it('recovery is fast early: first waits are 0.5s, 1s, 2s, then capped at 2.5s', () => {
+    expect(gentleReconnect(0).delayMs).toBe(500);
+    expect(gentleReconnect(1).delayMs).toBe(1000);
+    expect(gentleReconnect(2).delayMs).toBe(2000);
+    expect(gentleReconnect(3).delayMs).toBe(2500);
   });
 
-  it('every single reconnect wait stays at or under 2.5s, for any attempt count', () => {
-    for (let attempt = 0; attempt < 100; attempt++) {
-      expect(reconnectDelayMs(attempt)).toBeLessThanOrEqual(MAX_RECONNECT_DELAY_MS);
+  it('every wait stays at or under 2.5s — never the old 16s crawl', () => {
+    for (let attempt = 0; attempt < GENTLE_MAX_ATTEMPTS; attempt++) {
+      expect(gentleReconnect(attempt).delayMs).toBeLessThanOrEqual(MAX_RECONNECT_DELAY_MS);
     }
   });
 
-  it('the attempt counter is capped so it can never reach a give-up state', () => {
+  it('it is BOUNDED: after a few tries it gives up gracefully instead of storming forever', () => {
+    // A persistent drop must NOT hammer Deepgram indefinitely (that loop was the storm).
+    expect(gentleReconnect(GENTLE_MAX_ATTEMPTS).giveUp).toBe(true);
+
+    // Replay the burst: count how many real retry attempts fire before we stop.
     let attempt = 0;
-    for (let i = 0; i < 100; i++) attempt = nextAttempt(attempt);
-    expect(attempt).toBeLessThanOrEqual(3); // plateaus; legacy give-up was at attempt >= 5
-  });
-
-  it('recovery is fast early: first three waits are 0.5s, 1s, 2s', () => {
-    expect(reconnectDelayMs(0)).toBe(500);
-    expect(reconnectDelayMs(1)).toBe(1000);
-    expect(reconnectDelayMs(2)).toBe(2000);
+    let retries = 0;
+    let gaveUp = false;
+    for (let i = 0; i < DROP_BURST; i++) {
+      const { giveUp } = gentleReconnect(attempt);
+      if (giveUp) { gaveUp = true; break; }
+      retries += 1;
+      attempt += 1;
+    }
+    expect(gaveUp).toBe(true);                 // it stops — no infinite storm
+    expect(retries).toBe(GENTLE_MAX_ATTEMPTS); // exactly the bounded number of quick tries
   });
 });

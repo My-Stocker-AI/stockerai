@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { readEnvVoiceTuning, EnvVoiceTuning } from '@/lib/settingsCore';
-import { reconnectDelayMs, nextAttempt } from './reconnectPolicy';
+import { gentleReconnect } from './reconnectPolicy';
 
 export type VoiceStatus = 'idle' | 'listening' | 'speaking' | 'thinking' | 'paused' | 'muted' | 'error';
 
@@ -9,6 +9,11 @@ const TTS_URL = 'https://solitary-base-799c.russ-731.workers.dev';
 
 // Deepgram STT via Cloudflare Worker (same as original PWA)
 const DEEPGRAM_TOKEN_URL = 'https://stocker-deepgram-stt.russ-731.workers.dev/token';
+
+// Build marker — bump alongside package.json "version" and sw.js SW_VERSION on each deploy.
+// Emitted to the diagnostic pipe on startListening so Davy's Render logs show EXACTLY which
+// build his phone is running (kills the "tested stale code" trap).
+const BUILD_VERSION = 'v0.1.0-rawpcm';
 
 // Wake phrases including common mishearings (from original PWA)
 const WAKE_PHRASES = [
@@ -70,25 +75,25 @@ export function useVoice(options: UseVoiceOptions = {}) {
 
   // Deepgram refs
   const socketRef = useRef<WebSocket | null>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  // Raw-PCM capture via AudioWorklet (replaces MediaRecorder — see public/pcm-capture-processor.js).
+  // A dedicated capture AudioContext keeps the mic path fully separate from the TTS playback
+  // context, so playback routing (Android speaker vs iOS earpiece) is untouched.
+  const captureCtxRef = useRef<AudioContext | null>(null);
+  const captureSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const captureNodeRef = useRef<AudioWorkletNode | null>(null);
+  // Pause/mute gate: when false, captured PCM is dropped instead of sent. The worklet keeps
+  // running, so pause/resume never tears down or re-acquires the mic (grabbed ONCE per session).
+  const micSendingRef = useRef(false);
   const audioStreamRef = useRef<MediaStream | null>(null);
   const keepAliveRef = useRef<NodeJS.Timeout | null>(null);
   const tokenRef = useRef<string | null>(null);
   const tokenExpiryRef = useRef<number>(0);       // when to PROACTIVELY refresh (60s early)
   const tokenRawExpiryRef = useRef<number>(0);    // when the token ACTUALLY expires
-  const encodingRef = useRef<string>('opus');  // Default to opus, updated by setupMediaRecorder
   const shouldReconnectRef = useRef(true);
   const isConnectedRef = useRef(false);
   // Always-current pointer to startListening so the screen-wake handler can trigger a
   // clean reconnect without capturing a stale closure.
   const startListeningRef = useRef<(() => Promise<boolean>) | null>(null);
-  // Deaf-detector: Deepgram can stay connected but stop returning words (2026-07-01 logs:
-  // ~32 "speech detected" events, zero transcripts, 8 min — stranded the driver mid-machine).
-  // Track when we last heard a real word; if speech keeps arriving with no words for
-  // DEAF_TIMEOUT_MS, force ONE clean reconnect. The guard prevents repeat-firing per episode.
-  const lastTranscriptAtRef = useRef(0);
-  const deafGuardRef = useRef(false);
-  const DEAF_TIMEOUT_MS = 12000;
   const stoppedRef = useRef(false); // Flag to prevent new audio after stopAudio()
   const isRecordingRef = useRef(false);
   const accumulatedTranscriptRef = useRef('');  // Accumulated transcript for utterance (matches original PWA this.transcript)
@@ -101,7 +106,6 @@ export function useVoice(options: UseVoiceOptions = {}) {
   const reconnectAttemptsRef = useRef(0);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const tokenRefreshTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const MAX_RECONNECT_ATTEMPTS = 5;
   // Single-flight connection guard: only ONE connect/reconnect attempt may run at a time.
   // Without it, the drop-handler, the resume path, AND "OK Stocker"/unmute each fire their
   // own reconnect → stacked loops pile up sockets → Deepgram refuses them all (the 1006
@@ -487,18 +491,6 @@ export function useVoice(options: UseVoiceOptions = {}) {
         type: data.type,
         reason: data.reason ?? data.description ?? data.message ?? data.error ?? null,
       });
-      // DEAF-DETECTOR: Deepgram says it hears speech but we've gotten no words for too long →
-      // the socket is alive but not transcribing. Close it; onclose does one clean reconnect.
-      if (data.type === 'SpeechStarted') {
-        const sinceWord = Date.now() - lastTranscriptAtRef.current;
-        const listening = statusRef.current === 'listening' || statusRef.current === 'thinking';
-        if (listening && shouldReconnectRef.current && !deafGuardRef.current
-            && lastTranscriptAtRef.current > 0 && sinceWord > DEAF_TIMEOUT_MS) {
-          deafGuardRef.current = true;
-          emitDiagnostic('deaf-detected', { sinceWordMs: sinceWord });
-          try { socketRef.current?.close(); } catch { /* onclose reconnects */ }
-        }
-      }
     }
     if (data.type === 'Results' && data.channel?.alternatives?.[0]) {
       const alt = data.channel.alternatives[0];
@@ -510,9 +502,6 @@ export function useVoice(options: UseVoiceOptions = {}) {
       const isUtteranceEnd = speechFinal || data.speech_final;
 
       if (transcript) {
-        // Heard a real word — voice is alive. Reset the deaf-detector.
-        lastTranscriptAtRef.current = Date.now();
-        deafGuardRef.current = false;
         // Update display for interim results (only when listening, matches original PWA)
         if (!isFinal && statusRef.current === 'listening') {
           setLastInput(transcript.trim());
@@ -552,110 +541,86 @@ export function useVoice(options: UseVoiceOptions = {}) {
     }
   }, [onTranscript, processAccumulatedTranscript]);
 
-  // Detect supported MIME type for MediaRecorder
-  // CRITICAL: Safari has limited support - must test each type
-  const getSupportedMimeType = useCallback((): string => {
-    // Priority order: Safari-friendly first, then Chrome-friendly
-    const types = [
-      'audio/mp4',                    // Safari iOS/macOS - AAC in MP4
-      'audio/webm;codecs=opus',       // Chrome/Firefox - Opus in WebM
-      'audio/webm',                   // Chrome fallback
-      'audio/ogg;codecs=opus',        // Firefox fallback
-      'audio/wav',                    // Universal fallback (larger files)
-    ];
+  // ── Raw-PCM capture (AudioWorklet) — replaces MediaRecorder ───────────────────────
+  // Captures the ONE shared mic stream, downsamples to 16kHz Int16 PCM in the worklet,
+  // and streams it to Deepgram. Headerless by design, so a mid-session reconnect can never
+  // send undecodable header-less container fragments (the old "deaf, then storm" failure).
+  // The capture graph is built ONCE per session and stays up across reconnects — the worklet
+  // always sends to whatever socket is current, and pause/mute just flips micSendingRef.
 
-    for (const type of types) {
-      try {
-        if (MediaRecorder.isTypeSupported(type)) {
-          console.log('[Voice] Using MIME type:', type);
-          return type;
-        }
-      } catch (e) {
-        // isTypeSupported can throw on some browsers
-        console.warn('[Voice] Error checking MIME type:', type, e);
-      }
+  const stopPcmCapture = useCallback(() => {
+    micSendingRef.current = false;
+    if (captureNodeRef.current) {
+      try { captureNodeRef.current.port.onmessage = null; captureNodeRef.current.disconnect(); } catch (e) { /* ignore */ }
+      captureNodeRef.current = null;
     }
-
-    // Return empty string - let browser choose default
-    console.warn('[Voice] No supported MIME type found, using browser default');
-    return '';
+    if (captureSourceRef.current) {
+      try { captureSourceRef.current.disconnect(); } catch (e) { /* ignore */ }
+      captureSourceRef.current = null;
+    }
+    if (captureCtxRef.current) {
+      try { captureCtxRef.current.close(); } catch (e) { /* ignore */ }
+      captureCtxRef.current = null;
+    }
+    isRecordingRef.current = false;
+    emitDiagnostic('capture-state', 'stopped');
   }, []);
 
-  const setupMediaRecorder = useCallback(() => {
+  const startPcmCapture = useCallback(async () => {
     if (!audioStreamRef.current) {
-      console.error('[Voice] No audio stream available for MediaRecorder');
+      console.error('[Voice] No audio stream available for PCM capture');
       return;
     }
-
-    // Check if MediaRecorder is supported
-    if (typeof MediaRecorder === 'undefined') {
-      console.error('[Voice] MediaRecorder not supported');
-      onErrorRef.current?.('Recording not supported on this browser');
+    // Idempotent: on a reconnect the capture graph is already up — just make sure we're
+    // sending again. We deliberately do NOT rebuild the AudioContext on reconnect, because
+    // a new context created off a user gesture (a mid-route drop) can come up suspended.
+    if (captureNodeRef.current) {
+      micSendingRef.current = true;
       return;
     }
-
-    const mimeType = getSupportedMimeType();
-
-    // Determine encoding for Deepgram based on MIME type
-    if (mimeType.includes('opus')) {
-      encodingRef.current = 'opus';
-    } else if (mimeType.includes('mp4') || mimeType.includes('aac')) {
-      encodingRef.current = 'aac';
-    } else if (mimeType.includes('wav')) {
-      encodingRef.current = 'linear16';
-    } else {
-      encodingRef.current = 'opus';  // Default fallback
-    }
-
     try {
-      const options: MediaRecorderOptions = mimeType ? { mimeType } : {};
-      const recorder = new MediaRecorder(audioStreamRef.current, options);
-
-      console.log('[Voice] MediaRecorder created with options:', options, 'encoding:', encodingRef.current);
-
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0 && socketRef.current?.readyState === WebSocket.OPEN) {
-          socketRef.current.send(event.data);
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      const ctx: AudioContext = new AudioContextClass();
+      captureCtxRef.current = ctx;
+      if (ctx.state === 'suspended') { try { await ctx.resume(); } catch (e) { /* best effort */ } }
+      await ctx.audioWorklet.addModule('/pcm-capture-processor.js');
+      const source = ctx.createMediaStreamSource(audioStreamRef.current);
+      const node = new AudioWorkletNode(ctx, 'pcm-capture-processor');
+      node.port.onmessage = (e: MessageEvent) => {
+        // e.data is an ArrayBuffer of 16kHz Int16 PCM. Send only while actively listening.
+        if (micSendingRef.current && socketRef.current?.readyState === WebSocket.OPEN) {
+          socketRef.current.send(e.data as ArrayBuffer);
         }
       };
-
-      recorder.onerror = (event) => {
-        console.error('[Voice] MediaRecorder error:', event);
-        emitDiagnostic('error', 'MediaRecorder error');
-        onErrorRef.current?.('MediaRecorder error');
-      };
-
-      recorder.onstart = () => {
-        emitDiagnostic('mediarecorder-state', 'recording');
-      };
-
-      recorder.onstop = () => {
-        emitDiagnostic('mediarecorder-state', 'stopped');
-      };
-
-      recorder.onpause = () => {
-        emitDiagnostic('mediarecorder-state', 'paused');
-      };
-
-      // Stop any existing recorder before replacing (prevents duplicate audio streams on reconnect)
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-        try {
-          mediaRecorderRef.current.ondataavailable = null; // Prevent buffered audio from replaying to new socket
-          mediaRecorderRef.current.stop();
-        } catch (e) {
-          // Ignore - just cleaning up stale recorder
-        }
-      }
-      mediaRecorderRef.current = recorder;
-      recorder.start(100);
+      source.connect(node);
+      // Silent sink: the worklet writes no output, so connecting to destination keeps the
+      // node pulled (running) WITHOUT echoing the mic back out the speaker.
+      node.connect(ctx.destination);
+      captureSourceRef.current = source;
+      captureNodeRef.current = node;
+      micSendingRef.current = true;
       isRecordingRef.current = true;
-      console.log('[Voice] MediaRecorder started');
+      emitDiagnostic('capture-state', 'recording');
+      console.log('[Voice] PCM capture started (16kHz linear16 via AudioWorklet)');
     } catch (e: any) {
-      console.error('[Voice] Failed to create MediaRecorder:', e);
-      emitDiagnostic('error', 'MediaRecorder setup failed: ' + String(e));
-      onErrorRef.current?.(e.message || 'Failed to start recording');
+      console.error('[Voice] Failed to start PCM capture:', e);
+      emitDiagnostic('error', 'PCM capture setup failed: ' + String(e));
+      onErrorRef.current?.(e?.message || 'Failed to start recording');
     }
-  }, [getSupportedMimeType]); // Using ref, no deps needed
+  }, []);
+
+  // Pause/resume just gate the send — the mic + worklet stay live (no re-acquire).
+  const pauseCapture = useCallback(() => {
+    micSendingRef.current = false;
+    isRecordingRef.current = false;
+    emitDiagnostic('capture-state', 'paused');
+  }, []);
+
+  const resumeCapture = useCallback(() => {
+    micSendingRef.current = true;
+    isRecordingRef.current = true;
+    emitDiagnostic('capture-state', 'recording');
+  }, []);
 
   const connectDeepgram = useCallback(async () => {
     if (socketRef.current?.readyState === WebSocket.OPEN) {
@@ -742,7 +707,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
     const wsUrl = 'wss://api.deepgram.com/v1/listen?' +
       'model=nova-2&' +  // Latest Nova 2 model (nova-3 not yet available)
       'language=en-US&' +
-      `encoding=${encodingRef.current}&` +  // Tell Deepgram our audio format
+      'encoding=linear16&sample_rate=16000&' +  // Raw 16kHz PCM — headerless, so reconnects never lose a container header
       'smart_format=true&' +
       'interim_results=true&' +
       'vad_events=true&' +
@@ -768,11 +733,9 @@ export function useVoice(options: UseVoiceOptions = {}) {
         isConnectedRef.current = true;
         setIsDeepgramConnected(true);
         reconnectAttemptsRef.current = 0; // Reset reconnection counter on successful connect
-        lastTranscriptAtRef.current = Date.now(); // deaf-detector baseline: don't fire before first word
-        deafGuardRef.current = false;
         emitDiagnostic('deepgram-connected', true);
         startKeepAlive();
-        setupMediaRecorder();
+        startPcmCapture();
 
         // NO proactive token refresh. The temporary token only authenticates the
         // initial WebSocket handshake — once this connection is open, it stays open
@@ -848,49 +811,44 @@ export function useVoice(options: UseVoiceOptions = {}) {
             return;
           }
 
-          // FAST, NEVER-GIVE-UP RECOVERY (foreground + session active).
-          // The old logic crawled out at 1→2→4→8→16s and then gave up for 30s after 5
-          // tries — Davy's 2026-07-01 iPhone logs show it hitting that give-up 3 times in
-          // two minutes, i.e. long stretches of dead voice mid-route. A picker can't wait.
-          // So: cap the wait low and keep retrying at that cap for as long as the session
-          // is active. The hidden-guard above already stops this from storming while the
-          // screen is locked/backgrounded, so this only runs on a real, recoverable
-          // foreground drop (his warehouse has steady wifi/cell — drops are transient, not
-          // dead-zone). Recovery is now sub-second to ~2.5s, indefinitely, never silent.
+          // GENTLE, BOUNDED RECOVERY (foreground + session active).
+          // Raw PCM makes reconnects safe — there is no container header to lose — so the old
+          // never-give-up storm is gone. Try a few quick times; if the drop truly persists,
+          // surface a clear "tap to reconnect" instead of hammering Deepgram forever (which is
+          // what turned a transient drop into the dead-voice storm in Davy's logs).
           const attempt = reconnectAttemptsRef.current;
-          const backoffMs = reconnectDelayMs(attempt); // 0.5s, 1s, 2s, then capped at 2.5s
-          // Cap the counter so the wait never grows past 2.5s and we never reach a give-up.
-          reconnectAttemptsRef.current = nextAttempt(attempt);
+          const { delayMs, giveUp } = gentleReconnect(attempt);
+          if (giveUp) {
+            emitDiagnostic('reconnect-gave-up', { attempt });
+            reconnectAttemptsRef.current = 0;
+            setStatus('error');
+            onErrorRef.current?.('Voice paused — tap to reconnect.');
+            return;
+          }
+          reconnectAttemptsRef.current = attempt + 1;
 
-          console.log(`[Voice] Deepgram dropped — fast reconnect in ${backoffMs}ms (never gives up while active)`, {
-            timestamp,
-            backoffMs,
-            attempt: attempt + 1,
-          });
-          emitDiagnostic('deepgram-reconnecting', { attempt: attempt + 1, backoffMs, timestamp });
+          console.log(`[Voice] Deepgram dropped — gentle reconnect in ${delayMs}ms (attempt ${attempt + 1})`, { timestamp });
+          emitDiagnostic('deepgram-reconnecting', { attempt: attempt + 1, backoffMs: delayMs, timestamp });
 
-          // Clear any existing reconnect timeout
           if (reconnectTimeoutRef.current) {
             clearTimeout(reconnectTimeoutRef.current);
           }
-
           reconnectTimeoutRef.current = setTimeout(async () => {
             try {
               await connectDeepgram();
-              // Success - reset attempts counter
               reconnectAttemptsRef.current = 0;
               console.log('[Voice] Deepgram reconnected successfully');
               emitDiagnostic('deepgram-reconnected', 'success');
             } catch (e) {
               console.error('[Voice] Deepgram reconnection failed:', e);
               emitDiagnostic('error', 'Deepgram reconnection failed: ' + String(e));
-              // socket.onclose fires again → retry at the capped interval, indefinitely.
+              // onclose fires again → next gentle attempt, up to the bound.
             }
-          }, backoffMs);
+          }, delayMs);
         }
       };
     });
-  }, [ensureToken, startKeepAlive, stopKeepAlive, setupMediaRecorder, handleDeepgramMessage]); // Using ref for onError
+  }, [ensureToken, startKeepAlive, stopKeepAlive, startPcmCapture, handleDeepgramMessage, setStatus]); // Using ref for onError
 
   // Get or reuse audio stream - CRITICAL for Safari
   // Safari bug: Multiple getUserMedia calls can permanently mute previous tracks
@@ -999,7 +957,8 @@ export function useVoice(options: UseVoiceOptions = {}) {
   }, []);
 
   const startListening = useCallback(async () => {
-    console.log('[Voice] startListening called');
+    console.log('[Voice] startListening called — build', BUILD_VERSION);
+    emitDiagnostic('build-version', BUILD_VERSION);
 
     // SINGLE-VOICE LOCK: if another app instance already owns voice, stay silent — never
     // start a second listener that would talk over the first. (Same-instance reconnects
@@ -1129,16 +1088,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
     }
     reconnectAttemptsRef.current = 0;
 
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      try {
-        mediaRecorderRef.current.stop();
-        console.log('[Voice] MediaRecorder stopped');
-      } catch (e) {
-        console.warn('[Voice] MediaRecorder stop error:', e);
-      }
-    }
-    mediaRecorderRef.current = null;
-    isRecordingRef.current = false;
+    stopPcmCapture();
 
     if (socketRef.current) {
       if (socketRef.current.readyState === WebSocket.OPEN) {
@@ -1174,7 +1124,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
 
     setStatus('idle');
     console.log('[Voice] stopListening complete - status set to idle');
-  }, [stopKeepAlive, setStatus]);
+  }, [stopKeepAlive, setStatus, stopPcmCapture]);
 
   const pauseListening = useCallback(() => {
     // Clear silence timer and accumulated transcript (matches original PWA pause behavior)
@@ -1184,10 +1134,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
     }
     accumulatedTranscriptRef.current = '';
 
-    if (mediaRecorderRef.current?.state === 'recording') {
-      mediaRecorderRef.current.pause();
-      isRecordingRef.current = false;
-    }
+    pauseCapture();
 
     // Release wake lock when pausing (allow screen timeout during breaks)
     if (wakeLockRef.current) {
@@ -1236,39 +1183,9 @@ export function useVoice(options: UseVoiceOptions = {}) {
       }
     }
 
-    if (mediaRecorderRef.current?.state === 'paused' && socketRef.current?.readyState === WebSocket.OPEN) {
-      // Socket alive AND recorder paused — safe to resume
-      mediaRecorderRef.current.resume();
-      isRecordingRef.current = true;
-      setStatus('listening');
-      // Fire any command that was spoken during processing/TTS
-      if (pendingCommandRef.current) {
-        const queued = pendingCommandRef.current;
-        pendingCommandRef.current = null;
-        console.log('[Voice] Firing queued command after resume:', queued);
-        playCommandChime(); // Acknowledge the queued command
-        setTimeout(() => onTranscriptRef.current?.(queued, true), 0);
-      }
-    } else if (mediaRecorderRef.current?.state === 'paused') {
-      // Recorder paused BUT socket dead — stop recorder and do full reconnect
-      console.warn('[Voice] resumeListening: socket dead while recorder paused — doing full reconnect');
-      emitDiagnostic('zombie-state-detected', 'recorder-paused-socket-dead');
-      try {
-        mediaRecorderRef.current.ondataavailable = null;
-        mediaRecorderRef.current.stop();
-      } catch (e) {
-        // Ignore — just cleaning up stale recorder
-      }
-      mediaRecorderRef.current = null;
-      isRecordingRef.current = false;
-      // startListening self-recovers to 'error' on internal failure, but guard the
-      // rare pre-try throw so resume can never leave voice silently stuck.
-      try { await startListening(); } catch (e: any) {
-        setStatus('error');
-        onErrorRef.current?.(e?.message || 'Voice reconnect failed — tap to retry');
-      }
-    } else if (!mediaRecorderRef.current && socketRef.current?.readyState === WebSocket.OPEN) {
-      setupMediaRecorder();
+    if (socketRef.current?.readyState === WebSocket.OPEN && isConnectedRef.current) {
+      // Socket alive — make sure capture is up and sending, then resume listening.
+      if (!captureNodeRef.current) { await startPcmCapture(); } else { resumeCapture(); }
       setStatus('listening');
       // Fire any command that was spoken during processing/TTS
       if (pendingCommandRef.current) {
@@ -1285,7 +1202,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
         onErrorRef.current?.(e?.message || 'Voice reconnect failed — tap to retry');
       }
     }
-  }, [setupMediaRecorder, startListening, setStatus, playCommandChime]);
+  }, [startPcmCapture, resumeCapture, startListening, setStatus, playCommandChime]);
 
   const mute = useCallback(() => {
     // Clear silence timer and accumulated transcript (matches original PWA mute behavior)
@@ -1295,10 +1212,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
     }
     accumulatedTranscriptRef.current = '';
 
-    if (mediaRecorderRef.current?.state === 'recording') {
-      mediaRecorderRef.current.pause();
-      isRecordingRef.current = false;
-    }
+    pauseCapture();
     setLastInput('');
     setStatus('muted');
   }, [setStatus]);
@@ -1319,25 +1233,16 @@ export function useVoice(options: UseVoiceOptions = {}) {
         return;
       }
     }
-    if (mediaRecorderRef.current?.state === 'paused' && socketRef.current?.readyState === WebSocket.OPEN) {
-      // Socket alive — safe to resume
-      mediaRecorderRef.current.resume();
-      isRecordingRef.current = true;
-    } else if (mediaRecorderRef.current?.state === 'paused') {
-      // Socket dead — stop stale recorder and do full reconnect
-      console.warn('[Voice] unmute: socket dead while recorder paused — doing full reconnect');
-      emitDiagnostic('zombie-state-detected', 'unmute-recorder-paused-socket-dead');
-      try {
-        mediaRecorderRef.current.ondataavailable = null;
-        mediaRecorderRef.current.stop();
-      } catch (e) { /* Ignore — cleaning up stale recorder */ }
-      mediaRecorderRef.current = null;
-      isRecordingRef.current = false;
+    if (socketRef.current?.readyState === WebSocket.OPEN && isConnectedRef.current) {
+      // Socket alive — make sure capture is up and resume sending.
+      if (!captureNodeRef.current) { await startPcmCapture(); } else { resumeCapture(); }
+    } else {
+      // Socket dead — full reconnect (sets its own status).
       startListening();
-      return; // startListening sets its own status
+      return;
     }
     setStatus('listening');
-  }, [setStatus, startListening]);
+  }, [setStatus, startListening, startPcmCapture, resumeCapture]);
 
   const stopAudio = useCallback(() => {
     // Set stopped flag to prevent any pending TTS from playing
@@ -1500,7 +1405,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
         .replace(/\b(\d+)\s*can\b/gi, '$1 cans');
 
       // 5a. Set echo references BEFORE playback so filtering works during TTS
-      // (MediaRecorder stays active during playback for interrupt support)
+      // (PCM capture stays active during playback for interrupt support)
       lastSpokenTextRef.current = processed.toLowerCase();
       lastSpeakTimeRef.current = Date.now();
 
@@ -1857,12 +1762,8 @@ export function useVoice(options: UseVoiceOptions = {}) {
       } catch (e) {}
       // Set stopped flag to prevent pending TTS
       stoppedRef.current = true;
-      // Stop microphone
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-        try {
-          mediaRecorderRef.current.stop();
-        } catch (e) {}
-      }
+      // Stop microphone + PCM capture graph
+      stopPcmCapture();
       if (audioStreamRef.current) {
         audioStreamRef.current.getTracks().forEach(track => track.stop());
       }

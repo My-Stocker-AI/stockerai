@@ -1,33 +1,38 @@
 /**
- * Voice reconnect policy — extracted as pure functions so the recovery behavior is
- * directly testable (replay a real drop pattern, assert the timing), instead of being
- * buried inside the WebSocket close handler where it can only be proven on a device.
+ * Voice reconnect policy — pure functions so the recovery behavior is directly testable
+ * (replay a real drop pattern, assert the timing) instead of being buried in the WebSocket
+ * close handler where it can only be proven on a device.
  *
- * The rule for a warehouse picker: recover FAST and NEVER go silent mid-route while the
- * session is active and the app is foreground. (The screen-lock / background case is
- * handled separately by the hidden-guard, which halts reconnects until the screen wakes.)
+ * PHILOSOPHY (2026-07-06): raw 16 kHz PCM capture is HEADERLESS, so a reconnect can never
+ * hand Deepgram undecodable header-less container fragments. That removes the failure that
+ * turned a transient drop into a dead-voice storm — which means we no longer need the old
+ * "never give up, retry forever" loop (that loop WAS the storm). The right rule now is a
+ * few quick tries, then stop and surface a clear "tap to reconnect" instead of hammering
+ * Deepgram indefinitely.
  */
 
 export const MAX_RECONNECT_DELAY_MS = 2500;
 
-/** Wait before the next reconnect attempt: 0.5s, 1s, 2s, then capped at 2.5s. */
-export function reconnectDelayMs(attempt: number): number {
-  const a = Math.max(0, attempt);
-  return Math.min(500 * Math.pow(2, a), MAX_RECONNECT_DELAY_MS);
-}
+/** After this many failed attempts, stop retrying and surface "tap to reconnect". */
+export const GENTLE_MAX_ATTEMPTS = 4;
 
 /**
- * Advance the attempt counter, capped so the delay plateaus at the ceiling and the
- * loop NEVER reaches a "give up" state. Foreground drops keep retrying indefinitely.
+ * Bounded, gentle recovery. Quick early retries (0.5s, 1s, 2s, 2.5s), then give up.
+ * A real transient drop recovers on the first try or two; a persistent drop stops
+ * storming and hands control back to the driver.
  */
-export function nextAttempt(attempt: number): number {
-  return Math.min(attempt + 1, 3);
+export function gentleReconnect(attempt: number): { delayMs: number; giveUp: boolean } {
+  const a = Math.max(0, attempt);
+  if (a >= GENTLE_MAX_ATTEMPTS) {
+    return { delayMs: 0, giveUp: true };
+  }
+  return { delayMs: Math.min(500 * Math.pow(2, a), MAX_RECONNECT_DELAY_MS), giveUp: false };
 }
 
 /**
- * The OLD behavior, kept only so tests can prove the regression is gone: exponential
- * 1→16s, and after 5 tries it gave up and went dead for 30s. This is what stranded
- * Davy mid-route on 2026-07-01.
+ * The OLD legacy behavior, kept ONLY so tests can prove the regression is gone: exponential
+ * 1→16s, and after 5 tries it gave up and went dead for 30s. This is what stranded Davy
+ * mid-route on 2026-07-01.
  */
 export function legacyReconnect(attempt: number): { delayMs: number; giveUp: boolean } {
   const LEGACY_MAX_ATTEMPTS = 5;

@@ -14,7 +14,7 @@
 // (registration uses updateViaCache:'none'), so a stuck device gets this update
 // the next time the app is opened — no manual data-clearing required.
 
-const SW_VERSION = 'stocker-ai-v8-selfclean';
+const SW_VERSION = 'stocker-ai-v9-rawpcm';
 
 self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SKIP_WAITING') {
