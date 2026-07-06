@@ -31,3 +31,22 @@ MEMORY.md
 !.env.example
 .mcp.json
 **/INCREMENT_*KEY*.js
+.gstack/
+
+# Build/test artifacts — regenerated, never commit
+__pycache__/
+**/__pycache__/
+*.pyc
+playwright-report/
+test-results/
+.playwright-mcp/
+
+# Parked native app shell (Capacitor) — kept ON DISK, not part of the web deploy.
+# These come back into git if/when the native path is un-parked.
+android/
+ios/
+capacitor.config.ts
+src/native/
+
+# XF platform state (regenerated tool state)
+**/.xf/
