@@ -357,7 +357,7 @@ def set_route_sequence(req: SetRouteSequenceRequest):
     # Step 5: Get machines for this route
     machines_result = (
         db.table("machines")
-        .select("id, machine_name, machine_number, location_name, sequence, total_items, completed_items, status")
+        .select("id, machine_name, machine_number, location_name, sequence, total_items, completed_items, status, skipped_at_item")
         .eq("route_id", route_id)
         .order("sequence")
         .execute()
@@ -365,6 +365,23 @@ def set_route_sequence(req: SetRouteSequenceRequest):
     machines = machines_result.data or []
     if not machines:
         raise HTTPException(status_code=404, detail="No machines found for this route")
+
+    # PHANTOM-PROGRESS RESET (2026-07-10). A machine that is still 'pending' but shows
+    # completed_items > 0 with NO skip marker never actually started stocking — the count was
+    # advanced by an out-of-order get-next-item fired before start-machine. Davy's North walk
+    # proved the damage: a pre-start get-next-item left completed_items=2, and a later 'bottom'
+    # start then began 2 items up, skipping the true bottom two. Reset that phantom count to 0
+    # here so route setup never carries it forward. A GENUINE go-back resume keeps its skip
+    # marker (skipped_at_item set), so it is left untouched — we never wipe real progress.
+    phantom_ids = [
+        m["id"] for m in machines
+        if m["status"] == "pending" and (m.get("completed_items") or 0) > 0 and not m.get("skipped_at_item")
+    ]
+    if phantom_ids:
+        db.table("machines").update({"completed_items": 0}).in_("id", phantom_ids).execute()
+        for m in machines:
+            if m["id"] in phantom_ids:
+                m["completed_items"] = 0
 
     # Step 6: Decide RESET vs RESUME by the ROUTE's actual progress, NOT by whether a
     # session row exists. Logging out clears the session row, so a re-login looks

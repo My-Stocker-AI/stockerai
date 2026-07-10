@@ -250,7 +250,7 @@ def start_machine(req: StartMachineRequest):
     # Step 2: Get machine
     machine_result = (
         db.table("machines")
-        .select("id, machine_name, machine_number, location_name, total_items, completed_items, status")
+        .select("id, machine_name, machine_number, location_name, total_items, completed_items, status, skipped_at_item")
         .eq("id", machine_id)
         .limit(1)
         .execute()
@@ -284,8 +284,17 @@ def start_machine(req: StartMachineRequest):
     # (same item, same count), exactly as the old n8n engine's SET behaved.
     completed = machine.get("completed_items", 0) or 0
     already_started = machine.get("status") == "in_progress"
+    # A genuine go-back-to-skipped resume keeps its skip marker; a fresh top/bottom start on a
+    # never-started machine does not. This is what lets an explicit direction choice be an
+    # authoritative FRESH start at the true first/last item, while still resuming a real skip.
+    is_resume = bool(machine.get("skipped_at_item"))
     want = 2 if (req.count == 2 and len(items) > 1) else 1
-    base = (completed - want) if already_started else completed
+    if already_started:
+        base = completed - want   # in_progress retry / double-tap: recompute the same position (idempotent)
+    elif is_resume:
+        base = completed          # legitimate go-back-to-skipped resume: continue from the saved point
+    else:
+        base = 0                  # FRESH top/bottom start: begin at the true first/last item (2026-07-10 fix)
     base = max(0, min(base, len(items) - 1))
 
     if pick_direction == "forward":
