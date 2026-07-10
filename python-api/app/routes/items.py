@@ -80,7 +80,10 @@ def get_next_item(req: GetNextItemRequest):
         )
         if session_result.data and session_result.data[0].get("current_machine_id"):
             db.table("machines").update({
-                "status": "completed"
+                "status": "completed",
+                # A completed machine is no longer "skipped" — clear any leftover marker so it
+                # can't mislead a later resume or re-arm the phantom-reset logic. (branch 2d)
+                "skipped_at_item": None,
             }).eq("id", session_result.data[0]["current_machine_id"]).execute()
 
     # Step 3: Update session current_machine_id if RPC indicates change
@@ -261,6 +264,16 @@ def start_machine(req: StartMachineRequest):
 
     machine = machine_result.data[0]
 
+    # Guard: never re-open a completed machine. A finished route resumed via
+    # set-route-sequence falls back to the first machine even when all are completed,
+    # and re-saying "top"/"bottom" on it would reset a done machine to 1/N and re-announce
+    # stocked items. A completed machine has nothing left to stock — reject cleanly.
+    if machine.get("status") == "completed":
+        raise HTTPException(
+            status_code=400,
+            detail="Machine already completed. Nothing left to stock here.",
+        )
+
     # Step 3: Get items ordered by sequence
     items_result = (
         db.table("items")
@@ -288,13 +301,22 @@ def start_machine(req: StartMachineRequest):
     # never-started machine does not. This is what lets an explicit direction choice be an
     # authoritative FRESH start at the true first/last item, while still resuming a real skip.
     is_resume = bool(machine.get("skipped_at_item"))
+    # A resume only CONTINUES from the saved count when the spoken direction matches the
+    # direction used before the skip. completed_items is a one-directional count (N done from
+    # one end); it cannot coherently continue a pick from the OTHER end. So a direction FLIP on
+    # resume is an authoritative fresh restart from the true first/last item — the already-done
+    # items are simply re-picked as the new sweep passes them (re-stocking a full slot is a
+    # no-op, and it honors "a skipped item is always worth a second review"). Landing on the
+    # true end also kills the phantom where a flipped 'bottom' started 2 items up mid-machine.
+    old_direction = session.get("pick_direction")
+    direction_flipped = is_resume and bool(old_direction) and old_direction != pick_direction
     want = 2 if (req.count == 2 and len(items) > 1) else 1
     if already_started:
-        base = completed - want   # in_progress retry / double-tap: recompute the same position (idempotent)
-    elif is_resume:
-        base = completed          # legitimate go-back-to-skipped resume: continue from the saved point
+        base = completed - want              # in_progress retry / double-tap: recompute the same position (idempotent)
+    elif is_resume and not direction_flipped:
+        base = completed                     # same-direction go-back-to-skipped resume: continue from the saved point
     else:
-        base = 0                  # FRESH top/bottom start: begin at the true first/last item (2026-07-10 fix)
+        base = 0                             # FRESH start OR direction-flip restart: begin at the true first/last item
     base = max(0, min(base, len(items) - 1))
 
     if pick_direction == "forward":
@@ -317,6 +339,11 @@ def start_machine(req: StartMachineRequest):
     db.table("machines").update({
         "status": "in_progress",
         "completed_items": new_completed,
+        # Machine is being actively stocked again — it is no longer "skipped". Clear the
+        # marker so a LATER skip re-arms it (the auto_set_skipped_at_item trigger fires only
+        # on a fresh pending→skipped transition, so a stale marker would otherwise make the
+        # machine look like a permanent resume). (branch 2c)
+        "skipped_at_item": None,
     }).eq("id", machine_id).execute()
 
     # Step 6: Update session pick_direction and current_machine_id

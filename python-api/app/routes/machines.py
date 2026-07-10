@@ -156,18 +156,24 @@ def skip_machine(req: SkipMachineRequest):
             "display": f"Returning to: {skipped['machine_name']}",
         }
 
-    # Step 6: All machines done/skipped — route complete.
-    # Mark the session 'completed' here too (same gap as the get_next_item path):
-    # without this the session stays 'stocking' and jams the next route.
-    db.table("sessions").update({
-        "status": "completed",
-    }).eq("id", session["id"]).execute()
-
-    complete_phrase = "All machines are done or skipped. Route complete!"
+    # Step 6: No machine ahead, and no OTHER skipped machine to jump to — but we just
+    # skipped the CURRENT one, so it is still unstocked. NEVER declare the route complete
+    # here: the old code marked the session 'completed', which abandoned the machine with
+    # no way back (skip the last/only machine → stranded forever). A skipped machine is
+    # never silently passed. Keep the session ACTIVE and OFFER to go back and finish it —
+    # the driver says "go back" (or taps it in the list) to resume, or leaves it for later
+    # (resume-state will surface it again next time). The route is genuinely NOT complete
+    # while a machine remains unstocked, so "complete-with-skips" is an offer, not a finish.
+    offer_phrase = (
+        f"That was the last machine, and {current_machine['machine_name']} is still skipped. "
+        f"Say 'go back' to finish it, or you're all done for now."
+    )
     return {
-        "action": "route_complete",
-        "voice_text": complete_phrase,
-        "spoken": complete_phrase,
+        "action": "offer_go_back",
+        "skipped_machine": current_machine["machine_name"],
+        "voice_text": offer_phrase,
+        "spoken": offer_phrase,
+        "display": f"Last machine skipped: {current_machine['machine_name']} — say 'go back' to finish it",
     }
 
 

@@ -564,6 +564,15 @@ export function useStockerSession(userId: string | null) {
           next.currentItem = null;
           next.currentItem2 = null;
           next.pendingMachineTransition = null;
+        } else if (action === 'offer_go_back') {
+          // Skipped the LAST machine with no other skip to jump to. The route is NOT complete —
+          // this machine is still unstocked — so do NOT set completed/sessionInvalidated (that
+          // would lock out the driver's "go back"). Leave the machine 'skipped' in the list,
+          // clear the on-screen item, and let the spoken offer (voice_text) stand. Saying
+          // "go back" or tapping the skipped machine resumes it.
+          next.currentItem = null;
+          next.currentItem2 = null;
+          next.pendingMachineTransition = null;
         } else {
           // Legacy fallback (if workflow not updated yet)
           next.currentMachineIndex = (prev.currentMachineIndex || 0) + 1;

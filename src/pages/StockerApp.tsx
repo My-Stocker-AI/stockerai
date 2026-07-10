@@ -447,6 +447,24 @@ export default function StockerApp() {
           // Allow direction and affirmative commands to proceed
         }
 
+        // ORDERING GUARD (branch 4): never ask for the next item before the current machine
+        // has been started. The backend now rejects an out-of-order get-next-item, but the app
+        // shouldn't send it at all — prompt for a direction instead. The pendingMachineTransition
+        // block above covers machine 2+; this covers the FIRST machine, where that transition is
+        // never set (status is still 'pending' and currentItem is null until top/bottom is said).
+        if (commandMatch.command === PickingCommand.NEXT_ITEM) {
+          const currentMachine = routeState.machines.find(m => m.id === routeState.currentMachineId);
+          if (!currentMachine || currentMachine.status !== 'in_progress') {
+            console.log('[CommandRecognizer] ❌ BLOCKED - "next" before machine started:', currentMachine?.status ?? 'no-current-machine');
+            const name = routeState.currentMachineName || currentMachine?.name || 'this machine';
+            const msg = `Say top or bottom to start ${name} first.`;
+            setAiResponse(msg);
+            await v.speak(msg);
+            processingRef.current = false;
+            return;
+          }
+        }
+
         console.log('[CommandRecognizer] ✓ Matched:', commandMatch.command, 'confidence:', commandMatch.confidence, '(bypassing AI)');
         processingRef.current = true;
         v.setThinking();
