@@ -114,3 +114,24 @@ def test_genuine_go_back_resume_is_preserved(client, db):
     assert _set_route(client, m["session_id"]).status_code == 200
     # Skip marker present → legitimate progress → count preserved, not wiped.
     assert _completed(db, m["machine_id"]) == 2
+
+
+def test_get_next_item_blocked_before_machine_started(client, db):
+    """RPC guard (seam 1): get-next-item must NOT advance a machine that was never started."""
+    m = _build(db, completed=0, skipped_at_item=None)
+    r = client.post("/api/get-next-item",
+                    json={"session_id": m["session_id"], "user_id": TEST_USER, "count": 1})
+    assert r.status_code == 500                       # guard raises on a not-in_progress machine
+    assert _completed(db, m["machine_id"]) == 0       # and the phantom advance never happens
+
+
+def test_get_next_item_works_after_start(client, db):
+    """Normal flow unaffected: after start-machine (in_progress), get-next-item advances."""
+    m = _build(db, completed=0, skipped_at_item=None)
+    assert client.post("/api/start-machine",
+                       json={"session_id": m["session_id"], "user_id": TEST_USER,
+                             "direction": "beginning", "count": 1}).status_code == 200
+    r = client.post("/api/get-next-item",
+                    json={"session_id": m["session_id"], "user_id": TEST_USER, "count": 1})
+    assert r.status_code == 200
+    assert _completed(db, m["machine_id"]) == 2       # start set 1 (in_progress), get-next advanced to 2
