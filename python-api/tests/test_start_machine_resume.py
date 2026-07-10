@@ -30,7 +30,7 @@ def _machine(db, machine_id):
     return db.table("machines").select("completed_items, status").eq("id", machine_id).execute().data[0]
 
 
-def _build(db, completed_items, status):
+def _build(db, completed_items, status, skipped_at_item=None):
     """Create a throwaway 5-item machine + stocking session in a given state."""
     db.table("sessions").delete().eq("user_id", TEST_USER).execute()
     db.table("routes").delete().eq("user_id", TEST_USER).eq("delivery_date", DATE).execute()
@@ -43,6 +43,7 @@ def _build(db, completed_items, status):
         "route_id": rid, "route_name": "RESUME_TEST", "machine_name": "M1",
         "machine_number": 1, "location_name": "L1", "sequence": 1,
         "total_items": 5, "completed_items": completed_items, "status": status,
+        "skipped_at_item": skipped_at_item,
     }).execute().data[0]["id"]
     db.table("items").insert([{
         "machine_id": mid, "machine_name": "M1", "product_name": f"P{i}", "quantity": 1,
@@ -63,7 +64,7 @@ def resumed_machine():
     exact state go_back_to_skipped produces when returning to a skipped machine."""
     from app.services.database import get_client
     db = get_client()
-    ctx = _build(db, completed_items=3, status="pending")
+    ctx = _build(db, completed_items=3, status="pending", skipped_at_item=3)
     yield ctx
     db.table("sessions").delete().eq("user_id", TEST_USER).execute()
     db.table("routes").delete().eq("user_id", TEST_USER).eq("delivery_date", DATE).execute()
