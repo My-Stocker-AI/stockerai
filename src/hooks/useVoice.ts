@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { readEnvVoiceTuning, EnvVoiceTuning } from '@/lib/settingsCore';
 import { gentleReconnect } from './reconnectPolicy';
+import { watchdogAction, recoverStatus, resolveHandoffCommand, WATCHDOG_STUCK_THRESHOLD_MS } from './voiceHandoffPolicy';
 
 export type VoiceStatus = 'idle' | 'listening' | 'speaking' | 'thinking' | 'paused' | 'muted' | 'error';
 
@@ -68,7 +69,17 @@ export function useVoice(options: UseVoiceOptions = {}) {
 
   // Status ref to avoid stale closures in WebSocket callbacks (matches original PWA this.state pattern)
   const statusRef = useRef<VoiceStatus>('idle');
+  // Watchdog bookkeeping (branch 5): timestamp of when status last LEFT 'listening', so the
+  // watchdog can tell a brief legitimate 'thinking' window from a real stuck-freeze. Null while
+  // listening. See voiceHandoffPolicy.watchdogAction.
+  const stuckSinceRef = useRef<number | null>(null);
   const setStatus = useCallback((newStatus: VoiceStatus) => {
+    if (newStatus === 'listening') {
+      stuckSinceRef.current = null;
+    } else if (statusRef.current === 'listening') {
+      // First tick leaving 'listening' — start the stuck clock.
+      stuckSinceRef.current = Date.now();
+    }
     statusRef.current = newStatus;
     setStatusState(newStatus);
   }, []);
@@ -101,6 +112,12 @@ export function useVoice(options: UseVoiceOptions = {}) {
   // Queued command: stores the latest command spoken during 'thinking'/'speaking'
   // Fired automatically when resumeListening() completes successfully
   const pendingCommandRef = useRef<string | null>(null);
+  // Branch 3: true while the app is awaiting a top/bottom answer at a machine hand-off. The
+  // parent (StockerApp) sets it from voiceHandoffPolicy.shouldRunDirectionDetection. When set, a
+  // direction command spoken during a transient 'thinking' window dispatches instead of being
+  // queued-and-stranded.
+  const awaitingDirectionRef = useRef(false);
+  const setAwaitingDirection = useCallback((v: boolean) => { awaitingDirectionRef.current = v; }, []);
 
   // PRIORITY 1.2: Deepgram reconnection tracking
   const reconnectAttemptsRef = useRef(0);
@@ -446,16 +463,28 @@ export function useVoice(options: UseVoiceOptions = {}) {
       return;
     }
 
-    // Only process if in valid state (matches original PWA state check)
+    // Only process if in valid state (matches original PWA state check).
     if (currentStatus !== 'listening' && currentStatus !== 'idle' && currentStatus !== 'speaking') {
-      // Queue commands spoken during API processing — fire when listening resumes
-      if (currentStatus === 'thinking') {
-        console.log('[Voice] Command queued during thinking:', text);
+      // Branch 3: don't strand a direction command at a machine hand-off. When the app is awaiting
+      // a top/bottom answer, dispatch it immediately instead of queuing — a queued command only
+      // fires on a LATER resumeListening, which is exactly the "said bottom, nothing happened,
+      // had to repeat" drop from Davy's logs. Non-direction commands keep the original
+      // queue-during-thinking / ignore-otherwise behavior. resolveHandoffCommand is unit-tested.
+      const handoff = resolveHandoffCommand({
+        status: currentStatus,
+        isDirectionCommand: awaitingDirectionRef.current,
+      });
+      if (handoff === 'queue') {
+        console.log('[Voice] Command queued during', currentStatus + ':', text);
         pendingCommandRef.current = text; // Keep only the latest
-      } else {
-        console.log('[Voice] Ignoring transcript, wrong state:', currentStatus);
+        return;
       }
-      return;
+      if (handoff === 'ignore') {
+        console.log('[Voice] Ignoring transcript, wrong state:', currentStatus);
+        return;
+      }
+      // handoff === 'dispatch': awaiting-direction command — fall through to dispatch below.
+      console.log('[Voice] Awaiting-direction command dispatched during', currentStatus + ':', text);
     }
 
     // Filter echo/noise (matches original PWA)
@@ -1204,6 +1233,37 @@ export function useVoice(options: UseVoiceOptions = {}) {
     }
   }, [startPcmCapture, resumeCapture, startListening, setStatus, playCommandChime]);
 
+  // ── Freeze watchdog (branch 5, strictly additive) ───────────────────────────────────────────
+  // Davy's 2026-07-12 route died when the app got stuck non-listening after a TTS barge-in: it
+  // kept transcribing but never acted, with a command stranded in the queue. This safety net
+  // polls the status FSM and, only when it has been stuck non-listening with a pending command
+  // past the threshold (long enough that a real in-flight API 'thinking' call would already have
+  // resolved), force-recovers to listening and flushes the backlog via resumeListening. A normal
+  // short 'thinking' window is left untouched. Decision logic is the unit-tested watchdogAction.
+  const resumeListeningRef = useRef(resumeListening);
+  resumeListeningRef.current = resumeListening;
+  useEffect(() => {
+    const WATCHDOG_POLL_MS = 2000;
+    const timer = setInterval(() => {
+      const stuckMs = stuckSinceRef.current === null ? 0 : Date.now() - stuckSinceRef.current;
+      const action = watchdogAction({
+        status: statusRef.current,
+        hasPendingCommand: pendingCommandRef.current !== null,
+        stuckMs,
+        thresholdMs: WATCHDOG_STUCK_THRESHOLD_MS,
+      });
+      if (action === 'recover') {
+        const target = recoverStatus(statusRef.current); // 'listening' (preserves paused/muted)
+        console.warn('[Voice] ⏱️ Watchdog: FSM stuck non-listening with a queued command — force-recovering to', target);
+        emitDiagnostic('watchdog-recover', { stuckMs, from: statusRef.current, to: target });
+        setStatus(target);
+        // resumeListening() re-arms capture AND fires the stranded command from pendingCommandRef.
+        resumeListeningRef.current().catch(() => { /* best effort — a failed resume re-arms next tick */ });
+      }
+    }, WATCHDOG_POLL_MS);
+    return () => clearInterval(timer);
+  }, []);
+
   const mute = useCallback(() => {
     // Clear silence timer and accumulated transcript (matches original PWA mute behavior)
     if (silenceTimerRef.current) {
@@ -1868,6 +1928,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
     stopAudio,
     setThinking,
     setStatus,
+    setAwaitingDirection,  // Branch 3: parent flags when awaiting a top/bottom answer at a hand-off
     playBeep,
     playSuccessBeep,
     playErrorBeep,

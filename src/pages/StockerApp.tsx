@@ -4,6 +4,7 @@ import { ArrowLeft, CheckCircle, Mic, MicOff, Pause, Play, Square, AlertTriangle
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import { useVoice } from '@/hooks/useVoice';
+import { shouldRunDirectionDetection } from '@/hooks/voiceHandoffPolicy';
 import { useStockerAI } from '@/hooks/useStockerAI';
 import { useStockerSession } from '@/hooks/useStockerSession';
 import { useSessionPersistence } from '@/hooks/useSessionPersistence';
@@ -393,7 +394,22 @@ export default function StockerApp() {
     // Problem: Deepgram transcribes "bottom" as "bam", "bomb", etc.
     // Solution: Client-side phonetic matching - ZERO LATENCY
     let correctedTranscript = transcript;
-    if (routeState.pendingMachineTransition) {
+    // Run the forgiving direction matcher whenever the app is awaiting a top/bottom answer:
+    // at a machine-to-machine hand-off (existing behavior) AND on the FIRST machine of a route,
+    // where no transition is pending yet. That first-machine gap is why "at the bottom" /
+    // "start with the bottom" failed on machine 1 until the driver stripped down to bare "bottom"
+    // (Davy 2026-07-10 log). Strictly additive — machine-2+ and mid-pick behavior are unchanged.
+    // See voiceHandoffPolicy.shouldRunDirectionDetection (unit-tested against the real log states).
+    const currentMachineForDirection = routeState.machines.find(
+      m => m.id === routeState.currentMachineId
+    );
+    if (
+      shouldRunDirectionDetection({
+        pendingMachineTransition: !!routeState.pendingMachineTransition,
+        currentMachineStatus: currentMachineForDirection?.status,
+        hasCurrentItem: !!routeState.currentItem,
+      })
+    ) {
       const { detectDirection } = await import('../utils/phoneticCorrection');
       const detectedDirection = detectDirection(transcript);
       if (detectedDirection) {
@@ -1132,6 +1148,21 @@ export default function StockerApp() {
   useEffect(() => {
     voiceRef.current = voice;
   }, [voice]);
+
+  // Branch 3: keep the voice hook informed when the app is awaiting a top/bottom answer, so a
+  // direction command spoken during a transient 'thinking' window at a machine hand-off dispatches
+  // immediately instead of being queued-and-stranded (Davy's "said bottom, nothing happened, had
+  // to repeat"). Same predicate that gates the forgiving direction matcher above.
+  useEffect(() => {
+    const cur = routeState.machines.find(m => m.id === routeState.currentMachineId);
+    voice.setAwaitingDirection?.(
+      shouldRunDirectionDetection({
+        pendingMachineTransition: !!routeState.pendingMachineTransition,
+        currentMachineStatus: cur?.status,
+        hasCurrentItem: !!routeState.currentItem,
+      })
+    );
+  }, [voice, routeState.pendingMachineTransition, routeState.currentMachineId, routeState.currentItem, routeState.machines]);
 
   // Detect iOS PWA and show warning - getUserMedia is broken in iOS standalone mode
   useEffect(() => {
