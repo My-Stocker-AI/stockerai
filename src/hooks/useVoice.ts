@@ -875,6 +875,21 @@ export function useVoice(options: UseVoiceOptions = {}) {
           console.log(`[Voice] Deepgram dropped — gentle reconnect in ${delayMs}ms (attempt ${attempt + 1})`, { timestamp });
           emitDiagnostic('deepgram-reconnecting', { attempt: attempt + 1, backoffMs: delayMs, timestamp });
 
+          // GRID SURVEY 2026-07-30 — tell him a CLEAN close is reconnecting too.
+          // 'Reconnecting voice…' was only raised from socket.onerror. A network drop usually
+          // closes the socket WITHOUT firing onerror, so this path recovered in total silence:
+          // the mic keeps capturing, the screen still reads as listening, and connectDeepgram
+          // can spend up to 10s on ensureToken before a socket exists again. Every word spoken
+          // in that window goes nowhere, and nothing tells him. Now it routes through the same
+          // failure-speech path, so he hears "One moment, reconnecting" and waits instead of
+          // repeating himself into a dead line (which is how one utterance becomes two picks).
+          // Only on the FIRST attempt — resolveFailureSpeech also guards against repeats, but
+          // not raising it per-attempt keeps the diagnostic stream honest about what happened.
+          // Spec: .xf/specs/2026-07-30-voice-grid-survey-xffi.md
+          if (attempt === 0) {
+            onErrorRef.current?.('Reconnecting voice…');
+          }
+
           if (reconnectTimeoutRef.current) {
             clearTimeout(reconnectTimeoutRef.current);
           }
