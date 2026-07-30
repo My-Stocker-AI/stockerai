@@ -7,6 +7,7 @@ import { useVoice } from '@/hooks/useVoice';
 import { shouldRunDirectionDetection } from '@/hooks/voiceHandoffPolicy';
 import { resolveFailureSpeech, type FailureKind } from '@/hooks/voiceFailureSpeech';
 import { resolveTranscriptGate, gateReason } from '@/hooks/transcriptGate';
+import { resolveUnknownReply } from '@/utils/commandGuess';
 import { useStockerAI } from '@/hooks/useStockerAI';
 import { useStockerSession } from '@/hooks/useStockerSession';
 import { useSessionPersistence } from '@/hooks/useSessionPersistence';
@@ -199,6 +200,8 @@ export default function StockerApp() {
   const lastRouteIdRef = useRef<string | null>(null); // Track last processed route ID
   const MAX_RETRIES = 2;
   const voiceRef = useRef<any>(null); // Ref to hold voice methods for callbacks
+  // The command the app just asked about ("Next item?"). A yes on the next turn runs it.
+  const pendingGuessRef = useRef<PickingCommand | null>(null);
 
   // SIBLING SWEEP 2026-07-30 — handleVoiceError is useCallback([]), so it can NEVER read
   // routeState directly: that closure is frozen at mount and currentItem would read null for
@@ -438,7 +441,29 @@ export default function StockerApp() {
     // Only active when user is on a route (not during route selection)
     if (routeState.routeName) {
       console.log('[CommandRecognizer] 🎤 Transcript received:', transcript);
-      const commandMatch = commandRecognizer.recognize(correctedTranscript);
+      let commandMatch = commandRecognizer.recognize(correctedTranscript);
+
+      // SURVEY FIX 2026-07-30 — answer to a question the app asked a beat ago.
+      // If the last thing the app said was "Next item?", a yes runs it and a no drops it.
+      // Anything else is treated as a fresh command, so he is never trapped in the question.
+      if (pendingGuessRef.current) {
+        const guessed = pendingGuessRef.current;
+        pendingGuessRef.current = null;
+
+        if (
+          commandMatch.command === PickingCommand.AFFIRMATIVE ||
+          /^(yes|yeah|yep|yup|sure|correct|right|do it|go ahead|please)$/.test(lower)
+        ) {
+          console.log('[CommandGuess] ✓ confirmed:', guessed);
+          commandMatch = { command: guessed, confidence: 1, parameters: {} };
+        } else if (/^(no|nope|nah|negative|cancel|never ?mind|forget it)$/.test(lower)) {
+          console.log('[CommandGuess] ✗ declined:', guessed);
+          const msg = 'Okay.';
+          setAiResponse(msg);
+          await v.speak(msg);
+          return;
+        }
+      }
       console.log('[CommandRecognizer] 🔍 Recognition result:', {
         command: commandMatch.command,
         confidence: commandMatch.confidence,
@@ -828,14 +853,26 @@ export default function StockerApp() {
         processingRef.current = false;
         return; // Never fall through to AI during active picking
       } else {
-        // UNKNOWN during active picking — respond locally, do NOT route to AI
+        // UNKNOWN during active picking — respond locally, do NOT route to AI.
         // AI gives confusing state-based responses to unrecognized input (e.g. "Say top or bottom" mid-machine)
+        //
+        // SURVEY FIX 2026-07-30 — "Can you say that again?" was a dead end. Repeating the same
+        // phrase word-for-word got the same answer, so the picker looped and gave up. The matcher
+        // is all-or-nothing (full certainty or nothing), so there was never a "maybe" to work
+        // with. commandGuess.ts adds one: if the phrase clearly leans toward a command, ask a
+        // one-word question instead. A wrong guess costs him one word; no guess cost the whole
+        // interaction. When nothing leans, the honest fallback is unchanged.
         console.log('[CommandRecognizer] ❓ UNKNOWN command during picking:', correctedTranscript);
         let unknownMsg: string;
         if (routeState.pendingMachineTransition) {
           unknownMsg = `I didn't catch that. Say top or bottom for ${routeState.pendingMachineTransition.nextMachineName}.`;
         } else {
-          unknownMsg = "I didn't catch that. Can you say that again?";
+          const reply = resolveUnknownReply(correctedTranscript);
+          unknownMsg = reply.phrase;
+          if (reply.ask && reply.guess) {
+            console.log('[CommandGuess] ? asking:', reply.guess.command, 'from', reply.guess.matched);
+            pendingGuessRef.current = reply.guess.command;
+          }
         }
         setAiResponse(unknownMsg);
         await v.speak(unknownMsg);

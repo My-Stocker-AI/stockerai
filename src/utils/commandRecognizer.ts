@@ -119,6 +119,8 @@ const NEXT_PATTERNS = [
   /^check$/,
   /^good$/,
   /^perfect$/,
+  // Moved out of SKIP_PATTERNS 2026-07-30 — see the note there.
+  /^move on$/,
 ];
 
 const SKIP_PATTERNS = [
@@ -128,7 +130,9 @@ const SKIP_PATTERNS = [
   /^skip this one$/,
   /^skip it$/,
   /^pass$/,
-  /^move on$/,
+  // "move on" REMOVED 2026-07-30 (survey). In ordinary speech it means "next item", not
+  // "abandon this machine". A picker saying it mid-machine had every remaining item in that
+  // machine marked skipped, with no warning and nothing to undo it. It now reads as NEXT_ITEM.
   /^go to next machine$/,
   /^next machine$/,
 ];

@@ -174,11 +174,19 @@ describe('CommandRecognizer', () => {
       'skip this one',
       'skip it',
       'pass',
-      'move on',
       'go to next machine',
       'next machine',
     ])('recognizes "%s"', (input) => {
       expect(r.recognize(input).command).toBe(PickingCommand.SKIP_MACHINE);
+    });
+
+    it('REVERSED 2026-07-30 — "move on" means the next ITEM, not abandon the machine', () => {
+      // This used to sit in the list above. In ordinary speech "move on" means "next one".
+      // A picker saying it mid-machine had every remaining item in that machine marked
+      // skipped — no warning, nothing to undo it, and he would only find out when the truck
+      // was short. Kept as its own test rather than deleted so the reversal is visible in
+      // history instead of looking like the case quietly vanished.
+      expect(r.recognize('move on').command).toBe(PickingCommand.NEXT_ITEM);
     });
   });
 
