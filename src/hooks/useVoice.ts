@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { readEnvVoiceTuning, EnvVoiceTuning } from '@/lib/settingsCore';
 import { gentleReconnect } from './reconnectPolicy';
 import { watchdogAction, recoverStatus, resolveHandoffCommand, WATCHDOG_STUCK_THRESHOLD_MS } from './voiceHandoffPolicy';
+import { accumulateTranscript } from './transcriptAccumulator';
 
 export type VoiceStatus = 'idle' | 'listening' | 'speaking' | 'thinking' | 'paused' | 'muted' | 'error';
 
@@ -541,17 +542,25 @@ export function useVoice(options: UseVoiceOptions = {}) {
           setLastInput(transcript.trim());
           emitDiagnostic('transcript', transcript.trim());
 
-          // If Deepgram detected utterance end, process immediately (matches original PWA)
-          if (isUtteranceEnd) {
-            console.log('[Voice] Utterance end - processing immediately:', transcript);
-            accumulatedTranscriptRef.current = transcript;
+          // GRID SURVEY 2026-07-30 — the stop signal ENDS the sentence, it does not redefine it.
+          // This branch used to ASSIGN (`accumulatedTranscriptRef.current = transcript`), so every
+          // segment banked before Deepgram signalled speech-end was discarded and only the last
+          // one was acted on: "go to the next machine" split across two segments became "next
+          // machine". Silently — no error, no diagnostic. accumulateTranscript joins instead.
+          // Spec: .xf/specs/2026-07-30-voice-grid-survey-xffi.md
+          const stitched = accumulateTranscript({
+            accumulated: accumulatedTranscriptRef.current,
+            incoming: transcript,
+            isUtteranceEnd,
+          });
+          accumulatedTranscriptRef.current = stitched.text;
+
+          if (stitched.process) {
+            console.log('[Voice] Utterance end - processing immediately:', stitched.text);
             if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
             processAccumulatedTranscript();
             return;
           }
-
-          // Accumulate transcript (matches original PWA this.transcript += final)
-          accumulatedTranscriptRef.current += (accumulatedTranscriptRef.current ? ' ' : '') + transcript;
 
           // Reset silence timer (fallback for when utterance_end doesn't fire)
           if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
