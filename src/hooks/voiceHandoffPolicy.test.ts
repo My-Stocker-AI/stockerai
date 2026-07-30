@@ -94,9 +94,16 @@ describe('BRANCH 3 — the fix: a direction command at the hand-off is never los
     }
   });
 
-  it('NON-direction commands keep the existing behavior — no scope creep', () => {
-    expect(resolveHandoffCommand({ status: 'thinking', isDirectionCommand: false })).toBe('queue');
-    expect(resolveHandoffCommand({ status: 'paused', isDirectionCommand: false })).toBe('ignore');
+  it('SUPERSEDED 2026-07-30 — non-direction commands no longer keep the old parked behavior', () => {
+    // This test originally asserted "no scope creep": the 2026-07-14 fix deliberately left an
+    // ordinary picking command parked during 'thinking' and DISCARDED during 'paused'. The
+    // sibling sweep reversed that decision on purpose — parking costs the driver ~6s of silence
+    // and discarding loses the utterance outright, and neither is acceptable for a picking word
+    // any more than for a direction word. Kept (not deleted) so the reversal is visible in
+    // history rather than looking like the old guard silently vanished.
+    // Reversal recorded in .xf/specs/2026-07-30-voice-sibling-fixes-xffi.md.
+    expect(resolveHandoffCommand({ status: 'thinking', isDirectionCommand: false })).toBe('dispatch');
+    expect(resolveHandoffCommand({ status: 'paused', isDirectionCommand: false })).toBe('queue');
     expect(resolveHandoffCommand({ status: 'listening', isDirectionCommand: false })).toBe('dispatch');
   });
 });
@@ -147,5 +154,51 @@ describe('BRANCH 5 — watchdog: recover a real freeze, never interrupt legit pr
     expect(
       watchdogAction({ status: 'thinking', hasPendingCommand: false, stuckMs: 99999, thresholdMs: WATCHDOG_STUCK_THRESHOLD_MS }),
     ).toBe('noop');
+  });
+});
+
+/**
+ * SIBLING SWEEP — 2026-07-30
+ *
+ * Spec: .xf/specs/2026-07-30-voice-sibling-fixes-xffi.md
+ *
+ * The 2026-07-14 round fixed the DIRECTION command at a hand-off. It did not fix the same
+ * family for an ordinary PICKING command. useVoice.ts calls resolveHandoffCommand with
+ * `isDirectionCommand: awaitingDirectionRef.current` — that ref answers "is the app awaiting a
+ * direction?", NOT "is this utterance a direction?". So a picking word spoken while the app is
+ * thinking, outside a hand-off, is still parked in pendingCommandRef and only rescued by the
+ * 6s watchdog. That is 6 seconds of a driver having spoken and nothing happening, silently.
+ *
+ * These tests assert the intended post-fix behavior. They FAIL on the current commit.
+ */
+describe('SIBLING — a picking command spoken mid-think must not be silently parked', () => {
+  it('dispatches a picking command spoken during thinking, outside a hand-off', () => {
+    // Davy says "next" while the app is mid-API-call and is NOT awaiting a direction.
+    // Today: 'queue' — parked, invisible, rescued only after WATCHDOG_STUCK_THRESHOLD_MS.
+    // Required: dispatched, like every other live-ish state.
+    expect(
+      resolveHandoffCommand({ status: 'thinking', isDirectionCommand: false }),
+    ).toBe('dispatch');
+  });
+
+  it('never leaves a picking command parked longer than the driver would tolerate', () => {
+    // The parked path is only acceptable when the app is deliberately held (paused/muted).
+    // Any live-ish state must resolve the utterance now, not on a later resumeListening.
+    const liveish: VoiceStatus[] = ['listening', 'idle', 'speaking', 'thinking'];
+    for (const status of liveish) {
+      expect(resolveHandoffCommand({ status, isDirectionCommand: false })).toBe('dispatch');
+    }
+  });
+
+  it('still parks (never discards) a command spoken while the driver has paused or muted', () => {
+    // Deliberate holds are preserved — this must NOT regress into dispatch.
+    expect(resolveHandoffCommand({ status: 'paused', isDirectionCommand: false })).toBe('queue');
+    expect(resolveHandoffCommand({ status: 'muted', isDirectionCommand: false })).toBe('queue');
+  });
+
+  it('parks rather than discards a command spoken while the app is in error', () => {
+    // Today 'error' returns 'ignore' for a non-direction command — the utterance is DISCARDED.
+    // A discarded command is the stranded-command family: Davy spoke, nothing happened, no record.
+    expect(resolveHandoffCommand({ status: 'error', isDirectionCommand: false })).toBe('queue');
   });
 });

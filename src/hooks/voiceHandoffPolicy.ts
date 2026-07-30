@@ -77,19 +77,28 @@ export function resolveHandoffCommand(args: {
   status: VoiceStatus;
   isDirectionCommand: boolean;
 }): 'dispatch' | 'queue' | 'ignore' {
-  const { status, isDirectionCommand } = args;
-  if (isDirectionCommand) {
-    if (
-      status === 'listening' ||
-      status === 'idle' ||
-      status === 'speaking' ||
-      status === 'thinking'
-    ) {
-      return 'dispatch';
-    }
-    return 'queue'; // paused/muted/error — hold it, don't discard; watchdog/resume flushes it
+  const { status } = args;
+
+  // SIBLING SWEEP 2026-07-30 — the 2026-07-14 round gave this treatment only to a DIRECTION
+  // command at a hand-off. The same failure family was still live for an ordinary picking
+  // command: spoken mid-'thinking' it was parked in pendingCommandRef and only rescued ~6s
+  // later by the watchdog, and spoken during 'error' it was DISCARDED outright — the driver
+  // speaks, nothing happens, no record it existed. isDirectionCommand no longer gates the
+  // behavior: a lost picking word costs the driver exactly as much as a lost direction word.
+  // Spec: .xf/specs/2026-07-30-voice-sibling-fixes-xffi.md
+  if (
+    status === 'listening' ||
+    status === 'idle' ||
+    status === 'speaking' ||
+    status === 'thinking'
+  ) {
+    return 'dispatch';
   }
-  return classifyCurrentDispatch(status);
+
+  // paused/muted are deliberate holds by the driver; 'error' is a state the app fell into.
+  // All three HOLD the utterance rather than discarding it — the watchdog flushes the backlog
+  // on recovery. Nothing the driver says is ever thrown away.
+  return 'queue';
 }
 
 /**
