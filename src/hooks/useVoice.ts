@@ -1896,8 +1896,34 @@ export function useVoice(options: UseVoiceOptions = {}) {
         return;
       }
       const s = statusRef.current;
-      const shouldBeListening = s === 'listening' || s === 'paused' || s === 'muted' || s === 'thinking';
-      if (shouldReconnectRef.current && shouldBeListening && !isConnectedRef.current) {
+
+      // GRID SURVEY 2026-07-30 — RE-REQUEST THE SCREEN WAKE LOCK.
+      // The browser releases the sentinel by itself the moment the document goes hidden, and a
+      // request made WHILE hidden is rejected — so the re-request inside the sentinel's own
+      // 'release' handler (startListening) fires at the one moment it cannot succeed, logs a
+      // warning nobody reads, and the lock is gone for the rest of the session. This handler
+      // already runs on the way back to visible, which is the only moment a request can be
+      // granted. Net effect before this: the screen stayed awake until the FIRST interruption,
+      // then quietly began timing out for the remainder of the route.
+      // Spec: .xf/specs/2026-07-30-voice-wake-lock-xffi.md
+      if (shouldReconnectRef.current && 'wakeLock' in navigator && !wakeLockRef.current) {
+        (navigator as any).wakeLock
+          .request('screen')
+          .then((sentinel: any) => {
+            wakeLockRef.current = sentinel;
+            emitDiagnostic('wake-lock', 'reacquired-on-visible');
+          })
+          .catch((e: any) => {
+            // Rejected (Android can refuse) — the picker is NOT told here; that message is
+            // StockerApp's job per the wake-lock spec. Recorded so a real device run shows it.
+            emitDiagnostic('wake-lock', { outcome: 'rejected-on-visible', reason: String(e?.message || e) });
+          });
+      }
+
+      // GRID SURVEY 2026-07-30 — same status-list gap as the socket close handler: this list
+      // omitted 'speaking' and 'idle', so a drop that happened while the app was announcing an
+      // item was not reconnected on wake either. Second site of the same family.
+      if (shouldReconnectRef.current && shouldReconnectFromStatus(s) && !isConnectedRef.current) {
         if (reconnectTimeoutRef.current) {
           clearTimeout(reconnectTimeoutRef.current);
           reconnectTimeoutRef.current = null;
