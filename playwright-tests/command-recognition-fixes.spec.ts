@@ -4,7 +4,12 @@
  * 2. Last-item notification prefix in voice responses
  */
 
-import { test, expect } from '@playwright/test';
+// Seeds a throwaway 3-machine × 5-item route before each test and deletes it afterwards.
+// Until 2026-07-30 these tests said "start North route" — Davy Dupon's REAL route from
+// 2026-07-10 — so every run rewrote his live pick history. They also assumed 3 machines of
+// 5 items, which North (2 machines, 159 items) never matched, so they could not have passed
+// honestly either. Both problems go away with a route the test owns.
+import { test, expect } from './fixtures/test';
 
 // Helper to inject transcript directly (bypasses real voice)
 async function injectTranscript(page: any, text: string) {
@@ -43,7 +48,11 @@ async function setupMockAuth(page: any) {
 }
 
 test.describe('Command Recognition Fixes', () => {
-  test.beforeEach(async ({ page }) => {
+  // Requesting fixtureRoute here guarantees the route exists in the database BEFORE the app
+  // loads and asks for today's routes.
+  test.beforeEach(async ({ page, fixtureRoute }) => {
+    console.log(`[Test] seeded route: ${fixtureRoute.routeName}`);
+
     // Set up mock authentication
     await setupMockAuth(page);
 
@@ -61,7 +70,7 @@ test.describe('Command Recognition Fixes', () => {
     await page.waitForSelector('text=Hi', { timeout: 10000 });
   });
 
-  test('Fix 1: "next" command works after "OK" during machine transition', async ({ page }) => {
+  test('Fix 1: "next" command works after "OK" during machine transition', async ({ page, fixtureRoute }) => {
     /**
      * Reproduces the bug where:
      * 1. Machine completes → pendingMachineTransition set
@@ -74,7 +83,7 @@ test.describe('Command Recognition Fixes', () => {
      */
 
     // Start a route (assumes test route exists)
-    await injectTranscript(page, 'start North route');
+    await injectTranscript(page, `start ${fixtureRoute.spokenName} route`);
     await page.waitForTimeout(2000);
 
     // Choose direction for first machine
@@ -126,14 +135,14 @@ test.describe('Command Recognition Fixes', () => {
     expect(response3.length).toBeGreaterThan(0);
   });
 
-  test('Fix 2: Last-item notification prefix (1-pick mode)', async ({ page }) => {
+  test('Fix 2: Last-item notification prefix (1-pick mode)', async ({ page, fixtureRoute }) => {
     /**
      * Tests that the last item in a machine is prefaced with:
      * "This is the last item. [product details]"
      */
 
     // Start a route in 1-pick mode
-    await injectTranscript(page, 'start North route');
+    await injectTranscript(page, `start ${fixtureRoute.spokenName} route`);
     await page.waitForTimeout(2000);
 
     await injectTranscript(page, 'top');
@@ -162,7 +171,7 @@ test.describe('Command Recognition Fixes', () => {
     expect(response).not.toContain('last 2 items');
   });
 
-  test('Fix 2: Last-item notification prefix (2-pick mode)', async ({ page }) => {
+  test('Fix 2: Last-item notification prefix (2-pick mode)', async ({ page, fixtureRoute }) => {
     /**
      * Tests that the last 2 items in a machine are prefaced with:
      * "These are the last 2 items. [product details]"
@@ -174,7 +183,7 @@ test.describe('Command Recognition Fixes', () => {
     });
 
     // Start a route
-    await injectTranscript(page, 'start North route');
+    await injectTranscript(page, `start ${fixtureRoute.spokenName} route`);
     await page.waitForTimeout(2000);
 
     await injectTranscript(page, 'top');
@@ -201,7 +210,7 @@ test.describe('Command Recognition Fixes', () => {
     expect(response).not.toContain('This is the last item.');
   });
 
-  test('Fix 2: Last-item notification with odd count (2-pick mode)', async ({ page }) => {
+  test('Fix 2: Last-item notification with odd count (2-pick mode)', async ({ page, fixtureRoute }) => {
     /**
      * Edge case: 2-pick mode, but only 1 item remains
      * Should say "This is the last item" (singular), not "These are the last 2 items"
@@ -213,7 +222,7 @@ test.describe('Command Recognition Fixes', () => {
     });
 
     // Start a route with 5 items per machine
-    await injectTranscript(page, 'start North route');
+    await injectTranscript(page, `start ${fixtureRoute.spokenName} route`);
     await page.waitForTimeout(2000);
 
     await injectTranscript(page, 'top');
@@ -243,14 +252,14 @@ test.describe('Command Recognition Fixes', () => {
     expect(response).not.toContain('last 2 items');
   });
 
-  test('Regression: "next" after "OK" in multiple transitions', async ({ page }) => {
+  test('Regression: "next" after "OK" in multiple transitions', async ({ page, fixtureRoute }) => {
     /**
      * Stress test: Multiple machine transitions in a row
      * Ensures pendingMachineTransition clearing works consistently
      */
 
     // Start route
-    await injectTranscript(page, 'start North route');
+    await injectTranscript(page, `start ${fixtureRoute.spokenName} route`);
     await page.waitForTimeout(2000);
     await injectTranscript(page, 'top');
     await page.waitForTimeout(2000);
