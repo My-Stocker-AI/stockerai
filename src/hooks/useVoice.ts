@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { readEnvVoiceTuning, EnvVoiceTuning } from '@/lib/settingsCore';
-import { gentleReconnect } from './reconnectPolicy';
+import { gentleReconnect, shouldReconnectFromStatus } from './reconnectPolicy';
 import { watchdogAction, recoverStatus, resolveHandoffCommand, WATCHDOG_STUCK_THRESHOLD_MS } from './voiceHandoffPolicy';
 import { accumulateTranscript } from './transcriptAccumulator';
 
@@ -833,7 +833,14 @@ export function useVoice(options: UseVoiceOptions = {}) {
 
         // PRIORITY 1.2: Enhanced reconnection logic with exponential backoff
         const currentStatus = statusRef.current;
-        if (shouldReconnectRef.current && (currentStatus === 'listening' || currentStatus === 'paused' || currentStatus === 'muted' || currentStatus === 'thinking')) {
+        // GRID SURVEY 2026-07-30 — this list used to omit 'speaking' (and 'idle'). The app
+        // announces every item, so it is speaking for a large share of a picking session; a drop
+        // inside any announcement was never retried, and the watchdog could not rescue it either
+        // (it only fires with a command QUEUED, and a dead socket delivers nothing to queue).
+        // Voice stayed dead for the rest of the route while the phone looked normal — Davy's
+        // 2026-07-01 "went deaf". shouldReconnectFromStatus is unit-tested.
+        // Spec: .xf/specs/2026-07-30-voice-grid-survey-xffi.md
+        if (shouldReconnectRef.current && shouldReconnectFromStatus(currentStatus)) {
 
           // Phone locked / app backgrounded: the page is frozen or throttled, so a reconnect
           // can't succeed — it just storms (2026-07-01 device logs showed endless

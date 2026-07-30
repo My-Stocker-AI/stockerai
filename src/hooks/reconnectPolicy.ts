@@ -41,3 +41,36 @@ export function legacyReconnect(attempt: number): { delayMs: number; giveUp: boo
   }
   return { delayMs: Math.min(1000 * Math.pow(2, attempt), 16000), giveUp: false };
 }
+
+import type { VoiceStatus } from './voiceHandoffPolicy';
+
+/**
+ * Should a dropped socket be reconnected from THIS status?
+ *
+ * THE SHIPPED GAP (found 2026-07-30 by the state x command x timing survey):
+ * the close handler only reconnected from listening / paused / muted / thinking.
+ * 'speaking' was not on that list — and during a pick the app is speaking a large share of the
+ * time, because it announces every item. A drop inside any announcement was therefore never
+ * retried: no reconnect, no error, no spoken warning.
+ *
+ * Nothing else rescued it either. The watchdog only fires when a command is QUEUED, and with a
+ * dead socket no transcripts arrive, so nothing is ever queued — the watchdog never runs. Voice
+ * stayed dead for the rest of the route while the phone looked completely normal.
+ *
+ * That is Davy's 2026-07-01 "went deaf": ~29 utterances, zero transcripts. The raw-PCM rebuild
+ * fixed a DIFFERENT cause of the same symptom (encoding), which is why this survived it.
+ *
+ * 'error' is deliberately excluded: gentleReconnect gave up and told the driver to tap. Retrying
+ * from there re-creates the storm the bounded policy exists to stop.
+ */
+export function shouldReconnectFromStatus(status: VoiceStatus): boolean {
+  if (status === 'error') return false; // gave up on purpose — waiting on a tap
+  return (
+    status === 'listening' ||
+    status === 'paused' ||
+    status === 'muted' ||
+    status === 'thinking' ||
+    status === 'speaking' || // ← the gap: announcements are most of a picking session
+    status === 'idle'
+  );
+}
