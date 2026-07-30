@@ -5,6 +5,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import { useVoice } from '@/hooks/useVoice';
 import { shouldRunDirectionDetection } from '@/hooks/voiceHandoffPolicy';
+import { resolveFailureSpeech, type FailureKind } from '@/hooks/voiceFailureSpeech';
 import { useStockerAI } from '@/hooks/useStockerAI';
 import { useStockerSession } from '@/hooks/useStockerSession';
 import { useSessionPersistence } from '@/hooks/useSessionPersistence';
@@ -197,6 +198,13 @@ export default function StockerApp() {
   const lastRouteIdRef = useRef<string | null>(null); // Track last processed route ID
   const MAX_RETRIES = 2;
   const voiceRef = useRef<any>(null); // Ref to hold voice methods for callbacks
+
+  // SIBLING SWEEP 2026-07-30 — handleVoiceError is useCallback([]), so it can NEVER read
+  // routeState directly: that closure is frozen at mount and currentItem would read null for
+  // the whole session (the documented stale-closure trap). These refs carry live state into it.
+  // Spec: .xf/specs/2026-07-30-voice-sibling-fixes-xffi.md
+  const hasCurrentItemRef = useRef(false);
+  const lastSpokenFailureRef = useRef<FailureKind | null>(null);
 
   // Detect iOS/Safari for tap instruction
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
@@ -1079,6 +1087,24 @@ export default function StockerApp() {
   const handleVoiceError = useCallback((errorMsg: string) => {
     const lower = errorMsg.toLowerCase();
 
+    // SIBLING SWEEP 2026-07-30 — say it out loud, not just on screen.
+    // Davy's 2026-07-12 route died because the app froze and never told him. He was holding
+    // stock, not watching the phone, so a recovery and a permanent death sounded identical:
+    // silence. Everything below this block still runs — the screen keeps its message; this
+    // only ADDS the spoken line. resolveFailureSpeech rations it (active pick only, actionable
+    // failures only, never the same line twice) so the phone never nags in a loud warehouse.
+    // Spec: .xf/specs/2026-07-30-voice-sibling-fixes-xffi.md
+    const spoken = resolveFailureSpeech({
+      errorMsg,
+      hasCurrentItem: hasCurrentItemRef.current,
+      lastSpokenKind: lastSpokenFailureRef.current,
+    });
+    if (spoken.speak) {
+      lastSpokenFailureRef.current = spoken.kind;
+      // Fire-and-forget: a failed announcement must never mask the failure it announces.
+      void voiceRef.current?.speak?.(spoken.phrase);
+    }
+
     // Mic permission denied
     if (lower.includes('permission') || lower.includes('notallowed') || lower.includes('not allowed') || lower.includes('denied')) {
       setShowMicHelp(true);
@@ -1095,6 +1121,15 @@ export default function StockerApp() {
     // Generic error
     setError(errorMsg);
   }, []);
+
+  // SIBLING SWEEP 2026-07-30 — feed live state to the useCallback([]) error handler above.
+  // Advancing to a new item also CLEARS the spoken-failure memory: picking moved, so the
+  // trouble is over, and the next time the same trouble happens he must hear it again. Without
+  // this reset the app warns once per session and is mute for every later occurrence.
+  useEffect(() => {
+    hasCurrentItemRef.current = !!routeState.currentItem;
+    if (routeState.currentItem) lastSpokenFailureRef.current = null;
+  }, [routeState.currentItem]);
 
   // Environment detection for adaptive voice recognition
   const {
