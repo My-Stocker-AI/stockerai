@@ -3,6 +3,7 @@ import { readEnvVoiceTuning, EnvVoiceTuning } from '@/lib/settingsCore';
 import { gentleReconnect, shouldReconnectFromStatus } from './reconnectPolicy';
 import { watchdogAction, recoverStatus, resolveHandoffCommand, WATCHDOG_STUCK_THRESHOLD_MS } from './voiceHandoffPolicy';
 import { accumulateTranscript } from './transcriptAccumulator';
+import { WAKE_PHRASES } from '@/utils/wakePhrases';
 
 export type VoiceStatus = 'idle' | 'listening' | 'speaking' | 'thinking' | 'paused' | 'muted' | 'error';
 
@@ -17,15 +18,9 @@ const DEEPGRAM_TOKEN_URL = 'https://stocker-deepgram-stt.russ-731.workers.dev/to
 // build his phone is running (kills the "tested stale code" trap).
 const BUILD_VERSION = 'v0.1.0-rawpcm';
 
-// Wake phrases including common mishearings (from original PWA)
-const WAKE_PHRASES = [
-  'ok stocker', 'okay stocker', 'hey stocker', 'stocker',
-  'ok stalker', 'okay stalker', 'hey stalker', 'stalker',
-  'ok stoker', 'okay stoker', 'hey stoker', 'stoker',
-  'ok docker', 'okay docker', 'hey docker',
-  'ok soccer', 'okay soccer',
-  'ok stock', 'okay stock', 'hey stock'
-];
+// Wake phrases including common mishearings (from original PWA).
+// Moved to src/utils/wakePhrases.ts 2026-07-30 so the command matcher reads the SAME list —
+// it did not know the app's own name, so "OK Stocker, next" went unrecognized while listening.
 
 // Helper to emit diagnostic events for troubleshooting
 function emitDiagnostic(type: string, data: any) {
@@ -1971,6 +1966,12 @@ export function useVoice(options: UseVoiceOptions = {}) {
 
   return {
     status,
+    // The status as of RIGHT NOW. `status` above is React state and lags by a render, so a
+    // caller reading it inside a callback sees the value from BEFORE the update that just
+    // happened. That is what dropped every barge-in: processAccumulatedTranscript sets
+    // 'listening' and calls onTranscript in the same synchronous block, and the parent still
+    // read 'speaking'. Anything gating on voice state inside a callback must use this.
+    getStatus: () => statusRef.current,
     lastInput,
     isSupported,
     isDeepgramConnected,

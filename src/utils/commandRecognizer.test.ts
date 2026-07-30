@@ -479,4 +479,57 @@ describe('CommandRecognizer', () => {
       expect(r.recognize('completely random garbage text').confidence).toBe(0);
     });
   });
+
+  // ─── THE APP'S OWN NAME IN FRONT OF A COMMAND (2026-07-30 survey) ──────────
+  //
+  // The app tells the picker: 'Resumed. Say "OK Stocker" for commands.' So he says it. But once
+  // the app was already listening, this matcher had never been told the app's name — 'ok' was
+  // stripped as filler, 'stocker' was not, and "stocker next" matches nothing.
+  //
+  // An unrecognized command during picking is answered locally with "I didn't catch that. Can
+  // you say that again?" (StockerApp.tsx) — it is NOT sent to the AI. So the app taught him a
+  // phrase and then told him it couldn't understand him every time he used it.
+  //
+  // Every phrase below returned UNKNOWN before the fix.
+
+  describe('the app’s own name in front of a command', () => {
+    it.each([
+      ['ok stocker next', PickingCommand.NEXT_ITEM],
+      ['okay stocker next', PickingCommand.NEXT_ITEM],
+      ['hey stocker next', PickingCommand.NEXT_ITEM],
+      ['stocker next', PickingCommand.NEXT_ITEM],
+      ['ok stocker skip this machine', PickingCommand.SKIP_MACHINE],
+      ['ok stocker top', PickingCommand.DIRECTION_TOP],
+      ['ok stocker bottom', PickingCommand.DIRECTION_BOTTOM],
+      ['ok stocker repeat', PickingCommand.REPEAT],
+    ])('"%s" is understood', (phrase, expected) => {
+      const m = r.recognize(phrase as string);
+      expect(m.command).toBe(expected);
+      expect(m.confidence).toBeGreaterThanOrEqual(0.7);
+    });
+
+    it.each([
+      'ok stalker next',
+      'hey docker next',
+      'ok soccer next',
+      'ok stoker next',
+    ])('handles the mishearing "%s" — the phone rarely hears "stocker" cleanly', (phrase) => {
+      expect(r.recognize(phrase).command).toBe(PickingCommand.NEXT_ITEM);
+    });
+
+    it('the name ALONE is still not a command — it is a wake word, handled elsewhere', () => {
+      expect(r.recognize('stocker').command).toBe(PickingCommand.UNKNOWN);
+      expect(r.recognize('ok stocker').command).toBe(PickingCommand.UNKNOWN);
+    });
+
+    it('does not swallow a real word that merely starts the same way', () => {
+      // 'stock' is deliberately NOT treated as the app's name — this is a genuine question
+      // about inventory and must keep working.
+      expect(r.recognize('stock this machine').command).toBe(PickingCommand.INVENTORY_QUERY);
+    });
+
+    it('still refuses to coerce random speech into a command', () => {
+      expect(r.recognize('stocker completely random garbage').command).toBe(PickingCommand.UNKNOWN);
+    });
+  });
 });

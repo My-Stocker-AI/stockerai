@@ -10,6 +10,8 @@
  * Tier 4: UNKNOWN - handled locally ("I didn't catch that"), NOT sent to AI
  */
 
+import { APP_NAME_TOKENS } from './wakePhrases';
+
 export enum PickingCommand {
   NEXT_ITEM = 'next_item',
   SKIP_MACHINE = 'skip_machine',
@@ -491,6 +493,13 @@ export class CommandRecognizer {
   private looseMatch(text: string): CommandMatch | null {
     // Leading filler/affirmative/glue words a driver naturally prepends.
     const LEADING = [
+      // The app's own name. Added 2026-07-30: the app instructs the picker to say
+      // "OK Stocker" for commands, and once it was already listening, "OK Stocker, next"
+      // matched nothing — 'ok' was stripped, 'stocker' was not, and "stocker next" is not a
+      // command. Every such phrase fell through to the slow AI path and died whenever the AI
+      // was unreachable. Stripping is safe here: this runs ONLY after an exact match fails,
+      // and a strip that leaves nothing or leaves a non-command still returns null.
+      ...APP_NAME_TOKENS,
       "let's", 'lets', 'okay', 'ok', 'alright', 'all right', 'yeah', 'yep',
       'yes', 'yea', 'sure', 'got it', 'and', 'so', 'um', 'uh', 'well', 'hey',
       'now', 'just', 'please', 'go ahead and', 'go ahead', 'can you',

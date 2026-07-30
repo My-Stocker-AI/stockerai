@@ -6,6 +6,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useVoice } from '@/hooks/useVoice';
 import { shouldRunDirectionDetection } from '@/hooks/voiceHandoffPolicy';
 import { resolveFailureSpeech, type FailureKind } from '@/hooks/voiceFailureSpeech';
+import { resolveTranscriptGate, gateReason } from '@/hooks/transcriptGate';
 import { useStockerAI } from '@/hooks/useStockerAI';
 import { useStockerSession } from '@/hooks/useStockerSession';
 import { useSessionPersistence } from '@/hooks/useSessionPersistence';
@@ -302,26 +303,28 @@ export default function StockerApp() {
   }, []);
 
   const handleTranscript = useCallback(async (transcript: string, isFinal: boolean) => {
-    if (!isFinal || processingRef.current) return;
+    if (!isFinal) return;
     const v = voiceRef.current;
     if (!v) return;
 
-    // CRITICAL FIX: Ignore all transcripts while TTS is speaking
-    // Prevents items from being skipped if user interrupts before TTS completes
-    // Bug: Session updates before TTS plays, so interrupting skips items
-    if (voiceRef.current?.status === 'speaking') {
-      console.log('[Voice] Ignoring transcript while speaking:', transcript);
-      return;
-    }
-
-    // Drop stale commands once the session is invalidated — e.g. a command queued
-    // during the final "route complete" announcement replaying a beat later. Without
-    // this, undo/repeat/next could execute out-of-sequence on a finished route. The
-    // deeper tool-execution guards (below) already cover the AI path; this closes the
-    // local-command path. Starting the next route runs through selectRoute, not here,
-    // so this never blocks a fresh route.
-    if (routeState.sessionInvalidated) {
-      console.log('[Voice] Ignoring transcript — session invalidated:', transcript);
+    // SURVEY FIX 2026-07-30 — one place decides whether a heard phrase is acted on.
+    //
+    // These three checks used to sit here as separate early returns, and the middle one read
+    // `voiceRef.current?.status`, which is React state and lags a render. When the picker talked
+    // over an announcement, the voice layer stopped the audio, played the "heard you" chime, set
+    // 'listening' and called straight through — and this still read 'speaking' and binned the
+    // command. Announcement cut off, chime played, nothing happened: Davy's 2026-07-12 freeze.
+    //
+    // getStatus() is the live value. The guard itself is unchanged in intent — a phrase that
+    // really did arrive mid-announcement (a tap, an injected test phrase) is still dropped.
+    // Decision logic is unit-tested in transcriptGate.ts.
+    const gate = resolveTranscriptGate({
+      liveStatus: v.getStatus?.() ?? v.status,
+      isProcessing: processingRef.current,
+      sessionInvalidated: routeState.sessionInvalidated,
+    });
+    if (gate !== 'handle') {
+      console.log(`[Voice] Ignoring "${transcript}" — ${gateReason(gate)}`);
       return;
     }
 
