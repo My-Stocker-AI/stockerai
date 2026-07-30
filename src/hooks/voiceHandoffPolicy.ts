@@ -95,9 +95,17 @@ export function resolveHandoffCommand(args: {
     return 'dispatch';
   }
 
-  // paused/muted are deliberate holds by the driver; 'error' is a state the app fell into.
-  // All three HOLD the utterance rather than discarding it — the watchdog flushes the backlog
-  // on recovery. Nothing the driver says is ever thrown away.
+  // The line that matters is DELIBERATE vs NOT.
+  //
+  // paused/muted are the driver's own choice — he stopped it, and processAccumulatedTranscript
+  // deliberately listens for nothing but the wake phrase in those states. A picking word said
+  // out of habit while paused must be DISCARDED: holding it would fire a phantom pick the
+  // moment he resumes, against whatever item is current then. Wrong stock, no explanation.
+  // He repeats the word when he's ready — small friction, no bad data.
+  //
+  // 'error' is not his choice — the app fell into it. His word is HELD and flushed by the
+  // watchdog on recovery, because dropping it means he spoke and nothing happened, ever.
+  if (status === 'paused' || status === 'muted') return 'ignore';
   return 'queue';
 }
 

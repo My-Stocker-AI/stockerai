@@ -88,10 +88,20 @@ describe('BRANCH 3 — the fix: a direction command at the hand-off is never los
     }
   });
 
-  it('a direction command while paused/muted/error is HELD (queued), never silently discarded', () => {
-    for (const status of ['paused', 'muted', 'error'] as VoiceStatus[]) {
-      expect(resolveHandoffCommand({ status, isDirectionCommand: true })).toBe('queue');
+  it('REVISED 2026-07-30 — held only when the app broke, discarded when the driver chose to stop', () => {
+    // The 2026-07-14 version held a direction command in ALL THREE states. The sweep split them
+    // on the line that actually matters: did the driver choose this, or did the app fall into it?
+    //
+    // paused/muted are his choice. A held "bottom" would flip the pick order the moment he
+    // resumes — on whatever machine is current THEN, not the one he was looking at. He gets a
+    // route walked backwards with no explanation. Discarding costs him one repeated word.
+    //
+    // 'error' is not his choice. Discarding there means he spoke and nothing ever happened,
+    // which is the failure that ended his 2026-07-12 route.
+    for (const status of ['paused', 'muted'] as VoiceStatus[]) {
+      expect(resolveHandoffCommand({ status, isDirectionCommand: true })).toBe('ignore');
     }
+    expect(resolveHandoffCommand({ status: 'error', isDirectionCommand: true })).toBe('queue');
   });
 
   it('SUPERSEDED 2026-07-30 — non-direction commands no longer keep the old parked behavior', () => {
@@ -103,7 +113,7 @@ describe('BRANCH 3 — the fix: a direction command at the hand-off is never los
     // history rather than looking like the old guard silently vanished.
     // Reversal recorded in .xf/specs/2026-07-30-voice-sibling-fixes-xffi.md.
     expect(resolveHandoffCommand({ status: 'thinking', isDirectionCommand: false })).toBe('dispatch');
-    expect(resolveHandoffCommand({ status: 'paused', isDirectionCommand: false })).toBe('queue');
+    expect(resolveHandoffCommand({ status: 'paused', isDirectionCommand: false })).toBe('ignore');
     expect(resolveHandoffCommand({ status: 'listening', isDirectionCommand: false })).toBe('dispatch');
   });
 });
@@ -190,10 +200,13 @@ describe('SIBLING — a picking command spoken mid-think must not be silently pa
     }
   });
 
-  it('still parks (never discards) a command spoken while the driver has paused or muted', () => {
-    // Deliberate holds are preserved — this must NOT regress into dispatch.
-    expect(resolveHandoffCommand({ status: 'paused', isDirectionCommand: false })).toBe('queue');
-    expect(resolveHandoffCommand({ status: 'muted', isDirectionCommand: false })).toBe('queue');
+  it('DISCARDS a command spoken while the driver has deliberately paused or muted', () => {
+    // Corrected 2026-07-30 after reading what pause means: pauseListening() releases the wake
+    // lock and processAccumulatedTranscript listens for the wake phrase ONLY. Holding a picking
+    // word here would fire a phantom pick on resume, against whatever item is current THEN —
+    // wrong stock with no explanation. He repeats it when ready. Discard is correct.
+    expect(resolveHandoffCommand({ status: 'paused', isDirectionCommand: false })).toBe('ignore');
+    expect(resolveHandoffCommand({ status: 'muted', isDirectionCommand: false })).toBe('ignore');
   });
 
   it('parks rather than discards a command spoken while the app is in error', () => {
