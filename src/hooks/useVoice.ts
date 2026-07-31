@@ -3,6 +3,7 @@ import { readEnvVoiceTuning, EnvVoiceTuning } from '@/lib/settingsCore';
 import { gentleReconnect, shouldReconnectFromStatus } from './reconnectPolicy';
 import { watchdogAction, recoverStatus, resolveHandoffCommand, WATCHDOG_STUCK_THRESHOLD_MS } from './voiceHandoffPolicy';
 import { accumulateTranscript } from './transcriptAccumulator';
+import { resolveEcho } from './echoFilter';
 import { WAKE_PHRASES } from '@/utils/wakePhrases';
 
 export type VoiceStatus = 'idle' | 'listening' | 'speaking' | 'thinking' | 'paused' | 'muted' | 'error';
@@ -143,6 +144,9 @@ export function useVoice(options: UseVoiceOptions = {}) {
   // Echo filtering refs (from original PWA)
   const lastSpokenTextRef = useRef('');
   const lastSpeakTimeRef = useRef(0);
+  // When the speaker went quiet. null means it is still playing. This is what stops the
+  // "app said it, so he can never say it" trap: the wording check below now expires.
+  const lastSpeakEndTimeRef = useRef<number | null>(0);
   const ECHO_COOLDOWN_MS = 300;
 
   // TTS refs
@@ -157,30 +161,25 @@ export function useVoice(options: UseVoiceOptions = {}) {
 
   const KEEPALIVE_MS = 8000;
 
-  // Check if input is echo of what we just said (from original PWA)
+  // Is this the app hearing itself, or the driver talking? The decision lives in
+  // echoFilter.ts, is unit tested, and is time-bounded — the wording test used to have no
+  // expiry, so answering a confirm question with the app's own words was discarded
+  // forever. See src/hooks/echoFilter.ts for the full account.
   const isEcho = useCallback((text: string): boolean => {
-    const lower = text.toLowerCase().trim();
+    const now = Date.now();
+    const verdict = resolveEcho({
+      heard: text,
+      lastSpoken: lastSpokenTextRef.current,
+      msSinceSpeechStarted: now - lastSpeakTimeRef.current,
+      msSinceSpeechEnded:
+        lastSpeakEndTimeRef.current === null ? null : now - lastSpeakEndTimeRef.current,
+      cooldownMs: ECHO_COOLDOWN_MS,
+    });
 
-    // Cooldown: ignore anything within ECHO_COOLDOWN_MS of speaking
-    if (Date.now() - lastSpeakTimeRef.current < ECHO_COOLDOWN_MS) {
-      console.log('[Voice] Ignoring input during cooldown');
+    if (verdict !== 'accept') {
+      console.log(`[Voice] Ignoring "${text}" — ${verdict}`);
       return true;
     }
-
-    // Ignore very short garbage (single characters only)
-    if (lower.length < 2) {
-      console.log('[Voice] Ignoring short input:', lower);
-      return true;
-    }
-
-    // Only filter as echo if user's ENTIRE input is a large portion of what AI said
-    if (lastSpokenTextRef.current && lower.length > 10) {
-      if (lastSpokenTextRef.current.indexOf(lower) !== -1) {
-        console.log('[Voice] Ignoring echo:', lower);
-        return true;
-      }
-    }
-
     return false;
   }, []);
 
@@ -1494,6 +1493,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
       // (PCM capture stays active during playback for interrupt support)
       lastSpokenTextRef.current = processed.toLowerCase();
       lastSpeakTimeRef.current = Date.now();
+      lastSpeakEndTimeRef.current = null; // speaker is live from here until playback ends
 
       // 5. Fetch and play audio (with prefetch optimization - Performance Priority 5)
       try {
@@ -1690,6 +1690,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
       }
 
       // 7. Done speaking - transition back to listening (matches original PWA)
+      lastSpeakEndTimeRef.current = Date.now(); // closes the echo window (see echoFilter.ts)
       setStatus('listening');
 
       // 8. Play ready beep — skip if TTS was interrupted (driver already heard command chime)
@@ -1710,6 +1711,11 @@ export function useVoice(options: UseVoiceOptions = {}) {
         console.warn('[Voice] Resetting stuck speaking state in finally block');
         setStatus('listening');
         try { await resumeListening(); } catch (e) { /* best effort */ }
+      }
+      // Guarantee the echo window closes even if playback threw on the way out. Left open,
+      // it would silently swallow anything he says that echoes the last thing spoken.
+      if (lastSpeakEndTimeRef.current === null) {
+        lastSpeakEndTimeRef.current = Date.now();
       }
       // Always release lock (matches original PWA unlock in finally)
       releaseSpeakLock();
