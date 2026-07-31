@@ -75,6 +75,57 @@ describe('commands that were being eaten before they reached the matcher', () =>
   });
 });
 
+/**
+ * REACHABILITY.
+ *
+ * A fix shipped earlier the same day passed all its tests while being unreachable in the running
+ * app — an earlier check returned before it was ever consulted. This block pins the one thing
+ * those tests could not see: that nothing upstream swallows these phrases first.
+ *
+ * Everything ahead of the undo/repeat decision in StockerApp.tsx is an EXACT match on a fixed
+ * word. If someone later adds a loose contains-check up there, this fails instead of the bug
+ * shipping silently.
+ */
+describe('nothing upstream swallows these phrases first', () => {
+  // Verbatim from StockerApp.tsx, in the order they run, above the undo/repeat decision.
+  const UPSTREAM_EXACT = [
+    'pause', 'stop listening',
+    'mute', 'mute mic', 'mute microphone',
+    'continue', 'resume', 'start listening',
+  ];
+
+  const PHRASES_THAT_MUST_GET_THROUGH = [
+    'go back to skipped machine',
+    'go back to the skipped machine',
+    'back to skipped',
+    'previous',
+    'previous item',
+    'go to previous',
+    "what's next",
+    'whats next',
+    "what's the current par level",
+    'current inventory',
+  ];
+
+  it.each(PHRASES_THAT_MUST_GET_THROUGH)('"%s" is not captured upstream', (phrase) => {
+    const lower = phrase.toLowerCase().trim();
+    expect(UPSTREAM_EXACT).not.toContain(lower);
+  });
+
+  it('the upstream checks are exact, not contains — a contains-check up there would re-break this', () => {
+    // The bug being fixed IS a contains-check running too early. If the pause/mute checks ever
+    // became contains-checks, "pause and go back to skipped" would pause instead of navigating.
+    for (const word of UPSTREAM_EXACT) {
+      const swallowed = PHRASES_THAT_MUST_GET_THROUGH.filter((p) =>
+        p.toLowerCase().includes(word),
+      );
+      expect(swallowed, `"${word}" as a contains-check would eat: ${swallowed.join(', ')}`).toEqual(
+        [],
+      );
+    }
+  });
+});
+
 describe('real undo still works', () => {
   it.each([
     'undo',
