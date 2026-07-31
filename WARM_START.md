@@ -54,8 +54,20 @@ Russ's, not mine.
 3. **A verified item now ticks itself off** — no writer had ever existed, which
    is why 322 items across 13 plans all read as untouched.
 
-All three are in the installer, so they reach every install and not just this
+4. **Every use of the escape hatch is recorded.** The gate has a deliberate way
+   out — one command with a written reason, good for five minutes — so a
+   genuinely needed action is never blocked forever. Nothing recorded its use,
+   which made going around the gate indistinguishable from never hitting it.
+   Both arming it and using it now leave a trace, with the reason. An existing
+   sensor already counts these and surfaces anything waved off twice or more in
+   two weeks, so no further wiring is needed.
+
+All of it is in the installer, so it reaches every install and not just this
 machine.
+
+**Already enforced, contrary to what was said mid-session:** the judging fires
+automatically at session end. With an active plan and unverified work, it
+blocks. That was mis-stated as optional and then corrected by reading the code.
 
 **If the block at the top of this session did not appear, the session was
 started before these landed — close it and open a new one.**
