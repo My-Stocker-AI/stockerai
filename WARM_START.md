@@ -44,7 +44,25 @@ Russ's, not mine.
 
 ---
 
-## ✅ Fixed and shipped last session — the installer now wires that check
+## ✅ The plan machinery is now complete — three pieces, all shipped
+
+1. **The plan is put in front of you at session start** — which one is active,
+   how many items are done vs open, what it is for, the next items. This is the
+   piece that was missing entirely: nothing ever loaded the plan, so it never
+   competed with whatever was in front of the model.
+2. **Work outside the plan is refused** — this existed and was never connected.
+3. **A verified item now ticks itself off** — no writer had ever existed, which
+   is why 322 items across 13 plans all read as untouched.
+
+All three are in the installer, so they reach every install and not just this
+machine.
+
+**If the block at the top of this session did not appear, the session was
+started before these landed — close it and open a new one.**
+
+---
+
+## ✅ Also fixed — the installer now wires that check
 
 It was worse than a local misconfiguration: the enforcement file shipped with the
 framework, and the installer **neither copied nor registered it** (verified: zero
