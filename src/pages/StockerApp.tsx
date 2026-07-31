@@ -8,6 +8,7 @@ import { shouldRunDirectionDetection } from '@/hooks/voiceHandoffPolicy';
 import { resolveFailureSpeech, type FailureKind } from '@/hooks/voiceFailureSpeech';
 import { resolveTranscriptGate, gateReason } from '@/hooks/transcriptGate';
 import { resolveUnknownReply } from '@/utils/commandGuess';
+import { resolveLocalIntent } from '@/utils/localCommandIntent';
 import { useStockerAI } from '@/hooks/useStockerAI';
 import { useStockerSession } from '@/hooks/useStockerSession';
 import { useSessionPersistence } from '@/hooks/useSessionPersistence';
@@ -349,10 +350,15 @@ export default function StockerApp() {
     }
 
     // Handle undo commands locally (from original PWA)
-    const undoWords = ['go back', 'undo', 'oops', 'wait no', 'previous', 'back one', 'wrong', 'mistake'];
-    const isUndo = undoWords.some(w => lower.indexOf(w) !== -1);
+    // SURVEY FIX 2026-07-30 — these two checks used to ask "does the phrase CONTAIN any of
+    // these words?" anywhere in the sentence, and they ran BEFORE the precise matcher. So they
+    // quietly ate commands the matcher owns: "go back to skipped machine" and "previous item"
+    // reversed his last pick instead of navigating, and "what's next" repeated the announcement
+    // instead of advancing — but only when the transcript kept the apostrophe. Same words, two
+    // outcomes, decided by punctuation. Decision logic is unit-tested in localCommandIntent.ts.
+    const localIntent = resolveLocalIntent(transcript);
 
-    if (isUndo && routeState.routeName) {
+    if (localIntent === 'undo' && routeState.routeName) {
       processingRef.current = true;
       const result = undoLastItem();
       setAiResponse(result.message);
@@ -363,11 +369,8 @@ export default function StockerApp() {
       return;
     }
 
-    // Handle repeat commands - repeat last AI response
-    const repeatWords = ['repeat', 'again', 'what was that', 'say that again', 'say again', 'what\'s next', 'current'];
-    const isRepeat = repeatWords.some(w => lower.indexOf(w) !== -1);
-
-    if (isRepeat) {
+    // Handle repeat commands - repeat last AI response. See the note above the undo check.
+    if (localIntent === 'repeat') {
       processingRef.current = true;
 
       // Check if 2-item mode is enabled
