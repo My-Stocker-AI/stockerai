@@ -51,6 +51,21 @@ Russ's, not mine.
    piece that was missing entirely: nothing ever loaded the plan, so it never
    competed with whatever was in front of the model.
 2. **Work outside the plan is refused** — this existed and was never connected.
+   **And as of the end of that session it goes further: before changing
+   anything, you must name the open item it serves, or the change is refused.**
+   Naming a file the plan happens to mention is not enough — that was the hole,
+   and it was most of the surface area.
+
+   How to work under it:
+
+   ```
+   python3 ~/.claude/xffi/active_spec.py open-terminals --cwd "$PWD"
+   python3 ~/.claude/xffi/active_spec.py declare --terminal "<enough of the item to identify it>" --cwd "$PWD"
+   ```
+
+   A declaration lasts 30 minutes and dies if the active plan changes. Work that
+   is genuinely needed but not on the plan means **amend the plan** — the escape
+   hatch exists, but every use of it is now recorded with your reason.
 3. **A verified item now ticks itself off** — no writer had ever existed, which
    is why 322 items across 13 plans all read as untouched.
 
