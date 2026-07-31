@@ -520,11 +520,27 @@ the same order.
 
 The three counts sum to 112, which is the required 112 rows (7 states × 4 command classes × 4 timing windows).
 
-**How to read the shape of it.** Forty-four rows are `not-reachable`, and twenty-eight of those are
-the entire watchdog window — that is GRID-001, not padding. Of the remainder, the largest single
-group is a count of 0 during mid-reconnect and token fetch: for a large part of a recovery the app
-is structurally deaf, which is expected, and the thing that makes it survivable is that it now says
-so out loud on the first attempt. The rows that should be looked at first are the eight where the
-driver is given no such warning: `error` × during auth token fetch (GRID-006), and `paused` /
-`muted` × wake phrases (GRID-003), where the app is written to be listening for him and is not.
+### Rows per candidate
+
+| candidate | anchor rows | what it is |
+|---|---|---|
+| GRID-001 | 0 | the freeze watchdog can never fire |
+| GRID-002 | 3 | the 300 ms echo cooldown is anchored before the fetch, not at playback |
+| GRID-003 | 8 | while paused or muted the microphone is off, so the wake phrase cannot be heard |
+| GRID-004 | 4 | a reconnect while paused silently switches the microphone back on |
+| GRID-005 | 1 | interrupting the app on Android may make it re-speak the whole line (unproven) |
+| GRID-006 | 4 | tapping “tap to reconnect” gives up to ten seconds of unexplained silence |
+| GRID-007 | 2 | the app’s own name, said on its own while listening, gets a non-answer |
+
+The 22 `finding` rows resolve to 6 distinct candidates. GRID-001 anchors no
+row by construction: its evidence is that all 28 watchdog-window rows are `not-reachable`.
+
+**How to read the shape of it.** Forty-four rows are `not-reachable`, and twenty-eight of those
+are the entire watchdog window — that is GRID-001, not padding. Of the remainder, the largest
+single group is a count of 0 during mid-reconnect and token fetch: for a large part of a recovery
+the app is structurally deaf, which is expected, and the thing that makes it survivable is that it
+now says so out loud on the first attempt. The rows to look at first are the 12 where
+the driver is given no such warning at all — GRID-003 (`paused` / `muted` × wake phrases and known
+mishearings, where the app is written to be listening for him and is not) and GRID-006 (`error` ×
+all four command classes during the credential fetch, where his tap is not acknowledged).
 
