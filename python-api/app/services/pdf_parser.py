@@ -117,18 +117,6 @@ def _reassemble_compound_slots(text: str) -> str:
     return "\n".join(result)
 
 
-# What one line of the report turned out to be.
-#
-# Kept explicit because two different pieces of code used to infer this from "did an
-# item come out of that line?" — and a slot that is ALREADY FULL produces no item,
-# which is not remotely the same thing as a line we could not read. That disagreement
-# put a red "could not be parsed" popup in front of the driver for every full slot on
-# his route, which is exactly how a warning channel stops being believed.
-_EMITTED = "emitted"                 # a real pick — it goes on the truck
-_NOTHING_TO_STOCK = "nothing-to-stock"   # read fine, quantity 0, nothing to bring
-_UNREADABLE = "unreadable"           # genuinely could not make sense of it — tell him
-
-
 def parse_route_pdf(text: str, delivery_date: str) -> dict:
     """
     Parse extracted PDF text into structured route data.
@@ -211,54 +199,53 @@ def parse_route_pdf(text: str, delivery_date: str) -> dict:
 
     warnings: list[str] = []
 
-    def _try_emit_item(text_to_match: str, target_machine: dict) -> str:
-        """Read one report line and say what it was.
-
-        Returns _EMITTED, _NOTHING_TO_STOCK, or _UNREADABLE. Callers must take this
-        answer as given and never re-derive it from whether an item appeared — that
-        second guess is the bug this function exists to remove.
-        """
-        # Two layouts: the normal one, and the page-break casualty where the numbers
-        # land on one page and the product name on the next.
-        for pattern, reversed_order in ((item_row_pattern, False), (reversed_item_pattern, True)):
-            m = pattern.match(text_to_match)
-            if not m:
-                continue
-
+    def _try_emit_item(text_to_match: str, target_machine: dict) -> bool:
+        """Try to match text as a complete item row (normal or reversed). Returns True if successful."""
+        # Normal order: slot product qty inv/par price None
+        m = item_row_pattern.match(text_to_match)
+        if m:
             slot = m.group(1).strip()
-            if reversed_order:
-                quantity = int(m.group(2))
-                inventory_current = int(m.group(3))
-                inventory_parlevel = int(m.group(4))
-                product_name = m.group(6).strip()
-            else:
-                product_name = m.group(2).strip()
-                quantity = int(m.group(3))
-                inventory_current = int(m.group(4))
-                inventory_parlevel = int(m.group(5))
+            product_name = m.group(2).strip()
+            quantity = int(m.group(3))
+            inventory_current = int(m.group(4))
+            inventory_parlevel = int(m.group(5))
+            if (
+                re.search(r"[a-zA-Z]", product_name)
+                and quantity > 0
+                and 2 < len(product_name) < 150
+            ):
+                target_machine["items"].append({
+                    "product_name": product_name,
+                    "quantity": quantity,
+                    "slot": slot,
+                    "inventory_current": inventory_current,
+                    "inventory_parlevel": inventory_parlevel,
+                })
+                return True
 
-            looks_like_a_product = bool(
-                re.search(r"[a-zA-Z]", product_name) and 2 < len(product_name) < 150
-            )
-            if not looks_like_a_product:
-                # Try the other layout; if that fails too this really is damage.
-                continue
+        # Reversed order: slot qty inv/par price None product (page-break casualty)
+        m = reversed_item_pattern.match(text_to_match)
+        if m:
+            slot = m.group(1).strip()
+            quantity = int(m.group(2))
+            inventory_current = int(m.group(3))
+            inventory_parlevel = int(m.group(4))
+            product_name = m.group(6).strip()
+            if (
+                re.search(r"[a-zA-Z]", product_name)
+                and quantity > 0
+                and 2 < len(product_name) < 150
+            ):
+                target_machine["items"].append({
+                    "product_name": product_name,
+                    "quantity": quantity,
+                    "slot": slot,
+                    "inventory_current": inventory_current,
+                    "inventory_parlevel": inventory_parlevel,
+                })
+                return True
 
-            if quantity <= 0:
-                # The slot is already at par. There is nothing to bring and nothing
-                # wrong — do not manufacture a warning out of it.
-                return _NOTHING_TO_STOCK
-
-            target_machine["items"].append({
-                "product_name": product_name,
-                "quantity": quantity,
-                "slot": slot,
-                "inventory_current": inventory_current,
-                "inventory_parlevel": inventory_parlevel,
-            })
-            return _EMITTED
-
-        return _UNREADABLE
+        return False
 
     def _is_product_fragment(text: str) -> bool:
         """Check if text is just a trailing product description (e.g. '20 oz - Bottle')."""
@@ -307,17 +294,15 @@ def parse_route_pdf(text: str, delivery_date: str) -> dict:
             if is_slot_start:
                 # New slot starting — flush any accumulated partial
                 if pending_line:
-                    if _try_emit_item(pending_line, machine) == _UNREADABLE:
+                    if not _try_emit_item(pending_line, machine):
                         if not _is_product_fragment(pending_line):
                             warnings.append(
                                 f"{machine_name}: slot {slot_start_pattern.match(pending_line).group(1)} could not be parsed"
                             )
                     pending_line = ""
 
-                # Try complete single-line match (fast path — most items).
-                # A full slot counts as handled: it was read correctly, it just has
-                # nothing to bring. Leaving it pending would glue it onto the next line.
-                if _try_emit_item(line, machine) != _UNREADABLE:
+                # Try complete single-line match (fast path — most items)
+                if _try_emit_item(line, machine):
                     continue
 
                 # Incomplete — start accumulating (page break or line wrap)
@@ -326,13 +311,13 @@ def parse_route_pdf(text: str, delivery_date: str) -> dict:
             elif pending_line:
                 # Continuation of a multi-line item — append and retry
                 pending_line = pending_line + " " + line
-                if _try_emit_item(pending_line, machine) != _UNREADABLE:
+                if _try_emit_item(pending_line, machine):
                     pending_line = ""
             # else: not a slot start and nothing pending — skip (headers, labels, etc.)
 
         # Flush any remaining accumulated text at end of section
         if pending_line:
-            if _try_emit_item(pending_line, machine) == _UNREADABLE:
+            if not _try_emit_item(pending_line, machine):
                 if not _is_product_fragment(pending_line):
                     warnings.append(
                         f"{machine_name}: slot {slot_start_pattern.match(pending_line).group(1)} could not be parsed"

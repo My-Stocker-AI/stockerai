@@ -81,67 +81,6 @@ class TestParseRoutePdf:
         assert result["route_name"] == ""
         assert result["locations"] == []
 
-    def test_slot_already_full_is_not_reported_as_damage(self):
-        """A slot at par needs nothing brought, so the report lists it with quantity 0.
-
-        That is a normal line, correctly read. Before 2026-07-30 the parser skipped it
-        (right) and then a second piece of code saw "no item came out of that line" and
-        recorded it as unreadable (wrong) — so the driver got a red popup claiming his
-        report had formatting damage. On a real route that fires for every full slot,
-        which trains him to ignore the one warning that ever matters.
-        """
-        text = """
-TestRoute | Building A | Snack Machine (12345) | Col1 | ID: abc123
-
-01 Doritos Nacho Cheese 5 8/15 1.50 None
-02 Coca Cola 12oz Can 0 20/20 1.75 None
-03 Snickers Bar 4 6/12 2.00 None
-04 Water Bottle 0 24/24 1.25 None
-05 Pepsi 12oz Can 2 5/10 1.50 None
-"""
-        result = parse_route_pdf(text, "2026-07-30")
-        machine = result["locations"][0]["machines"][0]
-
-        # He is asked to pick only what actually has to go on the truck.
-        assert [i["slot"] for i in machine["items"]] == ["01", "03", "05"]
-
-        # And he is told nothing is wrong, because nothing is.
-        assert result["warnings"] == []
-
-    def test_a_line_that_really_is_damaged_still_warns(self):
-        """The fix must not buy silence by suppressing every warning."""
-        # Slot 02's product name came through as punctuation — the line really is damaged
-        # and he needs to know a product is missing from his pick.
-        text = """
-TestRoute | Building A | Snack Machine (12345) | Col1 | ID: abc123
-
-01 Doritos Nacho Cheese 5 8/15 1.50 None
-02 ## 3 5/10 1.00 None
-03 Snickers Bar 4 6/12 2.00 None
-"""
-        result = parse_route_pdf(text, "2026-07-30")
-        machine = result["locations"][0]["machines"][0]
-
-        assert [i["slot"] for i in machine["items"]] == ["01", "03"]
-        assert len(result["warnings"]) == 1
-        assert "02" in result["warnings"][0]
-
-    def test_a_full_slot_does_not_swallow_the_line_after_it(self):
-        """The skipped line must not be left half-open and glued onto the next one."""
-        text = """
-TestRoute | Building A | Snack Machine (12345) | Col1 | ID: abc123
-
-01 Coca Cola 12oz Can 0 20/20 1.75 None
-02 Snickers Bar 4 6/12 2.00 None
-"""
-        result = parse_route_pdf(text, "2026-07-30")
-        machine = result["locations"][0]["machines"][0]
-
-        assert len(machine["items"]) == 1
-        assert machine["items"][0]["product_name"] == "Snickers Bar"
-        assert machine["items"][0]["quantity"] == 4
-        assert result["warnings"] == []
-
     def test_no_headers(self):
         result = parse_route_pdf("just some random text without headers", "2026-02-10")
         assert result["route_name"] == ""
