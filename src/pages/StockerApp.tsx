@@ -1951,6 +1951,12 @@ export default function StockerApp() {
       voice.unmute();
     } else {
       voice.mute();
+      // Say which kind of hold this is, at the moment he creates it. Pause and Mute now behave
+      // differently — one still hears the app's name, the other does not — and an orange button
+      // versus a red button is not enough to carry that. Screen only, no speech: he just tapped
+      // a button, so he is already looking at the phone, and talking over a hold he asked for
+      // is the opposite of what he wanted.
+      setAiResponse('Muted — mic off. Tap Unmute to come back.');
     }
   };
 
@@ -1972,6 +1978,9 @@ export default function StockerApp() {
       voice.unmute();
     } else {
       voice.pauseListening();
+      // The counterpart to the Mute message: this is the hold that DOES still hear his name,
+      // and he has no way to know that from an orange button alone.
+      setAiResponse('Paused — say "OK Stocker" when you\'re ready, or tap Resume.');
     }
   };
 
