@@ -1280,9 +1280,16 @@ export function useVoice(options: UseVoiceOptions = {}) {
     }
 
     if (socketRef.current?.readyState === WebSocket.OPEN && isConnectedRef.current) {
-      // Socket alive — make sure capture is up and sending, then resume listening.
-      if (!captureNodeRef.current) { await startPcmCapture(); } else { resumeCapture(); }
+      // Socket alive — say we're listening FIRST, then bring capture up.
+      //
+      // The order is load-bearing, and getting it wrong froze Davy mid-route on 2026-08-06.
+      // startPcmCapture now asks the current state whether the mic should be sending
+      // (captureHoldPolicy, the pause/mute split). Rebuilding capture while the state still
+      // read 'muted' therefore came up with the microphone OFF, and nothing switched it back
+      // on afterwards: the screen said listening, the app heard nothing, and the only way out
+      // was Stop and Continue.
       setStatus('listening');
+      if (!captureNodeRef.current) { await startPcmCapture(); } else { resumeCapture(); }
       // Fire any command that was spoken during processing/TTS
       if (pendingCommandRef.current) {
         const queued = pendingCommandRef.current;
@@ -1371,14 +1378,17 @@ export function useVoice(options: UseVoiceOptions = {}) {
       }
     }
     if (socketRef.current?.readyState === WebSocket.OPEN && isConnectedRef.current) {
-      // Socket alive — make sure capture is up and resume sending.
+      // Socket alive — say we're listening FIRST, then bring capture up. Same load-bearing
+      // order as resumeListening above: rebuilding capture while the state still read 'muted'
+      // brought the microphone up OFF, and nothing turned it back on. This is the exact path
+      // that froze Davy after mute → unmute on 2026-08-06.
+      setStatus('listening');
       if (!captureNodeRef.current) { await startPcmCapture(); } else { resumeCapture(); }
     } else {
       // Socket dead — full reconnect (sets its own status).
       startListening();
       return;
     }
-    setStatus('listening');
   }, [setStatus, startListening, startPcmCapture, resumeCapture]);
 
   const stopAudio = useCallback(() => {

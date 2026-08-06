@@ -65,15 +65,46 @@ const quickCommands = [
     ]
   },
   {
-    category: "Fixing Mistakes",
-    icon: RotateCcw,
+    // These four were listed together as one "Fixing Mistakes" group, which is how a driver
+    // ends up using the wrong one. They do genuinely different things — split 2026-08-06 after
+    // Davy said "go back" on a live route meaning "say that again".
+    category: "Hearing an Item Again",
+    icon: Repeat,
     color: "text-purple-400",
     commands: [
-      '"Undo that" / "Go back one"',
-      '"Oops, that was wrong"',
-      '"That was a mistake"',
-      '"Go back to the skipped machine"',
-      '(With 2-Pick: Say "go back" twice to reach the first item)',
+      '"Repeat that" / "Say that again"',
+      'Use this when you just want to hear it once more.',
+      'It does NOT move you — your place stays exactly where it is.',
+    ]
+  },
+  {
+    category: "Going Back an Item",
+    icon: RotateCcw,
+    color: "text-pink-400",
+    commands: [
+      '"Go back" / "Previous item" / "Back one"',
+      'This MOVES you back to the item before this one.',
+      'If you only wanted to hear it again, say "repeat that" instead.',
+      '(2-item mode: say "go back" twice to reach the first of the pair)',
+    ]
+  },
+  {
+    category: "Undoing a Pick",
+    icon: RotateCcw,
+    color: "text-red-300",
+    commands: [
+      '"Undo that" / "Oops, that was wrong" / "That was a mistake"',
+      'Use this when you did NOT actually pick the last item.',
+    ]
+  },
+  {
+    category: "Returning to a Skipped Machine",
+    icon: SkipForward,
+    color: "text-amber-400",
+    commands: [
+      '"Go back to the skipped machine" / "Skipped machine"',
+      'Say the whole phrase — plain "go back" moves you one ITEM, not one machine.',
+      '"Which machines did I skip?" lists them.',
     ]
   },
   {
@@ -88,13 +119,18 @@ const quickCommands = [
     ]
   },
   {
+    // Pause and Mute stopped being the same thing on 2026-08-06 — Pause keeps listening for the
+    // app's name so you can carry on hands-free, Mute genuinely switches the microphone off.
+    // Saying they are the same is what leaves a driver repeating "OK Stocker" at a dead mic.
     category: "Pause & Wake Up",
     icon: Mic,
     color: "text-red-400",
     commands: [
-      'Pause: "Pause" / "Mute"',
-      'Wake up: "Hey Stocker"',
-      'Stocker auto-pauses when you stop talking',
+      'PAUSE — still listening for its name.',
+      '   Tap Pause, then say "OK Stocker" to carry on. No need to touch the phone.',
+      'MUTE — microphone off, really off.',
+      '   Nothing you say wakes it. Tap Unmute to come back.',
+      'Say "OK Stocker" on its own any time and it will tell you where you are.',
     ]
   },
 ];
@@ -188,7 +224,8 @@ export function HelpSheet({ isOpen, onClose }: HelpSheetProps) {
             <p className="text-xs text-muted-foreground">
               <span className="font-semibold text-teal-400">2-Pick Mode:</span> Tap the Settings icon (gear) and
               enable "Call 2 Items at Once" to hear two items per command. Perfect for experienced pickers!
-              Say "go back" twice to return to the first item.
+              Check this setting before you start a route — it changes how every item is called.
+              Say "go back" twice to return to the first of a pair; "repeat that" just says the pair again.
             </p>
           </div>
           <div className="text-center mt-4">
