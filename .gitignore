@@ -50,3 +50,6 @@ src/native/
 
 # XF platform state (regenerated tool state)
 **/.xf/
+
+# Supabase CLI scratch — rewritten on every command, never worth committing
+supabase/.temp/

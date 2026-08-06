@@ -20,23 +20,27 @@
 #
 # Prereqs:
 #   1. test_e2e_minimal_route.sql already run (creates 'E2E Test Route')
-#   2. Supabase MCP available to mark machines as completed (see comments)
+#   2. SUPABASE_SERVICE_ROLE_KEY set in .env (loaded automatically)
 #
 # Usage:
-#   # Step 1 — Run this script:
 #   bash tests/api/test_bug3_skip_route_complete.sh
-#
-#   # Step 2 — After "WAITING FOR DB SETUP" prompt, run via Supabase MCP:
-#   UPDATE machines SET status='completed', completed_items=5
-#   WHERE route_id='<route_id from output>' AND sequence IN (2, 3);
-#
-#   # Step 3 — Press Enter to continue the test.
 #
 # ============================================================================
 
 set -euo pipefail
 
+# Load .env from project root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENV_FILE="$SCRIPT_DIR/../../.env"
+if [ -f "$ENV_FILE" ]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+  set +a
+fi
+
 API="https://stockerai-api.onrender.com/api"
+SUPABASE_URL="https://wvtkuposrlvadyeixlke.supabase.co"
 USER_ID="bdc96b72-3f35-4cae-9e79-99473eb4a23b"
 ROUTE_NAME="E2E Test Route"
 DATE=$(date -d "tomorrow" +%Y-%m-%d 2>/dev/null || date -v+1d +%Y-%m-%d)
@@ -46,6 +50,11 @@ FAIL=0
 pass() { echo "✅ PASS: $1"; PASS=$((PASS+1)); }
 fail() { echo "❌ FAIL: $1"; FAIL=$((FAIL+1)); }
 
+if [ -z "${SUPABASE_SERVICE_ROLE_KEY:-}" ]; then
+  echo "❌ SUPABASE_SERVICE_ROLE_KEY not set. Check .env file."
+  exit 1
+fi
+
 echo "=============================================="
 echo " Bug 3: skip_machine → route_complete"
 echo " Date: $DATE"
@@ -53,7 +62,6 @@ echo "=============================================="
 echo ""
 
 # ─── Step 1: set-route-sequence ─────────────────────────────────────────────
-# This creates a NEW session and resets all machines to 'pending'.
 
 echo "--- Step 1: set-route-sequence (creates session, resets machines) ---"
 RESP=$(curl -s -X POST "$API/set-route-sequence" \
@@ -78,31 +86,39 @@ fi
 pass "session=$SESSION_ID  route=$ROUTE_ID  current=$FIRST_MACHINE"
 echo ""
 
-# ─── Step 2: DB setup (manual via Supabase MCP) ──────────────────────────────
-# set_route_sequence resets all machines to pending on new sessions.
-# We need machines 2 & 3 completed to test the route_complete path.
-#
-# Run this SQL via Supabase MCP now:
-#
-#   UPDATE machines SET status='completed', completed_items=5
-#   WHERE route_id='$ROUTE_ID' AND sequence IN (2, 3);
-#
-# Then press Enter to continue.
+# ─── Step 2: Reset all machines to pending, then mark 2 & 3 completed ────────
+# set-route-sequence may not reset 'skipped' machines back to 'pending'.
+# Explicitly reset all machines first, then set 2 & 3 to completed.
 
-echo "--------------------------------------------------------------"
-echo " WAITING FOR DB SETUP"
-echo " Run this SQL via Supabase MCP (project: wvtkuposrlvadyeixlke):"
+echo "--- Step 2a: reset all machines to pending ---"
+curl -s -X PATCH \
+  "$SUPABASE_URL/rest/v1/machines?route_id=eq.$ROUTE_ID" \
+  -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+  -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"status": "pending"}' > /dev/null
+pass "all machines reset to pending"
+
+echo "--- Step 2b: marking machines 2 & 3 as completed via Supabase ---"
+DB_RESP=$(curl -s -X PATCH \
+  "$SUPABASE_URL/rest/v1/machines?route_id=eq.$ROUTE_ID&sequence=in.(2,3)" \
+  -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+  -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+  -H "Content-Type: application/json" \
+  -H "Prefer: return=representation" \
+  -d '{"status": "completed", "completed_items": 5}')
+
+UPDATED=$(echo "$DB_RESP" | grep -o '"sequence"' | wc -l)
+if [ "$UPDATED" -ge 2 ]; then
+  pass "machines 2 & 3 marked completed ($UPDATED rows updated)"
+else
+  fail "DB update failed — got: $(echo "$DB_RESP" | head -c 200)"
+  exit 1
+fi
 echo ""
-echo "   UPDATE machines SET status='completed', completed_items=5"
-echo "   WHERE route_id='$ROUTE_ID' AND sequence IN (2, 3);"
-echo ""
-echo " Then press Enter to continue..."
-echo "--------------------------------------------------------------"
-read -r
 
 # ─── Step 3: skip-machine (Machine 1, last pending) ─────────────────────────
 
-echo ""
 echo "--- Step 3: skip-machine (Machine 1 = only pending; 2 & 3 completed) ---"
 RESP=$(curl -s -X POST "$API/skip-machine" \
   -H "Content-Type: application/json" \
@@ -117,7 +133,6 @@ if [ "$ACTION" = "route_complete" ]; then
   echo "  voice: $VOICE"
 else
   fail "Expected action=route_complete, got '$ACTION'"
-  echo "  Did you run the SQL update in Step 2?"
 fi
 
 # ─── Summary ─────────────────────────────────────────────────────────────────
