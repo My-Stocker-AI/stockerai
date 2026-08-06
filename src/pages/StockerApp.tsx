@@ -1955,12 +1955,23 @@ export default function StockerApp() {
   };
 
   const handlePauseToggle = () => {
-    // FIX: Pause also mutes microphone to prevent background noise pickup
-    // User can now use pause OR mute button - they do the same thing
+    // GRID-003, 2026-08-06 — Pause now actually pauses. It used to call mute(), on the
+    // reasoning that the two buttons "do the same thing", which made Pause and Mute literally
+    // identical and left the app with no state where it listens for its own name.
+    //
+    // Russ's call: split them, so each word means what a driver expects.
+    //   Pause → the mic stays live, but ONLY the app's name acts on it, so he can say
+    //           "OK Stocker" and carry on with both hands still full.
+    //   Mute  → the mic genuinely stops. He asked for it off, so it is off, and the screen
+    //           is what brings him back.
+    //
+    // Nothing else he says while paused can do anything: commands spoken during a deliberate
+    // hold are discarded on purpose, so a picking word said out of habit cannot fire a
+    // phantom pick when he resumes.
     if (voice.status === 'paused' || voice.status === 'muted') {
       voice.unmute();
     } else {
-      voice.mute();
+      voice.pauseListening();
     }
   };
 
