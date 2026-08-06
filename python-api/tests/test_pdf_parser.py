@@ -85,3 +85,56 @@ class TestParseRoutePdf:
         result = parse_route_pdf("just some random text without headers", "2026-02-10")
         assert result["route_name"] == ""
         assert result["locations"] == []
+
+
+# ── 2026-08-06: found live, on Davy's first upload of the session ──────────────────────────
+#
+# He uploaded his real South route and got "Upload complete — 5 item(s) skipped … formatting
+# issues". The upload had in fact worked and the data was clean, which is the worst kind of
+# error message: it makes a working result look broken. Two separate causes hid behind it.
+
+def test_a_full_slot_is_not_a_formatting_error():
+    """Quantity 0 means the slot is already full. Nothing to carry, nothing to pick — and
+    nothing wrong with his paperwork.
+
+    `quantity > 0` used to sit inside the match condition, so a full slot fell through every
+    pattern and was reported to the operator as a formatting problem. Davy hit it on two slots
+    of a route that parsed perfectly. A full slot is the most ordinary thing on a route."""
+    text = (
+        "TestRoute | Test Site | Snack Machine (12345) | Col1 | ID: abc123\n"
+        "\n"
+        "029 Cheetos Crunchy LSS 2 oz 0 0 / 12 1.50 None\n"
+        "030 Twix Caramel Cookie Bar 1.79 oz 9 6 / 15 1.75 None\n"
+    )
+    result = parse_route_pdf(text, "2026-08-07")
+    items = [i for loc in result["locations"] for m in loc["machines"] for i in m["items"]]
+
+    assert result["warnings"] == [], f"a full slot must not be reported as a defect: {result['warnings']}"
+    slots = {i["slot"] for i in items}
+    assert "030" in slots, "the row with stock to carry must still be picked up"
+    assert "029" not in slots, "a full slot creates no pick — there is nothing to carry"
+
+
+def test_a_note_in_the_last_column_does_not_delete_the_item():
+    """The last column normally reads "None". When the operator writes a real note there, the
+    row must still be read — the note is ignored, the stocking work is kept.
+
+    Three rows on Davy's route read e.g. "… 3.00 Remove Monster Green Can 16 oz", a comment
+    added AFTER the route was delivered. Each row still had 1 item to fill. The old patterns
+    demanded the word "None", so all three rows were discarded — a comment about the machine
+    silently deleted real work from the driver's route."""
+    text = (
+        "TestRoute | Test Site | Snack Machine (12345) | Col1 | ID: abc123\n"
+        "\n"
+        "044 Mountain Dew Can 12 oz - Can 1 0 / 6 3.00 Remove Monster Green Can 16 oz\n"
+        "045 Coke Zero Can 12 oz - Can 1 5 / 6 1.50 None\n"
+    )
+    result = parse_route_pdf(text, "2026-08-07")
+    items = {i["slot"]: i for loc in result["locations"] for m in loc["machines"] for i in m["items"]}
+
+    assert result["warnings"] == [], f"a note is not a defect: {result['warnings']}"
+    assert "044" in items, "the note must not take the item with it"
+    assert items["044"]["product_name"] == "Mountain Dew Can 12 oz - Can", \
+        "the note must not leak into the product name the driver hears"
+    assert items["044"]["quantity"] == 1
+    assert "045" in items, "ordinary rows must be untouched"

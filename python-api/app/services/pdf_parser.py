@@ -197,6 +197,22 @@ def parse_route_pdf(text: str, delivery_date: str) -> dict:
     # Detect product-fragment false alarms (e.g. "20 oz - Bottle", "17 oz - Can")
     _fragment_pattern = re.compile(r"^\d+\s*oz\b", re.IGNORECASE)
 
+    # A row whose last column carries a NOTE instead of the usual "None".
+    #
+    # Found live 2026-08-06 on Davy's South route. That column normally reads "None", and both
+    # patterns above require it. Three rows instead read e.g.
+    #   "044 Mountain Dew Can 12 oz - Can 1 0 / 6 3.00 Remove Monster Green Can 16 oz"
+    # — a comment the operator added AFTER the route was delivered. The row matched nothing, so
+    # the whole line was discarded, and with it the one Mountain Dew that genuinely needed
+    # stocking. A note about the machine silently deleted real work from the driver's route.
+    #
+    # Russ's call, 2026-08-06: notes are not stocking instructions. Ignore what the note SAYS,
+    # keep the row. Tried only after both exact patterns fail, so nothing that parses today
+    # changes behaviour.
+    noted_item_pattern = re.compile(
+        rf"^\s*{_slot}\s+(.+)\s+(\d+)\s+(\d+)\s*/\s*(\d+)\s+([\d.]+)\s+(.+)$"
+    )
+
     warnings: list[str] = []
 
     def _try_emit_item(text_to_match: str, target_machine: dict) -> bool:
@@ -209,18 +225,22 @@ def parse_route_pdf(text: str, delivery_date: str) -> dict:
             quantity = int(m.group(3))
             inventory_current = int(m.group(4))
             inventory_parlevel = int(m.group(5))
-            if (
-                re.search(r"[a-zA-Z]", product_name)
-                and quantity > 0
-                and 2 < len(product_name) < 150
-            ):
-                target_machine["items"].append({
-                    "product_name": product_name,
-                    "quantity": quantity,
-                    "slot": slot,
-                    "inventory_current": inventory_current,
-                    "inventory_parlevel": inventory_parlevel,
-                })
+            if re.search(r"[a-zA-Z]", product_name) and 2 < len(product_name) < 150:
+                if quantity > 0:
+                    target_machine["items"].append({
+                        "product_name": product_name,
+                        "quantity": quantity,
+                        "slot": slot,
+                        "inventory_current": inventory_current,
+                        "inventory_parlevel": inventory_parlevel,
+                    })
+                # A quantity of 0 means the slot is already full — there is nothing to carry and
+                # nothing to pick, so no item is created. But the row was READ correctly, and
+                # saying so is the fix: `quantity > 0` used to sit inside this condition, so a
+                # full slot fell through every pattern and was reported to the operator as
+                # "formatting issues". Davy got that on two slots in a route that parsed
+                # perfectly, which is enough to make him distrust the whole upload. A full slot
+                # is the most ordinary thing on a route, not a defect in his paperwork.
                 return True
 
         # Reversed order: slot qty inv/par price None product (page-break casualty)
@@ -231,18 +251,37 @@ def parse_route_pdf(text: str, delivery_date: str) -> dict:
             inventory_current = int(m.group(3))
             inventory_parlevel = int(m.group(4))
             product_name = m.group(6).strip()
-            if (
-                re.search(r"[a-zA-Z]", product_name)
-                and quantity > 0
-                and 2 < len(product_name) < 150
-            ):
-                target_machine["items"].append({
-                    "product_name": product_name,
-                    "quantity": quantity,
-                    "slot": slot,
-                    "inventory_current": inventory_current,
-                    "inventory_parlevel": inventory_parlevel,
-                })
+            if re.search(r"[a-zA-Z]", product_name) and 2 < len(product_name) < 150:
+                if quantity > 0:
+                    target_machine["items"].append({
+                        "product_name": product_name,
+                        "quantity": quantity,
+                        "slot": slot,
+                        "inventory_current": inventory_current,
+                        "inventory_parlevel": inventory_parlevel,
+                    })
+                # Same as above: a full slot is understood, not a formatting problem.
+                return True
+
+        # Last resort: a well-formed row whose final column holds a NOTE rather than "None".
+        # The note is ignored; the item is kept. See noted_item_pattern above.
+        m = noted_item_pattern.match(text_to_match)
+        if m:
+            slot = m.group(1).strip()
+            product_name = m.group(2).strip()
+            quantity = int(m.group(3))
+            inventory_current = int(m.group(4))
+            inventory_parlevel = int(m.group(5))
+            if re.search(r"[a-zA-Z]", product_name) and 2 < len(product_name) < 150:
+                if quantity > 0:
+                    target_machine["items"].append({
+                        "product_name": product_name,
+                        "quantity": quantity,
+                        "slot": slot,
+                        "inventory_current": inventory_current,
+                        "inventory_parlevel": inventory_parlevel,
+                    })
+                # Nothing to fill is still a row we UNDERSTOOD — see the note below.
                 return True
 
         return False
