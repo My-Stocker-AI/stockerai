@@ -3,6 +3,7 @@ import { readEnvVoiceTuning, EnvVoiceTuning } from '@/lib/settingsCore';
 import { gentleReconnect, shouldReconnectFromStatus } from './reconnectPolicy';
 import { watchdogAction, recoverStatus, resolveHandoffCommand, WATCHDOG_STUCK_THRESHOLD_MS } from './voiceHandoffPolicy';
 import { shouldMicSend } from './captureHoldPolicy';
+import { shouldSpeakFallback } from './speechFallbackPolicy';
 import { accumulateTranscript } from './transcriptAccumulator';
 import { resolveEcho } from './echoFilter';
 import { WAKE_PHRASES } from '@/utils/wakePhrases';
@@ -1743,8 +1744,24 @@ export function useVoice(options: UseVoiceOptions = {}) {
         }
 
       } catch (error) {
-        // Fallback to browser TTS — use processed text so pronunciation corrections apply
-        await speakBrowser(processed);
+        // GRID-005 — a stop the app performed ON PURPOSE is not a failure to recover from.
+        //
+        // The barge-in path calls stopAudio(), which clears the audio player. On Android that
+        // clearing raises a playback error, so a deliberate interruption arrived here looking
+        // exactly like a genuine failure — and this line then re-spoke the ENTIRE announcement
+        // in the flat backup voice while his command was also being carried out. He says "next"
+        // over "Aisle four, six Doritos" and the app moves on AND starts reading the old item
+        // again, in a different voice. One thing said, two things happen.
+        //
+        // The backup voice still fires for real failures (a decode error, a dead audio path),
+        // because there he genuinely has not heard the item and silence would be worse.
+        if (shouldSpeakFallback({ stoppedOnPurpose: stoppedRef.current })) {
+          // Use processed text so pronunciation corrections apply
+          await speakBrowser(processed);
+        } else {
+          console.log('[Voice] Playback stopped deliberately — not re-speaking in the backup voice');
+          emitDiagnostic('tts-stop-not-failure', processed);
+        }
       }
 
       // 7. Done speaking - transition back to listening (matches original PWA)
