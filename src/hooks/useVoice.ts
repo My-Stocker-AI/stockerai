@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { readEnvVoiceTuning, EnvVoiceTuning } from '@/lib/settingsCore';
 import { gentleReconnect, shouldReconnectFromStatus } from './reconnectPolicy';
 import { watchdogAction, recoverStatus, resolveHandoffCommand, WATCHDOG_STUCK_THRESHOLD_MS } from './voiceHandoffPolicy';
+import { shouldMicSend } from './captureHoldPolicy';
 import { accumulateTranscript } from './transcriptAccumulator';
 import { resolveEcho } from './echoFilter';
 import { WAKE_PHRASES } from '@/utils/wakePhrases';
@@ -607,7 +608,10 @@ export function useVoice(options: UseVoiceOptions = {}) {
     // sending again. We deliberately do NOT rebuild the AudioContext on reconnect, because
     // a new context created off a user gesture (a mid-route drop) can come up suspended.
     if (captureNodeRef.current) {
-      micSendingRef.current = true;
+      // GRID-004: this path runs on every reconnect. It used to re-arm the microphone
+      // unconditionally, switching it back on while the screen still read paused or muted —
+      // the driver believes he silenced it and has not. Ask the policy instead.
+      micSendingRef.current = shouldMicSend(statusRef.current);
       return;
     }
     try {
@@ -630,8 +634,10 @@ export function useVoice(options: UseVoiceOptions = {}) {
       node.connect(ctx.destination);
       captureSourceRef.current = source;
       captureNodeRef.current = node;
-      micSendingRef.current = true;
-      isRecordingRef.current = true;
+      // GRID-004: same reason as the idempotent path above — a first capture that comes up
+      // during a hold must respect that hold rather than overriding it.
+      micSendingRef.current = shouldMicSend(statusRef.current);
+      isRecordingRef.current = micSendingRef.current;
       emitDiagnostic('capture-state', 'recording');
       console.log('[Voice] PCM capture started (16kHz linear16 via AudioWorklet)');
     } catch (e: any) {
@@ -641,17 +647,27 @@ export function useVoice(options: UseVoiceOptions = {}) {
     }
   }, []);
 
-  // Pause/resume just gate the send — the mic + worklet stay live (no re-acquire).
-  const pauseCapture = useCallback(() => {
-    micSendingRef.current = false;
-    isRecordingRef.current = false;
-    emitDiagnostic('capture-state', 'paused');
-  }, []);
-
+  // Holding and resuming just gate the send — the mic + worklet stay live (no re-acquire).
+  // The old pauseCapture() was removed 2026-08-06: it hard-killed the send for BOTH paused and
+  // muted, which is precisely what made the wake phrase unhearable (GRID-003). applyCaptureHold
+  // below replaces it and asks the state what the microphone should be doing.
   const resumeCapture = useCallback(() => {
     micSendingRef.current = true;
     isRecordingRef.current = true;
     emitDiagnostic('capture-state', 'recording');
+  }, []);
+
+  // GRID-003 — the pause/mute split. Pause and mute both used to call pauseCapture(), which
+  // killed the audio in both. That made the wake-phrase branch in processAccumulatedTranscript
+  // dead code: the app listens for its own name while held and never received anything to hear
+  // it in, so "OK Stocker" could not bring it back and the driver had to tap the phone.
+  // Now the state itself decides (captureHoldPolicy): paused keeps sending so the wake phrase
+  // works hands-free, muted really stops.
+  const applyCaptureHold = useCallback((nextStatus: VoiceStatus) => {
+    const sending = shouldMicSend(nextStatus);
+    micSendingRef.current = sending;
+    isRecordingRef.current = sending;
+    emitDiagnostic('capture-state', sending ? 'listening-for-wake' : 'paused');
   }, []);
 
   const connectDeepgram = useCallback(async () => {
@@ -1188,7 +1204,10 @@ export function useVoice(options: UseVoiceOptions = {}) {
     }
     accumulatedTranscriptRef.current = '';
 
-    pauseCapture();
+    // GRID-003: pause KEEPS the microphone sending so "OK Stocker" can wake it hands-free.
+    // Only the wake phrase acts on it — processAccumulatedTranscript discards everything else
+    // while paused, so a picking word said out of habit still cannot fire a phantom pick.
+    applyCaptureHold('paused');
 
     // Release wake lock when pausing (allow screen timeout during breaks)
     if (wakeLockRef.current) {
@@ -1203,7 +1222,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
 
     setLastInput('');
     setStatus('paused');
-  }, [setStatus]);
+  }, [setStatus, applyCaptureHold]);
 
   const resumeListening = useCallback(async () => {
     // Clear the TTS kill-switch — backgrounding/lock latches stoppedRef=true via pagehide;
@@ -1297,10 +1316,12 @@ export function useVoice(options: UseVoiceOptions = {}) {
     }
     accumulatedTranscriptRef.current = '';
 
-    pauseCapture();
+    // GRID-003: mute genuinely stops the microphone. He asked for it off, so it is off —
+    // the screen is what tells him to tap to come back, not a wake phrase that cannot be heard.
+    applyCaptureHold('muted');
     setLastInput('');
     setStatus('muted');
-  }, [setStatus]);
+  }, [setStatus, applyCaptureHold]);
 
   const unmute = useCallback(async () => {
     // Clear the TTS kill-switch on resume. Backgrounding / screen-lock fires pagehide ->
