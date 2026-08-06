@@ -16,15 +16,25 @@ app = FastAPI(title="StockerAI API", version="1.0.0")
 # consistent for every request, on every device.
 ALLOWED_ORIGINS = [
     "https://my-stocker-ai.com",
+    "https://www.my-stocker-ai.com",
+    # ADDED 2026-08-06 — the site is served on FIVE addresses (all pointing at the same
+    # Cloudflare project), and only some of them were listed here. Davy hit it live: he opened
+    # stocker-ai.com, the app loaded normally, the upload began, and then the server refused the
+    # connection — which reads to a driver as "can't reach the server" with no way to tell that
+    # the address he used is the whole problem. The app being reachable at an address the API
+    # will not talk to is a broken product, not a configuration nicety.
+    "https://stocker-ai.com",
+    "https://www.stocker-ai.com",
     "https://stockerai.pages.dev",       # the real Cloudflare Pages domain (NO hyphen)
     "https://stocker-ai.pages.dev",      # legacy hyphenated spelling, kept harmless
 ]
 # Match Cloudflare Pages preview deploys (<hash>.stockerai.pages.dev) with OR without
-# the hyphen, plus the www host, so no real app URL is ever blocked. The earlier
+# the hyphen, plus the www hosts, so no real app URL is ever blocked. The earlier
 # hyphenated-only pattern silently blocked the real stockerai.pages.dev origin.
 ALLOWED_ORIGIN_REGEX = (
     r"(https://([a-z0-9-]+\.)?stocker-?ai\.pages\.dev)"
     r"|(https://www\.my-stocker-ai\.com)"
+    r"|(https://www\.stocker-ai\.com)"
 )
 
 app.add_middleware(
