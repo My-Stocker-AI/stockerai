@@ -5,7 +5,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import { useVoice } from '@/hooks/useVoice';
 import { shouldRunDirectionDetection } from '@/hooks/voiceHandoffPolicy';
-import { resolveFailureSpeech, type FailureKind } from '@/hooks/voiceFailureSpeech';
+import { resolveFailureSpeech, classifyFailure, type FailureKind } from '@/hooks/voiceFailureSpeech';
 import { resolveTranscriptGate, gateReason } from '@/hooks/transcriptGate';
 import { resolveUnknownReply } from '@/utils/commandGuess';
 import { resolveLocalIntent } from '@/utils/localCommandIntent';
@@ -1946,6 +1946,35 @@ export default function StockerApp() {
     };
   }, [voice]);
 
+  // GRID-006 — the failure message told him to tap, and tapping did nothing but hide it.
+  //
+  // The banner's only behaviour was setError(null). So when voice gave up and put
+  // "Voice paused — tap to reconnect." on screen, his tap made the words disappear and left the
+  // voice just as dead. That is worse than silence: it looks like it worked. (The only real
+  // recovery was an undocumented triple-tap anywhere on the screen.)
+  //
+  // The second half is the wait. Getting a fresh voice credential can take up to ten seconds,
+  // and nothing moves during it — so even once the tap DOES something, he cannot tell whether
+  // it registered. So the tap is acknowledged on screen before the work starts, not after.
+  //
+  // Ordinary messages he cannot act on still just dismiss, exactly as before.
+  const handleErrorTap = useCallback(async () => {
+    const current = error || '';
+    if (classifyFailure(current) !== 'needs-tap') {
+      setError(null);
+      return;
+    }
+    setError('Reconnecting…');            // acknowledge the tap FIRST — this is the ten seconds
+    try {
+      await voiceRef.current?.unlockAudio?.();   // this tap is the gesture iOS requires
+      await voiceRef.current?.startListening?.();
+      setError(null);
+    } catch (e) {
+      console.error('[Voice] Tap-to-reconnect failed:', e);
+      setError('Voice paused — tap to reconnect.');
+    }
+  }, [error]);
+
   const handleMuteToggle = () => {
     if (voice.status === 'muted') {
       voice.unmute();
@@ -2760,7 +2789,15 @@ export default function StockerApp() {
 
         {/* Error */}
         {error && (
-          <div className="bg-red-900/50 text-red-300 rounded-lg p-3 text-sm" onClick={() => setError(null)}>
+          <div
+            className={cn(
+              "bg-red-900/50 text-red-300 rounded-lg p-3 text-sm",
+              // A message that says "tap to reconnect" has to LOOK like something you tap.
+              classifyFailure(error) === 'needs-tap' &&
+                "cursor-pointer underline decoration-red-400/60 underline-offset-4 active:bg-red-900/70"
+            )}
+            onClick={handleErrorTap}
+          >
             {error}
           </div>
         )}
