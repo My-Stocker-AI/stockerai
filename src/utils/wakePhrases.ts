@@ -38,3 +38,37 @@ export const WAKE_PHRASES: string[] = [
   'ok soccer', 'okay soccer',
   'ok stock', 'okay stock', 'hey stock',
 ];
+
+/**
+ * GRID-007 — did he say ONLY the app's name, with no command after it?
+ *
+ * Saying a name is how you get someone's attention, and what that means depends entirely on
+ * whether they were already paying it. Russ's rule, 2026-08-06:
+ *
+ *   asleep, name alone → wake up and say where we are
+ *   awake,  name alone → ask him what he wants to do
+ *
+ * The asleep half already worked. The awake half did not: the command matcher strips the app's
+ * own name as filler, and on a bare name that leaves an empty string. Empty is not a command, so
+ * it fell through to "I didn't catch that" — or worse, to a guess at some command he never said.
+ * The same two words therefore meant two different things depending on a state he cannot see.
+ *
+ * Why ask rather than re-announce the item: he often says the name, pauses half a second to
+ * think, then speaks the command. Announcing over that pause talks straight over him. A short
+ * question fits the pause instead of fighting it.
+ */
+const BARE_WAKE_RE = new RegExp(
+  `^(?:(?:ok|okay|hey)\\s+)?(?:${[...APP_NAME_TOKENS, 'stock'].join('|')})$`,
+  'i',
+);
+
+/** True when the whole utterance is nothing but the app's name (or a known mishearing of it). */
+export function isBareWakePhrase(text: string): boolean {
+  const t = (text || '')
+    .toLowerCase()
+    .replace(/[.,!?;:]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!t) return false;
+  return BARE_WAKE_RE.test(t);
+}

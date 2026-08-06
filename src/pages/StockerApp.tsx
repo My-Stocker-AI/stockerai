@@ -591,6 +591,23 @@ export default function StockerApp() {
               return;
             }
 
+            case PickingCommand.WAKE_ONLY: {
+              // GRID-007 — he said the app's name and nothing else, while it was already
+              // listening. Saying a name is getting attention, not asking a question, so the
+              // app answers the way a person would when they are already looking at you: it
+              // asks what he wants. It deliberately does NOT re-announce the current item —
+              // he usually says the name, thinks for half a second, then speaks the command,
+              // and announcing would talk straight over him.
+              // (Said while paused, the same words still wake it and say where we are — that
+              // path lives in useVoice and is unchanged.)
+              const wakeMsg = 'Yes? What would you like to do?';
+              console.log('[CommandRecognizer] WAKE_ONLY — already awake, asking for the command');
+              setAiResponse(wakeMsg);
+              await v.speak(wakeMsg);
+              processingRef.current = false;
+              return;
+            }
+
             case PickingCommand.MACHINES_LEFT: {
               // Answered locally — count completed vs total (matches the on-screen progress).
               const completedCount = routeState.machines.filter(m => m.status === 'completed').length;

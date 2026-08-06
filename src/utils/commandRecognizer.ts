@@ -10,7 +10,7 @@
  * Tier 4: UNKNOWN - handled locally ("I didn't catch that"), NOT sent to AI
  */
 
-import { APP_NAME_TOKENS } from './wakePhrases';
+import { APP_NAME_TOKENS, isBareWakePhrase } from './wakePhrases';
 
 export enum PickingCommand {
   NEXT_ITEM = 'next_item',
@@ -25,6 +25,7 @@ export enum PickingCommand {
   UNDO = 'undo',
   WHICH_MACHINE = 'which_machine',   // "what machine is this" — answered locally from state
   MACHINES_LEFT = 'machines_left',   // "how many machines left" — answered locally from state
+  WAKE_ONLY = 'wake_only',           // just the app's name while already awake — ask what he wants
   UNKNOWN = 'unknown'
 }
 
@@ -345,6 +346,17 @@ export class CommandRecognizer {
 
     if (corrected !== lower) {
       console.log('[CommandRecognizer] 🔊 Phonetic correction:', lower, '→', corrected);
+    }
+
+    // Tier 1b: GRID-007 — nothing but the app's own name. This has to be caught BEFORE the
+    // filler-stripping match, because that strips the name and is then left holding an empty
+    // string, which is not a command — so a bare name used to land on "I didn't catch that",
+    // or on a guess at something he never said. It is not an unrecognized command; it is him
+    // getting the app's attention while it is already listening, and the honest answer is to
+    // ask what he wants. Anything AFTER the name ("OK Stocker, next") fails this test and
+    // carries on down the normal path untouched.
+    if (isBareWakePhrase(corrected)) {
+      return { command: PickingCommand.WAKE_ONLY, confidence: 1.0 };
     }
 
     // Tier 2: Exact match (99.9% accuracy)

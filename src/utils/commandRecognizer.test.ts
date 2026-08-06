@@ -525,9 +525,19 @@ describe('CommandRecognizer', () => {
       expect(r.recognize(phrase).command).toBe(PickingCommand.NEXT_ITEM);
     });
 
-    it('the name ALONE is still not a command — it is a wake word, handled elsewhere', () => {
-      expect(r.recognize('stocker').command).toBe(PickingCommand.UNKNOWN);
-      expect(r.recognize('ok stocker').command).toBe(PickingCommand.UNKNOWN);
+    it('the name ALONE is its own thing — WAKE_ONLY, not an unrecognized command', () => {
+      // CORRECTED 2026-08-06 (GRID-007). This used to assert UNKNOWN on the reasoning that a
+      // bare name is "a wake word, handled elsewhere". That is only true while the app is
+      // ASLEEP — useVoice's wake branch catches it there and answers with where we are. While
+      // the app is already LISTENING there is no elsewhere: the name gets stripped as filler,
+      // nothing is left, and he got "I didn't catch that" or a guess at a command he never
+      // said. So the same two words meant two different things depending on a state he cannot
+      // see, which is the defect.
+      //
+      // Russ's rule: the name has one job, getting attention. Asleep → wake and orient him.
+      // Awake → ask what he wants. UNKNOWN was never the honest answer to either.
+      expect(r.recognize('stocker').command).toBe(PickingCommand.WAKE_ONLY);
+      expect(r.recognize('ok stocker').command).toBe(PickingCommand.WAKE_ONLY);
     });
 
     it('does not swallow a real word that merely starts the same way', () => {
