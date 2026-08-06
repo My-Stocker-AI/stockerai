@@ -154,16 +154,151 @@ describe('BRANCH 5 — watchdog: recover a real freeze, never interrupt legit pr
     ).toBe('noop');
   });
 
-  it('never fires while listening, while paused/muted, or with nothing queued', () => {
+  it('never fires while listening, or while paused/muted', () => {
     expect(
       watchdogAction({ status: 'listening', hasPendingCommand: true, stuckMs: 99999, thresholdMs: WATCHDOG_STUCK_THRESHOLD_MS }),
     ).toBe('noop');
     expect(
       watchdogAction({ status: 'paused', hasPendingCommand: true, stuckMs: 99999, thresholdMs: WATCHDOG_STUCK_THRESHOLD_MS }),
     ).toBe('noop');
+  });
+});
+
+/**
+ * GRID-001 — the freeze rescue that could never fire. Fixed 2026-08-06.
+ *
+ * The survey (docs/voice-state-command-timing-matrix.md) proved the watchdog was unreachable,
+ * and it is worth being exact about why, because a test in this very file used to lock it shut:
+ *
+ *   1. watchdogAction refused to act unless a command was waiting in the queue.
+ *   2. The queue has exactly one writer (useVoice.ts line 475), reached only when
+ *      resolveHandoffCommand returns 'queue'.
+ *   3. After the 2026-07-30 sibling round, 'queue' is returned for ONE state — 'error'.
+ *      (paused/muted → ignore; listening/idle/speaking/thinking → dispatch.)
+ *   4. To queue anything in 'error', a transcript must arrive while in 'error'. But 'error'
+ *      means the connection is down, so no transcript can arrive.
+ *
+ * So the queue could never fill, so the watchdog could never fire, so all 28 of its grid rows
+ * are 'not-reachable'. The app's only rescue from a freeze was switched off by its own trigger.
+ *
+ * The correction: a freeze rescue that demands a queued command is not a freeze rescue. Being
+ * stuck IS the emergency; whether something is waiting in the queue is incidental to it. The
+ * queue still gets flushed on recovery when it happens to hold something.
+ *
+ * The new guard replacing it is narrower and honest: never interrupt the app WHILE IT IS
+ * SPEAKING OUT LOUD, because a long announcement legitimately outlasts the threshold and
+ * cutting it off mid-sentence would be a fresh defect of exactly the kind this sweep exists
+ * to stop.
+ */
+describe('GRID-001 — the watchdog can now actually fire', () => {
+  it('recovers a freeze with NOTHING queued — the case that was unreachable', () => {
+    // This is the exact assertion that used to read 'noop' and kept the rescue switched off.
     expect(
-      watchdogAction({ status: 'thinking', hasPendingCommand: false, stuckMs: 99999, thresholdMs: WATCHDOG_STUCK_THRESHOLD_MS }),
+      watchdogAction({
+        status: 'thinking',
+        hasPendingCommand: false,
+        stuckMs: WATCHDOG_STUCK_THRESHOLD_MS + 500,
+        thresholdMs: WATCHDOG_STUCK_THRESHOLD_MS,
+      }),
+    ).toBe('recover');
+  });
+
+  it("recovers from 'error' with nothing queued — the state the queue could never be filled in", () => {
+    expect(
+      watchdogAction({
+        status: 'error',
+        hasPendingCommand: false,
+        stuckMs: WATCHDOG_STUCK_THRESHOLD_MS + 1,
+        thresholdMs: WATCHDOG_STUCK_THRESHOLD_MS,
+      }),
+    ).toBe('recover');
+  });
+
+  it('does NOT cut the app off while it is genuinely speaking out loud', () => {
+    // A long item announcement can legitimately run past the threshold. Forcing it back to
+    // listening mid-sentence would chop the app off in the driver's ear.
+    expect(
+      watchdogAction({
+        status: 'speaking',
+        hasPendingCommand: false,
+        stuckMs: WATCHDOG_STUCK_THRESHOLD_MS + 10000,
+        thresholdMs: WATCHDOG_STUCK_THRESHOLD_MS,
+        isActivelySpeaking: true,
+      }),
     ).toBe('noop');
+  });
+
+  it("DOES recover from 'speaking' once the audio has actually finished", () => {
+    // Stuck at 'speaking' with no sound coming out is a real freeze — speech that failed to
+    // start, or a status that was never moved on. That is precisely what to rescue.
+    expect(
+      watchdogAction({
+        status: 'speaking',
+        hasPendingCommand: false,
+        stuckMs: WATCHDOG_STUCK_THRESHOLD_MS + 500,
+        thresholdMs: WATCHDOG_STUCK_THRESHOLD_MS,
+        isActivelySpeaking: false,
+      }),
+    ).toBe('recover');
+  });
+
+  it("still honours the driver's own hold, speaking or not", () => {
+    for (const status of ['paused', 'muted'] as const) {
+      expect(
+        watchdogAction({
+          status,
+          hasPendingCommand: false,
+          stuckMs: 99999,
+          thresholdMs: WATCHDOG_STUCK_THRESHOLD_MS,
+        }),
+      ).toBe('noop');
+    }
+  });
+
+  it('NEVER restarts a session the driver stopped on purpose', () => {
+    // Regression guard for a defect this very fix nearly introduced. The stuck-clock starts the
+    // moment status leaves 'listening' — and tapping Stop does exactly that. With the queue
+    // condition removed and nothing in its place, a stopped app would have force-resumed itself
+    // six seconds later, mic live, in a warehouse, with nobody asking it to.
+    expect(
+      watchdogAction({
+        status: 'idle',
+        hasPendingCommand: false,
+        stuckMs: 99999,
+        thresholdMs: WATCHDOG_STUCK_THRESHOLD_MS,
+      }),
+    ).toBe('noop');
+    // Even with something stale left in the queue, Stop means stop.
+    expect(
+      watchdogAction({
+        status: 'idle',
+        hasPendingCommand: true,
+        stuckMs: 99999,
+        thresholdMs: WATCHDOG_STUCK_THRESHOLD_MS,
+      }),
+    ).toBe('noop');
+  });
+
+  it('still leaves a normal short processing window alone', () => {
+    expect(
+      watchdogAction({
+        status: 'thinking',
+        hasPendingCommand: false,
+        stuckMs: 1200,
+        thresholdMs: WATCHDOG_STUCK_THRESHOLD_MS,
+      }),
+    ).toBe('noop');
+  });
+
+  it('still recovers when a command IS queued (the original behaviour, unchanged)', () => {
+    expect(
+      watchdogAction({
+        status: 'thinking',
+        hasPendingCommand: true,
+        stuckMs: WATCHDOG_STUCK_THRESHOLD_MS + 500,
+        thresholdMs: WATCHDOG_STUCK_THRESHOLD_MS,
+      }),
+    ).toBe('recover');
   });
 });
 

@@ -1290,15 +1290,23 @@ export function useVoice(options: UseVoiceOptions = {}) {
     const WATCHDOG_POLL_MS = 2000;
     const timer = setInterval(() => {
       const stuckMs = stuckSinceRef.current === null ? 0 : Date.now() - stuckSinceRef.current;
+      // GRID-001: is the app's own voice actually coming out of the speaker right now? A long
+      // announcement legitimately outlasts the stuck threshold, and cutting it off mid-sentence
+      // would be a new defect. Covers both the normal audio path and the flat fallback voice.
+      const el = audioRef.current;
+      const isActivelySpeaking =
+        (!!el && !el.paused && !el.ended) ||
+        (typeof window !== 'undefined' && !!window.speechSynthesis?.speaking);
       const action = watchdogAction({
         status: statusRef.current,
         hasPendingCommand: pendingCommandRef.current !== null,
         stuckMs,
         thresholdMs: WATCHDOG_STUCK_THRESHOLD_MS,
+        isActivelySpeaking,
       });
       if (action === 'recover') {
         const target = recoverStatus(statusRef.current); // 'listening' (preserves paused/muted)
-        console.warn('[Voice] ⏱️ Watchdog: FSM stuck non-listening with a queued command — force-recovering to', target);
+        console.warn('[Voice] ⏱️ Watchdog: stuck off listening past threshold — force-recovering to', target);
         emitDiagnostic('watchdog-recover', { stuckMs, from: statusRef.current, to: target });
         setStatus(target);
         // resumeListening() re-arms capture AND fires the stranded command from pendingCommandRef.

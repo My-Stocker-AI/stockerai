@@ -138,11 +138,42 @@ export function watchdogAction(args: {
   hasPendingCommand: boolean;
   stuckMs: number;
   thresholdMs: number;
+  /**
+   * True while the app's own voice is actually coming out of the speaker. Optional: callers that
+   * cannot observe playback omit it, and a status of 'speaking' with no sound is then treated as
+   * the freeze it is.
+   */
+  isActivelySpeaking?: boolean;
 }): 'recover' | 'noop' {
-  const { status, hasPendingCommand, stuckMs, thresholdMs } = args;
+  const { status, stuckMs, thresholdMs, isActivelySpeaking } = args;
   if (status === 'listening') return 'noop';
   if (status === 'paused' || status === 'muted') return 'noop'; // user hold — never override
-  if (!hasPendingCommand) return 'noop'; // nothing stranded → nothing to rescue
+
+  // 'idle' means STOPPED — either the driver tapped Stop, or voice has not started yet. There is
+  // no freeze to rescue, and rescuing it would restart a session he deliberately ended.
+  //
+  // This guard is load-bearing BECAUSE of the fix below. The stuck-clock starts the moment status
+  // leaves 'listening', and tapping Stop does exactly that — so with the queue condition removed
+  // and nothing in its place, a stopped app would have force-resumed itself six seconds later.
+  // The old `!hasPendingCommand` line was accidentally covering this (Stop clears the queue);
+  // taking it out without this would have traded an unreachable rescue for a live defect.
+  if (status === 'idle') return 'noop';
+
+  // GRID-001 FIX (2026-08-06) — the `if (!hasPendingCommand) return 'noop'` that stood here is
+  // gone, and removing it is the whole fix. It made the rescue depend on a queue that could
+  // never fill: the queue's only writer needs a transcript to arrive during 'error', and 'error'
+  // means the connection is down, so no transcript can arrive. All 28 watchdog rows in the
+  // survey are 'not-reachable' for that reason — the app's only escape from a freeze was held
+  // shut by its own trigger condition.
+  //
+  // Being stuck IS the emergency. Whether a command happens to be waiting is incidental, and
+  // resumeListening still flushes the queue when it does hold something.
+  //
+  // What replaces it is narrower and true: never interrupt the app while it is genuinely
+  // speaking. A long announcement outlasts the threshold honestly, and chopping it off in the
+  // driver's ear would be a new defect of exactly the kind this sweep exists to prevent.
+  if (status === 'speaking' && isActivelySpeaking) return 'noop';
+
   if (stuckMs < thresholdMs) return 'noop'; // still within a legitimate processing window
   return 'recover';
 }
