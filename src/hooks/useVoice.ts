@@ -184,6 +184,28 @@ export function useVoice(options: UseVoiceOptions = {}) {
     return false;
   }, []);
 
+  // GRID-002 — anchor the echo window to SOUND, not to intent.
+  //
+  // These three markers used to be set in speak() immediately before the audio was fetched,
+  // which made "the app started speaking" mean "the app decided to speak". On a line that was
+  // not prefetched the fetch takes a few hundred milliseconds, and the damage lands twice:
+  //
+  //   during the fetch  — nothing is playing, yet anything the driver says is thrown away as
+  //                       the app's own echo. He speaks into silence and gets no response.
+  //   at playback start — the grace period has already been spent on that silence, so the app's
+  //                       real voice arrives unprotected and a short fragment of it can be
+  //                       taken for a command.
+  //
+  // Worse, which of the two you got depended on whether the line happened to be cached, so the
+  // dead spot moved around and never reproduced the same way twice.
+  //
+  // Called at the moment audio actually starts, on both playback paths.
+  const markSpeechStarted = useCallback((spokenText: string) => {
+    lastSpokenTextRef.current = spokenText.toLowerCase();
+    lastSpeakTimeRef.current = Date.now();
+    lastSpeakEndTimeRef.current = null; // speaker is live from here until playback ends
+  }, []);
+
   // Extract command after wake phrase (from original PWA)
   // Returns "what's next" if wake phrase alone (matching original behavior)
   const extractWakeCommand = useCallback((text: string): string | null => {
@@ -1399,6 +1421,9 @@ export function useVoice(options: UseVoiceOptions = {}) {
       try {
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.rate = 1.0;
+        // GRID-002: the flat fallback voice is still the app talking, so it needs the same
+        // echo window as the normal voice — anchored to when sound actually starts.
+        utterance.onstart = () => { markSpeechStarted(text); };
         utterance.onend = () => { clearTimeout(timeout); resolve(); };
         utterance.onerror = () => { clearTimeout(timeout); resolve(); };
         window.speechSynthesis.speak(utterance);
@@ -1407,7 +1432,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
         resolve();
       }
     });
-  }, []);
+  }, [markSpeechStarted]);
 
   // Mutex for speak function (matches original PWA lock/unlock pattern)
   const speakLockRef = useRef(false);
@@ -1518,11 +1543,11 @@ export function useVoice(options: UseVoiceOptions = {}) {
         .replace(/\bCan\b/g, 'can')
         .replace(/\b(\d+)\s*can\b/gi, '$1 cans');
 
-      // 5a. Set echo references BEFORE playback so filtering works during TTS
-      // (PCM capture stays active during playback for interrupt support)
-      lastSpokenTextRef.current = processed.toLowerCase();
-      lastSpeakTimeRef.current = Date.now();
-      lastSpeakEndTimeRef.current = null; // speaker is live from here until playback ends
+      // 5a. GRID-002: the echo references are NO LONGER set here. Setting them before the
+      // fetch made "started speaking" mean "decided to speak", which deafened the app during
+      // the silent fetch and then left the real voice unguarded. markSpeechStarted(processed)
+      // is called at actual playback start instead, on both playback paths below.
+      // (PCM capture stays active during playback for interrupt support.)
 
       // 5. Fetch and play audio (with prefetch optimization - Performance Priority 5)
       try {
@@ -1622,6 +1647,8 @@ export function useVoice(options: UseVoiceOptions = {}) {
             if (playPromise) {
               playPromise
                 .then(() => {
+                  // GRID-002: sound is actually coming out NOW — start the echo window here.
+                  markSpeechStarted(processed);
                   console.log('[Voice] HTMLAudioElement playback started (speakerphone)');
                 })
                 .catch(err => {
@@ -1696,6 +1723,8 @@ export function useVoice(options: UseVoiceOptions = {}) {
 
                 try {
                   source.start(0);
+                  // GRID-002: sound is actually coming out NOW — start the echo window here.
+                  markSpeechStarted(processed);
                   console.log('[Voice] Web Audio API playback started');
                 } catch (err: any) {
                   console.error('[Voice] Web Audio playback failed:', err);
@@ -1749,7 +1778,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
       // Always release lock (matches original PWA unlock in finally)
       releaseSpeakLock();
     }
-  }, [acquireSpeakLock, releaseSpeakLock, stopAudio, pauseListening, resumeListening, speakBrowser, playReadyBeep, setStatus]);
+  }, [acquireSpeakLock, releaseSpeakLock, stopAudio, pauseListening, resumeListening, speakBrowser, playReadyBeep, setStatus, markSpeechStarted]);
 
   // Prefetch TTS audio in parallel to reduce latency (Performance Priority 5)
   // Starts TTS fetch immediately when result is available, before speak() is called
