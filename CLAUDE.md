@@ -38,35 +38,45 @@ When diagnosing issues:
 
 ## SECTION 0.1: DEPLOYMENT — NEVER GET THIS WRONG
 
-### ⚠️ PUSHING DOES NOT DEPLOY. Verified broken 2026-08-06.
+### Pushing DOES deploy. Both halves. Corrected 2026-08-15.
 
-This section used to say pushing to `main` auto-deploys in 2–3 minutes, and called that the only
-method. It is false, and believing it cost an hour: eight commits reached GitHub and the live site
-kept serving the old build.
+This section said in capitals that pushing does not deploy, and that every release must be done
+by hand. That was wrong, and it was wrong for nine days.
 
-**What actually happens.** The 2026-06-28 move to the `My-Stocker-AI` org killed the
-GitHub→Cloudflare and GitHub→Render webhooks. Deployment has run through GitHub Actions calling
-wrangler ever since (`.github/workflows/deploy-frontend.yml`). **That automation has produced no
-build since 2026-07-31** — jobs sit queued ~15 min, never start a step, and get cancelled, which
-is what an exhausted Actions minutes allowance looks like on a private repo.
+**What actually happened.** On 2026-08-06 a single frontend deploy sat queued ~15 minutes and was
+cancelled. That one failure was read as an exhausted Actions allowance and written down as
+permanent. But nothing was pushed between 2026-07-31 and 2026-08-15, so "no build since July 31"
+was true only because nothing asked for one. The very next push — 2026-08-15 — succeeded in ~90
+seconds, four times running, frontend and backend both. Checked run history: every automatic
+deploy on record succeeded except that one.
 
-**Deploy the frontend by hand** (this is what works today, and wrangler is already authenticated
-on Russ's machine as `Russ@visionairy.biz`):
+The lesson worth keeping is not about deployment. It is that ONE failure became a standing rule,
+and the rule outlived the fault. Re-check a "known broken" before building around it.
+
+**Normal releases: just push.** `git push origin main` deploys the frontend (GitHub Actions →
+wrangler, ~90s) and triggers the backend on Render. Both fire from the same push.
+
+**The exception — when the two halves depend on each other.** They land in an order nobody
+controls. If the backend arrives first with a contract the deployed frontend does not satisfy,
+every driver is locked out for the gap. In that case deploy the frontend BY HAND first, verify it,
+then push:
 ```bash
 npm run build:deploy                 # vite build + prerender the 7 public routes
 npx wrangler pages deploy dist --project-name stockerai --branch main \
     --commit-hash "$(git rev-parse HEAD)"
 ```
-`--branch main` is what makes it a Production deployment rather than a preview.
+`--branch main` makes it Production rather than a preview. (This is how the 2026-08-15 login-gate
+release shipped, and it is the right call whenever the halves are coupled.)
 
-**Then VERIFY against the live bytes — never trust "Success!".** The app screen is a separate
+**Always VERIFY against the live bytes — never trust "Success!".** The app screen is a separate
 chunk from the main bundle, so grepping the main bundle proves nothing:
 ```bash
-curl -s https://my-stocker-ai.com/assets/StockerApp-<hash>.js | grep -c "<a string you just added>"
+curl -s https://my-stocker-ai.com/assets/<chunk>-<hash>.js | grep -c "<a string you just added>"
 ```
-Get `<hash>` from `ls dist/assets/StockerApp-*.js` after the build.
+Get the exact filename from `ls dist/assets/` after the build. For the login code the chunk is
+`authFetch-*.js`; for screen changes it is `StockerApp-*.js`.
 
-**Still push to GitHub** — it is the source of truth and the backup, it just is not the deploy.
+**Check the run finished, not just that you pushed:** `gh run list --limit 3`.
 
 **NEVER run:** `npx netlify deploy`, `npx vercel deploy`, `npx render deploy`
 **NEVER assume:** "Vite projects use Netlify" (WRONG), "Check Render" (that's Xpansion)
