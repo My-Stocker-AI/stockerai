@@ -515,7 +515,9 @@ export function useVoice(options: UseVoiceOptions = {}) {
     if (statusRef.current === 'speaking') {
       console.log('[Voice] Interrupting TTS — command received during playback');
       emitDiagnostic('tts-interrupted', text);
-      stopAudio();
+      // keepSpeakingAfter: he interrupted THIS sentence, he did not ask the app to go quiet.
+      // Without this the next few items appeared on screen in silence (see stopAudio).
+      stopAudio({ keepSpeakingAfter: true });
       setStatus('listening');
     }
     // Play acknowledgment chime — immediate audio feedback that command was heard
@@ -1391,9 +1393,26 @@ export function useVoice(options: UseVoiceOptions = {}) {
     }
   }, [setStatus, startListening, startPcmCapture, resumeCapture]);
 
-  const stopAudio = useCallback(() => {
-    // Set stopped flag to prevent any pending TTS from playing
-    stoppedRef.current = true;
+  const stopAudio = useCallback((opts?: { keepSpeakingAfter?: boolean }) => {
+    // One switch was doing two different jobs, and that is what silenced the app mid-route for
+    // Davy on 2026-08-06: the screen kept showing new items while the voice said nothing for
+    // three or four picks, then came back on its own.
+    //
+    // `stoppedRef` means "do not START any new speech". Four things call stopAudio, and only
+    // ONE of them wants that:
+    //   leaving the screen / back to dashboard / tapping Stop  -> yes, stay silent
+    //   the driver talking OVER an announcement (barge-in)      -> NO. Cut this sentence and
+    //                                                              carry straight on.
+    // The barge-in was latching the flag too, and nothing in the path that follows clears it —
+    // speak() checks it and returns before ever reaching the line that resets it. So every
+    // announcement after an interruption was skipped in silence until some unrelated action
+    // (a pause, an unmute, a reconnect) happened to reset the flag.
+    //
+    // Default stays "stay silent", so the three shutdown callers are unchanged and a new caller
+    // that forgets to think about it gets the safe behaviour.
+    if (!opts?.keepSpeakingAfter) {
+      stoppedRef.current = true;
+    }
 
     // Clear the speak queue to prevent queued TTS from starting
     speakQueueRef.current = [];
