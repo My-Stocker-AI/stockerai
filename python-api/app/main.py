@@ -3,9 +3,26 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from contextlib import asynccontextmanager
+
+from app.config import require_runtime_settings
 from app.routes import session, routes, proxy, items, machines, upload, diag
 
-app = FastAPI(title="StockerAI API", version="1.0.0")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # Refuse to SERVE without the settings the server cannot work without. This check used to
+    # run the instant this file was imported, which meant the automated test run — which only
+    # imports the app to inspect it — died before a single test could start. Every push then
+    # reported a failed test run for a reason that had nothing to do with any test.
+    #
+    # Moved to startup: reading the code needs no configuration, running it still does. A
+    # genuinely misconfigured deploy fails immediately and says exactly what is missing.
+    require_runtime_settings()
+    yield
+
+
+app = FastAPI(title="StockerAI API", version="1.0.0", lifespan=lifespan)
 
 # Explicit origin allowlist. A wildcard ("*") combined with
 # allow_credentials=True is an INVALID CORS combination: the spec forbids it,
