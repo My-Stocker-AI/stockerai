@@ -100,8 +100,18 @@ async function watchApiTraffic(page: Page, seen: Seen[]) {
     try {
       response = await route.fetch({ url: target });
     } catch {
-      // The test finished and the page went away while this call was still in flight.
-      // Nothing to record and nothing to assert — let it go rather than fail the run.
+      // Either the test finished and the page went away mid-call, or the server is not
+      // there. Answer the page rather than leaving it hanging — a hung page times out as
+      // "the app made no call", which blames the app for a missing server.
+      try {
+        await route.fulfill({
+          status: 503,
+          headers: { 'access-control-allow-origin': APP_ORIGIN },
+          body: '{"error":"test server unreachable"}',
+        });
+      } catch {
+        /* page already gone */
+      }
       return;
     }
     seen.push({
@@ -120,7 +130,25 @@ async function watchApiTraffic(page: Page, seen: Seen[]) {
   });
 }
 
+async function gatedServerIsUp(): Promise<boolean> {
+  try {
+    const res = await fetch(`${LOCAL_API}/health`, { signal: AbortSignal.timeout(3000) });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 test.describe('the app sends its login to the server', () => {
+  // These drive the real app against a real gated server. Without one they would fail
+  // looking like an app fault, so they say plainly what is missing instead. The gate in
+  // tests/gates starts its own server, so the real check is never quietly skipped there.
+  test.beforeEach(async () => {
+    test.skip(
+      !(await gatedServerIsUp()),
+      `no gated server at ${LOCAL_API} — run: python3 -m pytest tests/gates -k login`,
+    );
+  });
   test('opening the picking screen sends a login the server accepts', async ({ page }) => {
     const session = await signIn('russ@visionairy.biz');
     await beSignedIn(page, session);

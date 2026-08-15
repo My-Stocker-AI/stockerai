@@ -6,7 +6,10 @@ change another customer's data?"
 Its exit code alone decides the outcome. 0 means every part held; anything else means one
 did not, and the printed FAIL lines say which. No human reading required.
 
-  Part 1  No login at all → every one of the twelve commands answers 401.
+  Part 1  No login at all → every command that can reach data answers 401. The voice
+          diagnostics sink is the one deliberate exception: it is write-only, and the public
+          demo is used by people who have never signed in, so it accepts an anonymous report
+          and labels it as such. It must still hand back nothing but a count.
   Part 2  Signed in as one account, reaching into another → each command must meet a
           SPECIFIC named expectation. Not "didn't obviously leak" — an actual outcome.
   Part 3  Signed in, own account → a whole route runs start to finish, so a server that
@@ -336,10 +339,20 @@ try:
     THEIR_MARKERS = [OTHER, OTHER_REAL_ROUTE, OTHER_REAL_SESSION, decoy_route, decoy_session]
 
     # ── Part 1 ────────────────────────────────────────────────────────────────────────────
-    print("Part 1 — no login: every command must refuse with 401")
+    print("Part 1 — no login: every command that reaches data must refuse with 401")
     for name, body, _ in COMMANDS:
-        status, _out = call(name, body, {}, OTHER)
-        record(status == 401, f"{name:19} no login → {status} (want 401)")
+        status, out = call(name, body, {}, OTHER)
+        if name == "diag":
+            # The deliberate exception. It may accept the report, but it must disclose
+            # nothing — the only thing it is allowed to hand back is a count.
+            text = out if isinstance(out, str) else json.dumps(out)
+            leaked = [m for m in [OTHER, OTHER_REAL_ROUTE, OTHER_REAL_SESSION] if m and m in text]
+            allowed = isinstance(out, dict) and set(out.keys()) <= {"ok", "received"}
+            record(status == 200 and allowed and not leaked,
+                   f"{name:19} no login → {status}, accepted and discloses nothing"
+                   + (f" — LEAKED {leaked}" if leaked else ""))
+        else:
+            record(status == 401, f"{name:19} no login → {status} (want 401)")
 
     # ── Part 2 ────────────────────────────────────────────────────────────────────────────
     print("\nPart 2 — signed in as me, their identity forged into every request body")

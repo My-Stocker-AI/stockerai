@@ -203,9 +203,16 @@ def test_every_api_command_requires_a_login():
             found += dependencies_of(dep)
         return found
 
+    # Exactly one command is deliberately open: the write-only voice diagnostics sink, so the
+    # public demo can still report why it failed. That exception is guarded on its own by
+    # test_every_command_that_returns_data_still_requires_a_login — which fails if a SECOND
+    # one ever joins it. Here it is named so this test stays about everything else.
+    DELIBERATELY_OPEN = {"/api/diag"}
+
     ungated = [
         r.path for r in app.routes
         if getattr(r, "path", "").startswith("/api")
+        and r.path not in DELIBERATELY_OPEN
         and require_auth not in dependencies_of(r.dependant)
     ]
     assert not ungated, f"these commands answer without a login: {ungated}"
@@ -221,3 +228,84 @@ def test_all_twelve_commands_are_present():
         "/api/go-back-to-skipped", "/api/update-session", "/api/resume-state",
         "/api/upload-pdf", "/api/diag", "/api/openai-chat",
     }, sorted(paths)
+
+
+# ── The one command that accepts a stranger, and what it must never do ────────────────────
+
+class _Req:
+    def __init__(self, headers=None):
+        self.headers = headers or {}
+
+
+def test_the_diagnostics_sink_accepts_a_visitor_who_never_signed_in():
+    """
+    The public demo is used by people with no account. Requiring a login there silenced the
+    reports we rely on to see why a demo failed on a prospect's phone — which is the whole
+    reason that pipe exists.
+    """
+    from app.services.auth import optional_auth
+    assert optional_auth(_Req({})) is None
+    assert optional_auth(_Req({"authorization": "Bearer rubbish"})) is None
+
+
+def test_a_signed_in_report_is_still_attributed_to_the_real_person():
+    """Accepting strangers must not make a real driver's events anonymous."""
+    from app.services.auth import optional_auth
+    # Without a real token there is nothing to attribute, which is exactly the safe answer.
+    assert optional_auth(_Req({"authorization": "Bearer a.b.c"})) is None
+
+
+def test_the_diagnostics_sink_hands_back_nothing_but_a_count():
+    """
+    It is only safe to accept strangers because there is nothing here to take. If this ever
+    returns anything else, that reasoning stops holding.
+    """
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    body = {"session_id": "demo", "user_id": "someone-elses-id",
+            "events": [{"t": 1, "type": "transcript", "data": "hello"}]}
+    out = TestClient(app).post("/api/diag", json=body).json()
+    assert set(out.keys()) == {"ok", "received"}, f"it disclosed more than a count: {out}"
+    assert out["received"] == 1
+
+
+def test_a_flood_cannot_be_sent_in_one_request():
+    """
+    No login means no natural limit on who can write to the logs, so the batch is capped —
+    and the fact that it was capped is printed rather than silently swallowed.
+    """
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app.routes.diag import MAX_EVENTS_PER_BATCH
+
+    body = {"session_id": "demo",
+            "events": [{"t": i, "type": "x", "data": i} for i in range(MAX_EVENTS_PER_BATCH + 50)]}
+    out = TestClient(app).post("/api/diag", json=body).json()
+    assert out["received"] == MAX_EVENTS_PER_BATCH
+
+
+def test_every_command_that_returns_data_still_requires_a_login():
+    """
+    The exception is exactly one command, named here on purpose. If a second one ever slips
+    into the open set, this fails — the list is the guard, not anyone's memory.
+    """
+    from app.main import app
+    from app.services.auth import optional_auth, require_auth
+
+    def deps(dependant):
+        found = []
+        for d in dependant.dependencies:
+            found.append(d.call)
+            found += deps(d)
+        return found
+
+    open_paths = {
+        r.path for r in app.routes
+        if getattr(r, "path", "").startswith("/api")
+        and require_auth not in deps(r.dependant)
+    }
+    assert open_paths == {"/api/diag"}, f"unexpected commands are open: {sorted(open_paths)}"
+
+    diag_route = next(r for r in app.routes if getattr(r, "path", "") == "/api/diag")
+    assert optional_auth in deps(diag_route.dependant), "diag must still identify a signed-in caller"

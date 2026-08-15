@@ -113,6 +113,16 @@ def test_the_app_sends_its_login_in_a_real_browser(gated_api):
     r = _run(["npx", "playwright", "test", "login-is-sent", "--reporter=line"], env=env)
     assert r.returncode == 0, _explain("the browser login check", r)
 
+    # A skipped browser check exits zero, which would make this gate report green while
+    # proving nothing — the exact hollow pass this whole layer exists to remove. The browser
+    # tests skip themselves when no server is reachable; here one always is, so a skip means
+    # something is wrong with the setup, not that there is nothing to check.
+    output = r.stdout + r.stderr
+    assert "skipped" not in output, (
+        "the browser checks skipped instead of running — a green light proving nothing:\n"
+        + output[-1500:])
+    assert "passed" in output, f"the browser checks did not report a result:\n{output[-1500:]}"
+
 
 def test_the_server_suite_passes():
     """Every server-side test, including what the login gate must refuse and never disclose."""

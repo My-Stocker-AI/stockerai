@@ -159,6 +159,27 @@ def require_auth(request: Request) -> Caller:
 AuthCaller = Depends(require_auth)
 
 
+def optional_auth(request: Request) -> Caller | None:
+    """
+    Identify the caller if they are signed in, and let them through if they are not.
+
+    For ONE endpoint only: the voice diagnostics sink. It is write-only — it hands back
+    nothing but "got it", so there is no data to protect. And the public demo is used by
+    people who have never signed in; requiring a login there silenced the very reports we
+    rely on to see why a demo misbehaved on someone's phone.
+
+    Anything that returns data must use require_auth instead. This exists so an anonymous
+    report can be RECEIVED and clearly labelled, never so one can be trusted.
+    """
+    try:
+        return require_auth(request)
+    except HTTPException:
+        return None
+
+
+OptionalCaller = Depends(optional_auth)
+
+
 def resolve_target_user(caller: Caller, requested_user_id: str | None) -> str:
     """
     Some screens act on behalf of a teammate — an admin uploads tomorrow's route FOR a driver.

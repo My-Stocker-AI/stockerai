@@ -58,6 +58,13 @@ def get_routes(req: GetRoutesRequest, caller: Caller = AuthCaller):
 def delete_route(req: DeleteRouteRequest, caller: Caller = AuthCaller):
     db = get_client()
 
+    # DELIBERATE WIDENING (2026-08-15). This used to be creator-only — the old comment read
+    # "strict ownership for destructive ops", so a teammate could not delete a route even
+    # inside their own account. It is now account-wide, for two reasons. Teammates already
+    # see and stock each other's routes, so forbidding only deletion was inconsistent. And an
+    # admin can now load a route FOR one of their drivers, which makes the DRIVER its owner —
+    # under the old rule the admin could not delete the route they had just created.
+    #
     # A route in another account and a route that never existed are refused identically —
     # otherwise the difference between the two answers would confirm which ids are real.
     route = assert_route_in_account(db, req.route_id, caller)
