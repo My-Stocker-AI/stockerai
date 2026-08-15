@@ -883,21 +883,48 @@ export default function StockerApp() {
         // one-word question instead. A wrong guess costs him one word; no guess cost the whole
         // interaction. When nothing leans, the honest fallback is unchanged.
         console.log('[CommandRecognizer] ❓ UNKNOWN command during picking:', correctedTranscript);
-        let unknownMsg: string;
+
+        // Mid-transition the app is waiting on exactly one answer. Keep him pointed at it.
         if (routeState.pendingMachineTransition) {
-          unknownMsg = `I didn't catch that. Say top or bottom for ${routeState.pendingMachineTransition.nextMachineName}.`;
-        } else {
-          const reply = resolveUnknownReply(correctedTranscript);
-          unknownMsg = reply.phrase;
-          if (reply.ask && reply.guess) {
-            console.log('[CommandGuess] ? asking:', reply.guess.command, 'from', reply.guess.matched);
-            pendingGuessRef.current = reply.guess.command;
-          }
+          const msg = `I didn't catch that. Say top or bottom for ${routeState.pendingMachineTransition.nextMachineName}.`;
+          setAiResponse(msg);
+          await v.speak(msg);
+          processingRef.current = false;
+          return;
         }
-        setAiResponse(unknownMsg);
-        await v.speak(unknownMsg);
-        processingRef.current = false;
-        return;
+
+        // The phrase leans toward a real picking ACTION — ask the one-word question rather than
+        // risk doing the wrong thing to his route. Actions never wait on a network.
+        const reply = resolveUnknownReply(correctedTranscript);
+        if (reply.ask && reply.guess) {
+          console.log('[CommandGuess] ? asking:', reply.guess.command, 'from', reply.guess.matched);
+          pendingGuessRef.current = reply.guess.command;
+          setAiResponse(reply.phrase);
+          await v.speak(reply.phrase);
+          processingRef.current = false;
+          return;
+        }
+
+        // NOTHING LEANS — hand it to the AI instead of dead-ending on "I didn't catch that".
+        //
+        // 2026-08-15. An audit of every phrase the in-app help promises found 11 of 31
+        // unrecognised. The reflex fix is to add eleven more phrasings — which is precisely what
+        // built this problem, and the next eleven a driver invents would fail the same way.
+        //
+        // The split that actually holds is by what the words DO, not what they say:
+        //   ACTIONS  — next, skip, top, bottom — change his route. They must be instant and must
+        //              work with no signal, so they stay on the local patterns above.
+        //   QUESTIONS — "what slot am I on", "which machines did I skip", "what route is this" —
+        //              change nothing, are not time-critical, and get phrased a hundred ways.
+        //              They are exactly what semantic understanding is for.
+        //
+        // The AI call below already receives the whole picture — every machine, which were
+        // skipped, where he is, his counts — so it can answer these with no new keywords at all.
+        // It was simply never reached once a route was open.
+        //
+        // If the AI is unreachable its own error path speaks the fallback, which is the same
+        // thing he used to get here anyway. So this can only improve on the dead end.
+        console.log('[CommandRecognizer] → nothing leans; handing to the AI (it holds full route state)');
       }
     }
 

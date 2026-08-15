@@ -135,7 +135,14 @@ const SKIP_PATTERNS = [
   // "abandon this machine". A picker saying it mid-machine had every remaining item in that
   // machine marked skipped, with no warning and nothing to undo it. It now reads as NEXT_ITEM.
   /^go to next machine$/,
+  /^go to the next machine$/,   // the help prints it with "the"; unrecognised until 2026-08-15
   /^next machine$/,
+  // Also printed in the help under "Skipping a Machine". This is how a driver says "not now" —
+  // it is a skip with an intention to return, which is exactly what skip already does.
+  /^come back to this one later$/,
+  /^come back to this later$/,
+  /^come back to this machine later$/,
+  /^come back later$/,
 ];
 
 const INVENTORY_PATTERNS = [
@@ -157,6 +164,8 @@ const WHICH_MACHINE_PATTERNS = [
   /which machine am i on/,
   /what machine am i on/,
   /what machine are we on/,
+  /which machine am i working on/,   // printed in the help; unrecognised until 2026-08-15
+  /what machine am i working on/,
   /^which machine$/,
   /^what machine$/,
 ];
@@ -197,6 +206,15 @@ const DIRECTION_TOP_PATTERNS = [
   /^start from beginning$/,
   /^start from the beginning$/,
   /^first$/,
+  // Printed in the in-app help under "Starting a Machine" but never recognised until
+  // 2026-08-15. "stock" also lives in the inventory keywords, so this phrase was answered as
+  // an inventory question and the machine never started. See the direction-before-inventory
+  // note at the exactMatch call site.
+  /^stock from the beginning$/,
+  /^stock from the top$/,
+  /^work from the beginning$/,
+  /^work from the top$/,
+  /^work from the start of the list$/,
 ];
 
 const DIRECTION_BOTTOM_PATTERNS = [
@@ -210,6 +228,12 @@ const DIRECTION_BOTTOM_PATTERNS = [
   /^start from the end$/,
   /^last$/,
   /^reverse$/,
+  // Printed in the in-app help under "Starting a Machine", unrecognised until 2026-08-15.
+  /^work from the end of the list$/,
+  /^work from the end$/,
+  /^work from the bottom$/,
+  /^stock from the end$/,
+  /^stock from the bottom$/,
 ];
 
 // Machine-level: return to a skipped machine
@@ -247,6 +271,13 @@ const UNDO_PATTERNS = [
   /^oops$/,
   /^mistake$/,
   /^my mistake$/,
+  // Both printed in the in-app help under "Fixing Mistakes" and unrecognised until 2026-08-15.
+  // Bare "oops" and "wrong" matched; the full sentences a person actually says did not.
+  /^oops that was wrong$/,
+  /^oops,? that was wrong$/,
+  /^that was a mistake$/,
+  /^that was my mistake$/,
+  /^i made a mistake$/,
 ];
 
 const AFFIRMATIVE_PATTERNS = [
@@ -405,6 +436,20 @@ export class CommandRecognizer {
       };
     }
 
+    // A QUESTION ABOUT SKIPPED MACHINES IS NOT A QUESTION ABOUT REMAINING ONES.
+    //
+    // Davy asked "how many machines have we skipped" on a live route, 2026-08-06. It contains
+    // "how many machines", so it matched the machines-LEFT pattern below and he was told a
+    // confident number that answered a question he had not asked. Nothing indicated the
+    // mismatch — which is worse than not understanding him at all.
+    //
+    // Both readings are plausible from the words alone, so the honest thing is to refuse to
+    // guess: bail out to UNKNOWN, and the picking screen hands it to the semantic path, which
+    // already receives the full machine list and can answer either version properly.
+    if (/\bskip/.test(text) && /\bhow many\b|\bwhich\b|\bwhat\b/.test(text)) {
+      return { command: PickingCommand.UNKNOWN, confidence: 0 };
+    }
+
     // Machine-count query BEFORE inventory — "how many machines left" must not
     // fall into the generic "how many" item-inventory pattern.
     if (MACHINES_LEFT_PATTERNS.some(p => p.test(text))) {
@@ -424,23 +469,17 @@ export class CommandRecognizer {
       };
     }
 
-    // Check inventory AFTER skip but BEFORE direction (so "level" doesn't conflict)
-    if (INVENTORY_PATTERNS.some(p => p.test(text))) {
-      return {
-        command: PickingCommand.INVENTORY_QUERY,
-        confidence: 1.0,
-        requiresConfirmation: false,
-      };
-    }
-
-    if (REPEAT_PATTERNS.some(p => p.test(text))) {
-      return {
-        command: PickingCommand.REPEAT,
-        confidence: 1.0,
-        requiresConfirmation: false,
-      };
-    }
-
+    // DIRECTION BEFORE INVENTORY (reordered 2026-08-15).
+    //
+    // It used to be the other way round, on the reasoning that "level" must reach the inventory
+    // patterns. That still holds — but the inventory list matches on bare KEYWORDS anywhere in
+    // the sentence ("stock", "how many", "count"), while every direction pattern is an exact
+    // whole-phrase match. Broad keywords running first is what let "stock from the beginning" —
+    // a phrase the app itself prints under "Starting a Machine" — be answered as an inventory
+    // question while the machine never started.
+    //
+    // A precise whole-phrase match cannot steal a genuine inventory question, so it is strictly
+    // safer for it to go first. The help-sheet test covers both readings.
     if (DIRECTION_TOP_PATTERNS.some(p => p.test(text))) {
       return {
         command: PickingCommand.DIRECTION_TOP,
@@ -456,6 +495,22 @@ export class CommandRecognizer {
         confidence: 1.0,
         requiresConfirmation: false,
         parameters: { direction: 'end' },
+      };
+    }
+
+    if (INVENTORY_PATTERNS.some(p => p.test(text))) {
+      return {
+        command: PickingCommand.INVENTORY_QUERY,
+        confidence: 1.0,
+        requiresConfirmation: false,
+      };
+    }
+
+    if (REPEAT_PATTERNS.some(p => p.test(text))) {
+      return {
+        command: PickingCommand.REPEAT,
+        confidence: 1.0,
+        requiresConfirmation: false,
       };
     }
 
