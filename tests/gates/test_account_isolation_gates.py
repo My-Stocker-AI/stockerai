@@ -253,3 +253,46 @@ def test_a_bad_or_missing_login_is_always_refused_the_same_way():
 def test_all_twelve_commands_are_accounted_for():
     """If a command is added or renamed, the checks above stop covering it silently."""
     _one_server_test(f"{ISOLATION_TESTS}::test_all_twelve_commands_are_present")
+
+
+# ── Live production checks ─────────────────────────────────────────────────────────────────
+# The spec verifier's built-in URL check knocks with HEAD, and these endpoints answer 405 to
+# that — so it could never pass, no matter how healthy production was. These ask properly.
+
+LIVE_API = "https://stockerai-api.onrender.com"
+
+
+def _live(method: str, path: str, body: str | None = None):
+    import urllib.error
+    import urllib.request
+    data = body.encode() if body else None
+    req = urllib.request.Request(f"{LIVE_API}{path}", data=data, method=method,
+                                 headers={"Content-Type": "application/json"} if data else {})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return r.status
+    except urllib.error.HTTPError as e:
+        return e.code
+    except Exception:
+        return 0
+
+
+def test_the_live_server_is_up_and_configured():
+    """It cannot answer at all without the settings it needs, so a healthy answer is the proof
+    that Render is carrying them and started cleanly."""
+    assert _live("GET", "/health") == 200, "production is not answering"
+
+
+def test_the_live_server_turns_away_a_stranger():
+    """
+    The one that matters most. Before this work, this exact call returned a real driver's
+    route to anyone who made it. If this ever passes with a 200 again, the door is back open.
+    """
+    status = _live("POST", "/api/get-routes", '{"session_id":"probe","date":"2026-01-01"}')
+    assert status == 401, f"production answered a caller with no login: {status}"
+
+
+def test_the_live_demo_can_still_report():
+    """The public demo has no login. If this stops working, demo failures become invisible."""
+    status = _live("POST", "/api/diag", '{"session_id":"probe","events":[]}')
+    assert status == 200, f"the demo can no longer report what happened: {status}"
