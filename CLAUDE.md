@@ -81,10 +81,6 @@ Get the exact filename from `ls dist/assets/` after the build. For the login cod
 **NEVER run:** `npx netlify deploy`, `npx vercel deploy`, `npx render deploy`
 **NEVER assume:** "Vite projects use Netlify" (WRONG), "Check Render" (that's Xpansion)
 
-**To restore automatic deploys:** check the Actions minutes / spending limit at
-`https://github.com/organizations/My-Stocker-AI/settings/billing`. Everything else is wired
-correctly — the workflows are active and the secrets are in place; nothing is picking up the jobs.
-
 ---
 
 ## Source of Truth
