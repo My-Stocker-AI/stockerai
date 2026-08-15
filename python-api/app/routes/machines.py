@@ -9,6 +9,7 @@ import random
 from datetime import datetime
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+from app.services.auth import AuthCaller, Caller, assert_machine_in_account
 from app.services.database import get_client
 
 router = APIRouter()
@@ -27,17 +28,19 @@ SKIP_PHRASES = [
 
 class SkipMachineRequest(BaseModel):
     session_id: str
-    user_id: str
+    # Accepted so an older app build keeps working, but never read. Who you are comes from
+    # the login on the Authorization header — a user_id in the body reaches no query.
+    user_id: str | None = None
 
 
 class GoBackToSkippedRequest(BaseModel):
     session_id: str
-    user_id: str
+    user_id: str | None = None
 
 
 class SetRouteSequenceRequest(BaseModel):
     session_id: str
-    user_id: str
+    user_id: str | None = None
     route_name: str
     date: str  # YYYY-MM-DD
 
@@ -46,7 +49,7 @@ class SetRouteSequenceRequest(BaseModel):
 
 
 @router.post("/skip-machine")
-def skip_machine(req: SkipMachineRequest):
+def skip_machine(req: SkipMachineRequest, caller: Caller = AuthCaller):
     """
     Mark current machine as skipped and move to next.
     Replaces: n8n workflow ElCSMeguJNxwp0HO (11 nodes).
@@ -54,7 +57,7 @@ def skip_machine(req: SkipMachineRequest):
     db = get_client()
 
     # Step 1: Get active session
-    session = _get_active_session(db, req.user_id)
+    session = _get_active_session(db, caller.user_id)
     machine_id = session["current_machine_id"]
     route_id = session["current_route_id"]
 
@@ -64,19 +67,12 @@ def skip_machine(req: SkipMachineRequest):
     if not machine_id:
         raise HTTPException(status_code=400, detail="No machine selected yet. Say a route to start.")
 
-    # Step 2: Get current machine
-    machine_result = (
-        db.table("machines")
-        .select("id, machine_name, sequence, status, completed_items")
-        .eq("id", machine_id)
-        .limit(1)
-        .execute()
+    # Step 2: Get current machine, confirming its route belongs to the caller's account.
+    # The owning route is pulled in the SAME query rather than a second round trip, because
+    # this sits on the voice path where every added wait is heard by the driver.
+    current_machine = assert_machine_in_account(
+        db, machine_id, caller, "id, machine_name, sequence, status, completed_items"
     )
-
-    if not machine_result.data:
-        raise HTTPException(status_code=404, detail="Current machine not found")
-
-    current_machine = machine_result.data[0]
 
     if current_machine["status"] == "skipped":
         raise HTTPException(status_code=400, detail="Machine is already skipped")
@@ -181,7 +177,7 @@ def skip_machine(req: SkipMachineRequest):
 
 
 @router.post("/go-back-to-skipped")
-def go_back_to_skipped(req: GoBackToSkippedRequest):
+def go_back_to_skipped(req: GoBackToSkippedRequest, caller: Caller = AuthCaller):
     """
     Return to the first skipped machine.
     Replaces: n8n workflow rpNfINhjbFCuFrlZ (11 nodes).
@@ -189,7 +185,7 @@ def go_back_to_skipped(req: GoBackToSkippedRequest):
     db = get_client()
 
     # Step 1: Get active session
-    session = _get_active_session(db, req.user_id)
+    session = _get_active_session(db, caller.user_id)
     route_id = session["current_route_id"]
 
     # Step 2: Find first skipped machine ordered by sequence
@@ -265,15 +261,16 @@ def go_back_to_skipped(req: GoBackToSkippedRequest):
 
 
 @router.post("/set-route-sequence")
-def set_route_sequence(req: SetRouteSequenceRequest):
+def set_route_sequence(req: SetRouteSequenceRequest, caller: Caller = AuthCaller):
     """
     Find route by name, create/update session, return machine list.
     Replaces: n8n workflow 46lMRdxTgD1E3WFz (19 nodes).
     """
     db = get_client()
 
-    # Step 1: Get all user_ids in the same account (team-scoped)
-    team_user_ids = _get_team_user_ids(db, req.user_id)
+    # Step 1: the account's members, taken from the verified login. There is no longer a
+    # user_id a caller can name to reach a route outside their own account.
+    team_user_ids = caller.team_user_ids
 
     # Step 2: Find route (exact match first, then partial)
     routes_result = (
@@ -313,7 +310,7 @@ def set_route_sequence(req: SetRouteSequenceRequest):
 
     # Step 3: Pause ALL other active sessions for this user
     db.table("sessions").update({"status": "paused"}).eq(
-        "user_id", req.user_id
+        "user_id", caller.user_id
     ).eq("status", "stocking").execute()
 
     # Step 4: Upsert session
@@ -323,7 +320,7 @@ def set_route_sequence(req: SetRouteSequenceRequest):
     existing_session = (
         db.table("sessions")
         .select("id")
-        .eq("user_id", req.user_id)
+        .eq("user_id", caller.user_id)
         .eq("session_key", session_key)
         .limit(1)
         .execute()
@@ -348,7 +345,7 @@ def set_route_sequence(req: SetRouteSequenceRequest):
         insert_result = (
             db.table("sessions")
             .insert({
-                "user_id": req.user_id,
+                "user_id": caller.user_id,
                 "session_key": session_key,
                 "status": "stocking",
                 "current_route_id": route_id,
@@ -463,31 +460,6 @@ def set_route_sequence(req: SetRouteSequenceRequest):
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
-
-
-def _get_team_user_ids(db, user_id: str) -> list[str]:
-    """Get all user_ids in the same account as the given user."""
-    account_user = (
-        db.table("account_users")
-        .select("account_id")
-        .eq("user_id", user_id)
-        .limit(1)
-        .execute()
-    )
-
-    if not account_user.data:
-        raise HTTPException(status_code=403, detail="User has no account access")
-
-    account_id = account_user.data[0]["account_id"]
-
-    team_members = (
-        db.table("account_users")
-        .select("user_id")
-        .eq("account_id", account_id)
-        .execute()
-    )
-
-    return [m["user_id"] for m in team_members.data]
 
 
 def _get_active_session(db, user_id: str) -> dict:

@@ -4,6 +4,7 @@ PDF upload endpoint:
 """
 
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from app.services.auth import AuthCaller, Caller, resolve_target_user
 from app.services.database import get_client
 from app.services.pdf_parser import extract_text_from_pdf, parse_route_pdf
 from app.services.notify import notify_russ
@@ -84,8 +85,9 @@ def _capture_pending(db, pdf_bytes: bytes, user_id: str, vendor, filename: str, 
 async def upload_pdf(
     pdf: UploadFile = File(...),
     date: str = Form(...),
-    user_id: str = Form(...),
+    for_user_id: str = Form(None, alias="user_id"),
     vendor: str = Form(None),
+    caller: Caller = AuthCaller,
 ):
     """
     Upload a route PDF, parse it, and insert route/machines/items.
@@ -93,8 +95,16 @@ async def upload_pdf(
     Today we parse the Parlevel "Prekitting Detail" layout. Anything we can't turn
     into a route — or an explicit "Other" vendor selection — is routed to the
     capture-and-wait holding pen instead of dead-ending on an error.
+
+    The upload screen deliberately lets an admin load tomorrow's route FOR one of their
+    drivers, so a named driver is honoured — but only one inside the caller's own account.
+    A name from outside it is refused, and naming nobody uploads for yourself.
     """
     db = get_client()
+
+    # From here down, user_id is the driver the route will belong to: either the caller, or
+    # a teammate they are allowed to act for. It is never simply whatever the body claimed.
+    user_id = resolve_target_user(caller, for_user_id)
 
     # Step 1: Read PDF and extract text
     pdf_bytes = await pdf.read()

@@ -1,4 +1,5 @@
 import { useCallback, useRef } from 'react';
+import { authFetch } from '@/lib/authFetch';
 
 const PYTHON_API_BASE = 'https://stockerai-api.onrender.com/api';
 const N8N_BASE_URL = 'https://visionairy.app.n8n.cloud/webhook';
@@ -11,7 +12,10 @@ async function fetchWithTimeout(url: string, options: RequestInit, timeout = 300
   const timeoutId = setTimeout(() => controller.abort(), timeout);
 
   try {
-    const response = await fetch(url, { ...options, signal: controller.signal });
+    // authFetch, not fetch — every command below now has to prove who is calling. This one
+    // swap covers the AI call, all eight tool calls and get-routes, so no path can be added
+    // later that forgets the login.
+    const response = await authFetch(url, { ...options, signal: controller.signal });
     clearTimeout(timeoutId);
     return response;
   } catch (e: any) {

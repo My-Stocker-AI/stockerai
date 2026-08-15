@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, memo } from 'react';
+import { authFetch } from '@/lib/authFetch';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, CheckCircle, Mic, MicOff, Pause, Play, Square, AlertTriangle, RefreshCw, HelpCircle, Zap, MapPin, Package, Truck, RotateCcw, Settings } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -1450,7 +1451,9 @@ export default function StockerApp() {
         // normal RPC off the saved count + direction.
         if (resumeFromUrl) {
           try {
-            const resp = await fetch('https://stockerai-api.onrender.com/api/resume-state', {
+            // Resume carries the login like everything else. user_id stays in the body
+            // only for older server builds; the server reads it from the login now.
+            const resp = await authFetch('https://stockerai-api.onrender.com/api/resume-state', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ user_id: userId }),

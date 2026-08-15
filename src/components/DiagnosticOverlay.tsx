@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 // device-side voice behavior is observable WITHOUT the driver doing anything — no copy,
 // no screenshot. Fire-and-forget + batched so it never touches the voice pipeline timing.
 const DIAG_ENDPOINT = 'https://stockerai-api.onrender.com/api/diag';
+import { authFetch } from '@/lib/authFetch';
 import { Activity, Wifi, Mic, Volume2, AlertCircle, CheckCircle2, XCircle } from 'lucide-react';
 
 interface DiagnosticOverlayProps {
@@ -186,7 +187,7 @@ export function DiagnosticOverlay({ voiceStatus, isDeepgramConnected, isVisible,
       const events = pendingRef.current;
       pendingRef.current = [];
       try {
-        fetch(DIAG_ENDPOINT, {
+        authFetch(DIAG_ENDPOINT, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

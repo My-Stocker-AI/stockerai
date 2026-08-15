@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+from app.services.auth import AuthCaller, Caller, assert_route_in_account
 from app.services.database import get_client
 
 router = APIRouter()
@@ -7,27 +8,27 @@ router = APIRouter()
 
 class GetRoutesRequest(BaseModel):
     session_id: str
-    user_id: str
+    # user_id is still ACCEPTED so an older app build keeps working, but it is never read.
+    # Who you are comes from the login on the Authorization header, and nowhere else.
+    user_id: str | None = None
     date: str  # YYYY-MM-DD
 
 
 class DeleteRouteRequest(BaseModel):
     route_id: str
-    user_id: str
+    user_id: str | None = None
 
 
 @router.post("/get-routes")
-def get_routes(req: GetRoutesRequest):
+def get_routes(req: GetRoutesRequest, caller: Caller = AuthCaller):
     db = get_client()
 
-    # Get all user_ids in the same account (team-scoped)
-    team_user_ids = _get_team_user_ids(db, req.user_id)
-
-    # Get routes for date with nested machine data
+    # Routes are shared across everyone in the account, and that membership list is derived
+    # from the verified login — so there is no longer any user_id a caller can name to widen it.
     routes_result = (
         db.table("routes")
         .select("id, route_name, delivery_date, machines(id, machine_name, items(id))")
-        .in_("user_id", team_user_ids)
+        .in_("user_id", caller.team_user_ids)
         .eq("delivery_date", req.date)
         .execute()
     )
@@ -54,26 +55,12 @@ def get_routes(req: GetRoutesRequest):
 
 
 @router.post("/delete-route")
-def delete_route(req: DeleteRouteRequest):
+def delete_route(req: DeleteRouteRequest, caller: Caller = AuthCaller):
     db = get_client()
 
-    # Get route
-    route_result = (
-        db.table("routes")
-        .select("id, route_name, user_id")
-        .eq("id", req.route_id)
-        .limit(1)
-        .execute()
-    )
-
-    if not route_result.data:
-        raise HTTPException(status_code=404, detail="Route not found")
-
-    route = route_result.data[0]
-
-    # Verify requesting user owns the route (strict ownership for destructive ops)
-    if route["user_id"] != req.user_id:
-        raise HTTPException(status_code=403, detail="Not authorized to delete this route")
+    # A route in another account and a route that never existed are refused identically —
+    # otherwise the difference between the two answers would confirm which ids are real.
+    route = assert_route_in_account(db, req.route_id, caller)
 
     # Check for active sessions using this route
     active_sessions = (
@@ -108,28 +95,3 @@ def delete_route(req: DeleteRouteRequest):
         "deleted_route": route_name,
         "message": f"Route '{route_name}' and all associated data deleted.",
     }
-
-
-def _get_team_user_ids(db, user_id: str) -> list[str]:
-    """Get all user_ids in the same account as the given user."""
-    account_user = (
-        db.table("account_users")
-        .select("account_id")
-        .eq("user_id", user_id)
-        .limit(1)
-        .execute()
-    )
-
-    if not account_user.data:
-        raise HTTPException(status_code=403, detail="User has no account access")
-
-    account_id = account_user.data[0]["account_id"]
-
-    team_members = (
-        db.table("account_users")
-        .select("user_id")
-        .eq("account_id", account_id)
-        .execute()
-    )
-
-    return [m["user_id"] for m in team_members.data]

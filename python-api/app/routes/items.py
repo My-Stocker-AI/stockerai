@@ -6,6 +6,7 @@ Core item flow endpoints:
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
+from app.services.auth import AuthCaller, Caller, assert_machine_in_account
 from app.services.database import get_client, rpc
 from app.services.formatting import (
     parse_product,
@@ -27,14 +28,16 @@ router = APIRouter()
 
 class GetNextItemRequest(BaseModel):
     session_id: str
-    user_id: str
+    # Accepted so an older app build keeps working, but never read. Who you are comes from
+    # the login on the Authorization header — a user_id in the body reaches no query.
+    user_id: str | None = None
     date: str | None = None
     count: int = Field(1, ge=1, le=2)  # 1- or 2-pick only; reject malformed counts
 
 
 class StartMachineRequest(BaseModel):
     session_id: str
-    user_id: str
+    user_id: str | None = None
     direction: str  # "beginning" or "end"
     count: int = Field(1, ge=1, le=2)  # 1- or 2-pick only; reject malformed counts
 
@@ -43,7 +46,7 @@ class StartMachineRequest(BaseModel):
 
 
 @router.post("/get-next-item")
-def get_next_item(req: GetNextItemRequest):
+def get_next_item(req: GetNextItemRequest, caller: Caller = AuthCaller):
     """
     Calls atomic RPC get_next_item_and_increment, then formats output.
     Replaces: n8n workflow iykbFj7f9222PF7r (4 nodes).
@@ -51,7 +54,7 @@ def get_next_item(req: GetNextItemRequest):
     # Step 1: Call atomic RPC (same as Edge Function get-next-item-data)
     try:
         data = rpc("get_next_item_and_increment", {
-            "p_user_id": req.user_id,
+            "p_user_id": caller.user_id,
             "p_count": req.count,
         })
     except Exception as e:
@@ -220,7 +223,7 @@ def _format_complete(row: dict) -> dict:
 
 
 @router.post("/start-machine")
-def start_machine(req: StartMachineRequest):
+def start_machine(req: StartMachineRequest, caller: Caller = AuthCaller):
     """
     Start stocking a machine from top or bottom.
     Replaces: n8n workflow JbKdJuKgGbyvzlF0 (9 nodes).
@@ -234,7 +237,7 @@ def start_machine(req: StartMachineRequest):
     session_result = (
         db.table("sessions")
         .select("id, current_machine_id, current_route_id, pick_direction")
-        .eq("user_id", req.user_id)
+        .eq("user_id", caller.user_id)
         .eq("status", "stocking")
         .order("created_at", desc=True)
         .limit(1)
@@ -250,19 +253,15 @@ def start_machine(req: StartMachineRequest):
     if not machine_id:
         raise HTTPException(status_code=400, detail="Session has no current machine. Select a route first.")
 
-    # Step 2: Get machine
-    machine_result = (
-        db.table("machines")
-        .select("id, machine_name, machine_number, location_name, total_items, completed_items, status, skipped_at_item")
-        .eq("id", machine_id)
-        .limit(1)
-        .execute()
+    # Step 2: Get machine — and confirm its route belongs to the caller's account. The
+    # owning route is pulled in the SAME query rather than a second round trip, because this
+    # sits on the voice path and every added wait is heard by the person holding the phone.
+    machine = assert_machine_in_account(
+        db,
+        machine_id,
+        caller,
+        "id, machine_name, machine_number, location_name, total_items, completed_items, status, skipped_at_item",
     )
-
-    if not machine_result.data:
-        raise HTTPException(status_code=404, detail="Machine not found")
-
-    machine = machine_result.data[0]
 
     # Guard: never re-open a completed machine. A finished route resumed via
     # set-route-sequence falls back to the first machine even when all are completed,
@@ -408,7 +407,7 @@ def start_machine(req: StartMachineRequest):
 
 
 class ResumeStateRequest(BaseModel):
-    user_id: str
+    user_id: str | None = None
 
 
 def _item_at_sequence(db, machine_id: str, seq) -> dict | None:
@@ -440,7 +439,7 @@ def _item_at_sequence(db, machine_id: str, seq) -> dict | None:
 
 
 @router.post("/resume-state")
-def resume_state(req: ResumeStateRequest):
+def resume_state(req: ResumeStateRequest, caller: Caller = AuthCaller):
     """
     READ-ONLY complete snapshot for RESUME — restores the exact state at stop/pause and
     advances NOTHING. The frontend rehydrates the picking screen from this; the next
@@ -459,7 +458,7 @@ def resume_state(req: ResumeStateRequest):
     session = (
         db.table("sessions")
         .select("id, current_route_id, current_machine_id, pick_direction, status")
-        .eq("user_id", req.user_id)
+        .eq("user_id", caller.user_id)
         .eq("status", "stocking")
         .order("created_at", desc=True)
         .limit(1)

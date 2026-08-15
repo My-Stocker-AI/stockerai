@@ -1,4 +1,5 @@
 import { useCallback, useRef } from 'react';
+import { authFetch } from '@/lib/authFetch';
 
 /**
  * Priority 3: Client-Side Item Prefetching
@@ -82,7 +83,10 @@ export function useItemCache() {
       // Fire-and-forget fetch (don't await)
       // Use /get-next-item for Python API, /next-item-optimized for n8n
       const nextItemPath = N8N_BASE.includes('render.com') ? '/get-next-item' : '/next-item-optimized';
-      fetch(`${N8N_BASE}${nextItemPath}`, {
+      // Carries the login exactly like the foreground call. Without it the prefetch would
+      // be refused every time while the real call succeeded — a cache that silently never
+      // fills, showing up only as the voice feeling slower than it should.
+      authFetch(`${N8N_BASE}${nextItemPath}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

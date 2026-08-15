@@ -1,26 +1,35 @@
 #!/bin/bash
 # ============================================================================
-# Test: Bug 3 — skip_machine returns route_complete when no machines remain
+# Test: skipping the LAST machine must never silently declare the route finished
 # ============================================================================
 #
 # Scenario:
-#   3-machine test route. After set-route-sequence creates the session,
-#   machines 2 & 3 are marked 'completed' directly in Supabase (simulating
-#   a driver who completed most machines normally). Session points to
-#   machine 1 (the only pending one). Calling skip-machine must return
-#   action='route_complete'.
+#   3-machine test route. Machines 2 & 3 are marked completed directly in Supabase
+#   (a driver who worked most of the route normally). The session points at machine 1,
+#   the only one left. He skips it.
 #
-# The Fix (useStockerSession.ts):
-#   Before the fix, skip_machine route_complete never set completed=true or
-#   sessionInvalidated=true. After the fix it does, so the session ends and
-#   skipped machines are handled correctly.
+# What must happen:
+#   Machine 1 is now skipped and still unstocked, so the route is NOT finished. The
+#   server must say so and offer the way back — action='offer_go_back'.
 #
-#   This script tests the Python API half: that route_complete IS returned.
-#   The frontend state change is covered by vitest unit tests.
+# WHY THIS EXPECTATION CHANGED (2026-08-15):
+#   This script used to require action='route_complete'. That was the ORIGINAL behavior
+#   and it was a real bug: declaring the route complete ended the session and abandoned
+#   the skipped machine with no way to reach it again. Skip the last machine and its
+#   items were stranded for good. Commit caf252d replaced it with an offer to go back,
+#   and 'route_complete' no longer exists in machines.py at all — so this script has
+#   been asserting a response the server can no longer produce, and failing for that
+#   reason rather than a real one.
+#
+#   The guard is now the stronger property: a skipped machine is never silently passed.
 #
 # Prereqs:
 #   1. test_e2e_minimal_route.sql already run (creates 'E2E Test Route')
 #   2. SUPABASE_SERVICE_ROLE_KEY set in .env (loaded automatically)
+#
+# Login: every API command requires one now. This script signs in as the test user
+# at run time (see _signin.sh) and sends that login on each call. Nothing is
+# hard-coded, so an expired token can never make a working suite look broken.
 #
 # Usage:
 #   bash tests/api/test_bug3_skip_route_complete.sh
@@ -39,7 +48,11 @@ if [ -f "$ENV_FILE" ]; then
   set +a
 fi
 
-API="https://stockerai-api.onrender.com/api"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/_signin.sh"
+TOKEN=$(stocker_signin "russ@visionairy.biz") || exit 1
+
+API="${STOCKER_API:-https://stockerai-api.onrender.com}/api"
 SUPABASE_URL="https://wvtkuposrlvadyeixlke.supabase.co"
 USER_ID="bdc96b72-3f35-4cae-9e79-99473eb4a23b"
 ROUTE_NAME="E2E Test Route"
@@ -65,6 +78,7 @@ echo ""
 
 echo "--- Step 1: set-route-sequence (creates session, resets machines) ---"
 RESP=$(curl -s -X POST "$API/set-route-sequence" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d "{
     \"session_id\": \"test-bug3-$$\",
@@ -121,6 +135,7 @@ echo ""
 
 echo "--- Step 3: skip-machine (Machine 1 = only pending; 2 & 3 completed) ---"
 RESP=$(curl -s -X POST "$API/skip-machine" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d "{\"session_id\": \"$SESSION_ID\", \"user_id\": \"$USER_ID\"}")
 
@@ -128,11 +143,20 @@ echo "Full response: $RESP"
 ACTION=$(echo "$RESP" | grep -o '"action":"[^"]*"' | cut -d'"' -f4)
 VOICE=$(echo "$RESP" | grep -o '"voice_text":"[^"]*"' | cut -d'"' -f4)
 
-if [ "$ACTION" = "route_complete" ]; then
-  pass "action=route_complete ✓ — Bug 3 API behavior confirmed"
+if [ "$ACTION" = "offer_go_back" ]; then
+  pass "action=offer_go_back — the skipped machine is offered back, not abandoned"
   echo "  voice: $VOICE"
+elif [ "$ACTION" = "route_complete" ]; then
+  fail "the route was declared FINISHED while a machine is still unstocked — that strands it"
 else
-  fail "Expected action=route_complete, got '$ACTION'"
+  fail "Expected action=offer_go_back, got '$ACTION'"
+fi
+
+# The route must still be reachable: the session stays alive so 'go back' works.
+if echo "$RESP" | grep -q "go back"; then
+  pass "the driver is told how to get back to it"
+else
+  fail "no way back was offered — the machine is stranded"
 fi
 
 # ─── Summary ─────────────────────────────────────────────────────────────────

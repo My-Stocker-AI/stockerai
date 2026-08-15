@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { authFetch } from '@/lib/authFetch';
 import { Upload, FileText, CheckCircle2, Calendar, Loader2, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -127,7 +128,9 @@ export function UploadTab() {
       let lastNetErr: any = null;
       for (let attempt = 1; attempt <= 4; attempt++) {
         try {
-          response = await fetch(uploadUrl, { method: 'POST', body: formData });
+          // authFetch attaches the login. The browser still sets the multipart boundary
+          // itself, because nothing here sets Content-Type.
+          response = await authFetch(uploadUrl, { method: 'POST', body: formData });
           break;
         } catch (netErr: any) {
           lastNetErr = netErr;

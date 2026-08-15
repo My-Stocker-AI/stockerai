@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { authFetch } from '@/lib/authFetch';
 import { format, addDays } from "date-fns";
 import { Upload, Calendar, Trash2, Users, Loader2 } from "lucide-react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
@@ -279,7 +280,9 @@ const UploadRoutes = () => {
       let lastNetErr: any = null;
       for (let attempt = 1; attempt <= 4; attempt++) {
         try {
-          response = await fetch(uploadUrl, { method: 'POST', body: formData });
+          // authFetch attaches the login. The browser still sets the multipart boundary
+          // itself, because nothing here sets Content-Type.
+          response = await authFetch(uploadUrl, { method: 'POST', body: formData });
           break;
         } catch (netErr: any) {
           lastNetErr = netErr;
