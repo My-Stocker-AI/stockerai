@@ -39,6 +39,6 @@ Browser teardown requires route IDs recorded by the current worker. Automatic cr
 
 ## Voice evidence boundaries
 
-`voiceConfirmationBoundary.test.ts` expands prompt/echo timing coverage. Two tests use `it.fails` to record unresolved direction-reply suppression (remediation 29); a green runner includes these expected failures and must not be described as a fix. Remove that designation when a reviewed change satisfies the intended contract.
+`voiceConfirmationBoundary.test.ts` covers prompt/echo timing, acceptance of full direction replies and rejection of whole/dropped-word prompt echoes. The two formerly expected failures are now ordinary regression tests after rewording the direction confirmation prompts. This addresses those text collisions; it does not establish acoustic recognition accuracy on a phone.
 
 `StockerApp.voice.test.ts` now mounts the application with external hooks/services mocked and drives its actual transcript handler. `useVoice.counting.test.ts` mounts the actual voice hook with simulated microphone, socket and audio APIs. These cover the counting/confirmation/queue boundary but do not exercise a real database, recognition acoustics or complete device route. The remaining pending-intent/reconnect cases, persisted progress and phone/headset behavior still require integration/device checks. No test result here establishes production readiness.

@@ -19,15 +19,32 @@ describe('confirmation prompt / echo / recognition boundary', () => {
     },
   );
 
-  // Known residual in finding 29. Expected failures keep the desired contract visible
-  // without pretending it is fixed. Remove .fails when the production path satisfies it.
-  it.fails.each([
+  it.each([
     ['from the top', PickingCommand.DIRECTION_TOP],
     ['from the bottom', PickingCommand.DIRECTION_BOTTOM],
   ])('allows the driver to answer the direction question with "%s"', (reply, command) => {
     const prompt = CONFIRM_PROMPT[command as PickingCommand]!;
     expect(prompt).toBeTruthy();
-    expect(verdict(reply, prompt, 200)).toBe('accept');
+    for (const ended of [null, 0, 200, ECHO_TAIL_MS]) {
+      expect(verdict(reply, prompt, ended)).toBe('accept');
+    }
+    expect(recognizer.recognize(reply).command).toBe(command);
+  });
+
+  it.each([PickingCommand.DIRECTION_TOP, PickingCommand.DIRECTION_BOTTOM])(
+    'still rejects the direction question itself as echo: %s', command => {
+      const prompt = CONFIRM_PROMPT[command]!;
+      for (const ended of [null, 0, 200, ECHO_TAIL_MS]) {
+        expect(verdict(prompt, prompt, ended)).toBe('echo-content');
+      }
+    },
+  );
+
+  it.each([
+    ['begin upper end', PickingCommand.DIRECTION_TOP],
+    ['begin lower end', PickingCommand.DIRECTION_BOTTOM],
+  ])('still rejects a dropped-word echo of the new question: %s', (echo, command) => {
+    expect(verdict(echo, CONFIRM_PROMPT[command as PickingCommand]!, 200)).toBe('echo-content');
   });
 
   it.each([

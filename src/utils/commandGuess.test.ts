@@ -80,7 +80,7 @@ describe('the question is short, and in his words', () => {
   it('never puts his own words in his mouth', () => {
     const hisWords = [
       'skip this machine', 'skip machine', 'next item', 'go back one',
-      'start at the top', 'start at the bottom', 'say it again',
+      'start at the top', 'start at the bottom', 'from the top', 'from the bottom', 'say it again',
     ];
     for (const question of Object.values(CONFIRM_PROMPT)) {
       for (const phrase of hisWords) {
