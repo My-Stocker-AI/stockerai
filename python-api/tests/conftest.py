@@ -1,32 +1,83 @@
-"""
-Shared setup for the server tests.
-
-NOTHING HERE MAY IMPORT THE APP AT LOAD TIME. The app reads its database settings the moment
-it is imported and stops dead if they are absent. The automated runner has no settings, so a
-top-level import kills the whole suite before a single test starts — which is exactly what
-happened on 2026-08-15: every push reported a failed test run, and the failure had nothing to
-do with any test. Every import below therefore happens inside a fixture, where it can be
-caught, and the suite still runs whatever does not need a live database.
-"""
+"""Isolated server tests: install test settings before importing application modules."""
 
 import json
 import os
+import socket
 
 import pytest
 from fastapi import Request
 from unittest.mock import patch
+from tests.test_safety import require_local_target
+
+# Establish isolation BEFORE collection imports app.config or any fixture.
+# Never discover developer/production credentials through dotenv in a test run.
+_dotenv_patch = patch("dotenv.load_dotenv", return_value=False)
+_dotenv_patch.start()
+_database_enabled = os.environ.get("STOCKERAI_DB_TESTS") == "1"
+if _database_enabled:
+    try:
+        os.environ["SUPABASE_URL"] = require_local_target(os.environ.get("STOCKERAI_TEST_SUPABASE_URL", ""))
+        key = os.environ.get("STOCKERAI_TEST_SERVICE_KEY", "")
+        if not key:
+            raise ValueError("Explicit disposable test service key is required")
+        os.environ["SUPABASE_SERVICE_KEY"] = key
+    except ValueError as exc:
+        raise pytest.UsageError(str(exc)) from None
+else:
+    os.environ["SUPABASE_URL"] = "http://127.0.0.1:54321"
+    os.environ["SUPABASE_SERVICE_KEY"] = "unit-test-placeholder"
+os.environ["OPENAI_API_KEY"] = ""
+
+import supabase
+_create_client = supabase.create_client
+
+
+def _isolated_client(url, key, *args, **kwargs):
+    if not _database_enabled:
+        raise RuntimeError("Database access disabled: mock the client or opt into disposable local tests")
+    require_local_target(url)
+    if url != os.environ["SUPABASE_URL"] or key != os.environ["SUPABASE_SERVICE_KEY"]:
+        raise RuntimeError("Database client does not match the explicit test target")
+    return _create_client(url, key, *args, **kwargs)
+
+
+_client_patch = patch("supabase.create_client", side_effect=_isolated_client)
+_client_patch.start()
+
+# Cover accidental provider calls and HTTP paths that bypass the database helper.
+_socket_connect = socket.socket.connect
+def _local_connect(sock, address):
+    # Windows asyncio uses a loopback socket pair even for an in-process TestClient.
+    if not isinstance(address, tuple) or address[0] not in {"127.0.0.1", "::1", "localhost"}:
+        raise RuntimeError("External network disabled in backend tests")
+    return _socket_connect(sock, address)
+
+_network_patch = patch("socket.socket.connect", _local_connect)
+_network_patch.start()
+
+
+def pytest_unconfigure(config):
+    _network_patch.stop()
+    _client_patch.stop()
+    _dotenv_patch.stop()
+
+
+@pytest.fixture(autouse=True)
+def _cleanup_recorded_routes(request):
+    yield
+    fixtures = getattr(request.module, "FIXTURES", None)
+    if fixtures is not None and fixtures.route_ids:
+        from app.services.database import get_client
+        fixtures.cleanup(get_client())
 
 DEFAULT_TEST_USER = "00000000-0000-0000-0000-00000000c001"
 
 
 def _load_app():
-    """Import the app, or return None where there are no settings to load it with."""
-    try:
-        from app.main import app
-        from app.services.auth import Caller, require_auth
-        return app, Caller, require_auth
-    except Exception:
-        return None, None, None
+    """Import errors are failures, not missing-configuration skips."""
+    from app.main import app
+    from app.services.auth import Caller, require_auth
+    return app, Caller, require_auth
 
 
 def _make_stand_in(Caller):

@@ -18,31 +18,18 @@
  *   then: npx playwright test login-is-sent
  */
 
-import { test, expect, type Page } from '@playwright/test';
-import fs from 'node:fs';
-import path from 'node:path';
+import { test, expect } from './fixtures/test';
+import type { Page } from '@playwright/test';
+import { requireLocalTarget, testDatabase } from './fixtures/testSafety';
 
 const LIVE_API = 'https://stockerai-api.onrender.com';
-const LOCAL_API = process.env.STOCKER_TEST_API ?? 'http://127.0.0.1:8099';
+const LOCAL_API = requireLocalTarget(process.env.STOCKER_TEST_API);
 const APP_ORIGIN = 'http://localhost:8080';
 
-function env(): Record<string, string> {
-  const out: Record<string, string> = {};
-  const file = path.join(process.cwd(), '.env');
-  for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
-    const t = line.trim();
-    if (t && !t.startsWith('#') && t.includes('=')) {
-      const [k, ...rest] = t.split('=');
-      out[k.trim()] = rest.join('=').trim().replace(/^["']|["']$/g, '');
-    }
-  }
-  return out;
-}
-
-const ENV = env();
-const SUPABASE_URL = ENV.VITE_SUPABASE_URL.replace(/\/$/, '');
-const SERVICE_KEY = ENV.SUPABASE_SERVICE_ROLE_KEY;
-const ANON_KEY = ENV.VITE_SUPABASE_PUBLISHABLE_KEY;
+const { url: SUPABASE_URL, key: SERVICE_KEY } = testDatabase();
+const ANON_KEY = process.env.STOCKERAI_TEST_ANON_KEY!;
+const TEST_EMAIL = process.env.STOCKERAI_TEST_EMAIL;
+if (!TEST_EMAIL?.endsWith('@example.invalid')) throw new Error('Disposable test email ending @example.invalid required');
 const PROJECT_REF = SUPABASE_URL.split('//')[1].split('.')[0];
 const STORAGE_KEY = `sb-${PROJECT_REF}-auth-token`;
 
@@ -98,7 +85,7 @@ async function watchApiTraffic(page: Page, seen: Seen[]) {
 
     let response;
     try {
-      response = await route.fetch({ url: target });
+      response = await route.fetch({ url: target, maxRedirects: 0 });
     } catch {
       // Either the test finished and the page went away mid-call, or the server is not
       // there. Answer the page rather than leaving it hanging — a hung page times out as
@@ -150,7 +137,7 @@ test.describe('the app sends its login to the server', () => {
     );
   });
   test('opening the picking screen sends a login the server accepts', async ({ page }) => {
-    const session = await signIn('russ@visionairy.biz');
+    const session = await signIn(TEST_EMAIL!);
     await beSignedIn(page, session);
 
     const seen: Seen[] = [];
@@ -178,7 +165,7 @@ test.describe('the app sends its login to the server', () => {
     // The real thing that happens after an hour on a route: the stored login no longer works,
     // but the renewal ticket alongside it still does. The app should quietly swap one for the
     // other and carry on. Here the login is spoiled deliberately to force exactly that moment.
-    const session = await signIn('russ@visionairy.biz');
+    const session = await signIn(TEST_EMAIL!);
     await beSignedIn(page, { ...session, access_token: 'spoiled.not.valid' });
 
     const seen: Seen[] = [];

@@ -1,4 +1,13 @@
 import { defineConfig, devices } from '@playwright/test';
+import { requireLocalTarget, testDatabase } from './playwright-tests/fixtures/testSafety';
+
+// Fail before test collection, setup, credentials or a dev server can be used.
+const database = testDatabase();
+requireLocalTarget(process.env.STOCKER_TEST_API);
+if (process.env.SMOKE_URL) requireLocalTarget(process.env.SMOKE_URL);
+if (!process.env.STOCKERAI_TEST_ANON_KEY) throw new Error('Disposable test anon key required');
+process.env.VITE_SUPABASE_URL = database.url;
+process.env.VITE_SUPABASE_PUBLISHABLE_KEY = process.env.STOCKERAI_TEST_ANON_KEY;
 
 export default defineConfig({
   testDir: './playwright-tests',
@@ -19,6 +28,7 @@ export default defineConfig({
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
+    serviceWorkers: 'block',
   },
 
   projects: [
@@ -31,7 +41,7 @@ export default defineConfig({
   webServer: {
     command: 'npm run dev',
     url: 'http://localhost:8080',
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: false, // An existing server may have loaded production settings.
     timeout: 120000,
   },
 });

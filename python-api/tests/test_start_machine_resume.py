@@ -11,18 +11,20 @@ These tests put a machine in the exact state go_back_to_skipped produces
 (status='pending', completed_items preserved) and assert start_machine resumes
 correctly. If anyone reintroduces the from-item-1 / additive behavior, they fail.
 
-Needs live Supabase creds (SUPABASE_URL + SUPABASE_SERVICE_KEY); skips cleanly
-without them so CI stays green until those secrets are configured.
+Requires STOCKERAI_DB_TESTS=1 and explicit disposable local test settings.
+Never uses production credentials or configured driver identities.
 """
 import os
 import pytest
+from tests.test_safety import FixtureRoutes
 
 pytestmark = pytest.mark.skipif(
-    not (os.environ.get("SUPABASE_URL") and os.environ.get("SUPABASE_SERVICE_KEY")),
-    reason="needs live Supabase creds (SUPABASE_URL + SUPABASE_SERVICE_KEY)",
+    os.environ.get("STOCKERAI_DB_TESTS") != "1",
+    reason="requires explicitly enabled disposable local database",
 )
 
-TEST_USER = os.environ.get("TEST_USER_ID", "00000000-0000-0000-0000-00000000c002")
+FIXTURES = FixtureRoutes()
+TEST_USER = FIXTURES.user_id
 DATE = "2099-12-30"  # far-future sentinel date, never a real route
 
 
@@ -32,13 +34,13 @@ def _machine(db, machine_id):
 
 def _build(db, completed_items, status, skipped_at_item=None):
     """Create a throwaway 5-item machine + stocking session in a given state."""
-    db.table("sessions").delete().eq("user_id", TEST_USER).execute()
-    db.table("routes").delete().eq("user_id", TEST_USER).eq("delivery_date", DATE).execute()
+    FIXTURES.cleanup(db)
 
     rid = db.table("routes").insert({
         "user_id": TEST_USER, "route_name": "RESUME_TEST",
         "delivery_date": DATE, "total_machines": 1, "total_items": 5,
     }).execute().data[0]["id"]
+    FIXTURES.record(rid)
     mid = db.table("machines").insert({
         "route_id": rid, "route_name": "RESUME_TEST", "machine_name": "M1",
         "machine_number": 1, "location_name": "L1", "sequence": 1,
@@ -66,8 +68,7 @@ def resumed_machine():
     db = get_client()
     ctx = _build(db, completed_items=3, status="pending", skipped_at_item=3)
     yield ctx
-    db.table("sessions").delete().eq("user_id", TEST_USER).execute()
-    db.table("routes").delete().eq("user_id", TEST_USER).eq("delivery_date", DATE).execute()
+    FIXTURES.cleanup(db)
 
 
 @pytest.fixture
@@ -77,8 +78,7 @@ def fresh_machine():
     db = get_client()
     ctx = _build(db, completed_items=0, status="pending")
     yield ctx
-    db.table("sessions").delete().eq("user_id", TEST_USER).execute()
-    db.table("routes").delete().eq("user_id", TEST_USER).eq("delivery_date", DATE).execute()
+    FIXTURES.cleanup(db)
 
 
 @pytest.fixture

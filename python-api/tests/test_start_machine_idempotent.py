@@ -9,18 +9,20 @@ guard (only pre-count when the machine FIRST enters in_progress).
 This test fires start_machine twice and asserts the count is added ONCE. If
 anyone ever reintroduces the unguarded add, this fails.
 
-Needs live Supabase creds (SUPABASE_URL + SUPABASE_SERVICE_KEY); skips cleanly
-without them so CI stays green until those secrets are configured.
+Requires STOCKERAI_DB_TESTS=1 and explicit disposable local test settings.
+Never uses production credentials or configured driver identities.
 """
 import os
 import pytest
+from tests.test_safety import FixtureRoutes
 
 pytestmark = pytest.mark.skipif(
-    not (os.environ.get("SUPABASE_URL") and os.environ.get("SUPABASE_SERVICE_KEY")),
-    reason="needs live Supabase creds (SUPABASE_URL + SUPABASE_SERVICE_KEY)",
+    os.environ.get("STOCKERAI_DB_TESTS") != "1",
+    reason="requires explicitly enabled disposable local database",
 )
 
-TEST_USER = os.environ.get("TEST_USER_ID", "00000000-0000-0000-0000-00000000c001")
+FIXTURES = FixtureRoutes()
+TEST_USER = FIXTURES.user_id
 DATE = "2099-12-31"  # far-future sentinel date, never a real route
 
 
@@ -35,14 +37,14 @@ def machine():
     db = get_client()
 
     def _cleanup():
-        db.table("sessions").delete().eq("user_id", TEST_USER).execute()
-        db.table("routes").delete().eq("user_id", TEST_USER).eq("delivery_date", DATE).execute()
+        FIXTURES.cleanup(db)
 
     _cleanup()
     rid = db.table("routes").insert({
         "user_id": TEST_USER, "route_name": "IDEMPOTENT_TEST",
         "delivery_date": DATE, "total_machines": 1, "total_items": 7,
     }).execute().data[0]["id"]
+    FIXTURES.record(rid)
     mid = db.table("machines").insert({
         "route_id": rid, "route_name": "IDEMPOTENT_TEST", "machine_name": "M1",
         "machine_number": 1, "location_name": "L1", "sequence": 1,

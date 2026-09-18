@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/test';
 
 /**
  * Smoke test — the regression net for "the app loads and doesn't crash".
@@ -7,8 +7,7 @@ import { test, expect } from '@playwright/test';
  * ("Cannot access 'on' before initialization"). It loads every public
  * route and fails if any shows a crash screen or throws a runtime error.
  *
- * Target is configurable so it runs both locally and against production:
- *   SMOKE_URL=https://my-stocker-ai.com npx playwright test smoke
+ * Target must be a disposable local environment; remote smoke runs are refused.
  * Defaults to the config baseURL (local dev server) when unset.
  */
 
