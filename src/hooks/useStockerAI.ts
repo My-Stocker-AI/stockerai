@@ -403,7 +403,7 @@ Exit: After calling start_machine
 ---
 
 🟡 STATE 2: AWAITING SKIP CONFIRMATION
-Active when: You just asked "Skip this machine? Say yes to confirm."
+Active when: You just asked "Skip this one? Say yes to confirm."
 
 → "yes/yeah/confirm/do it" → call skip_current_machine()
 → "no/never mind/cancel" → Say "OK, staying on this machine" + do nothing
@@ -500,7 +500,10 @@ OTHER COMMANDS (Less Common - 5% of usage)
 ═══════════════════════════════════════════════════════════════════
 
 6️⃣ SKIP → Ask confirmation
-   "skip machine", "skip this machine" → "Skip this machine? Say yes to confirm."
+   "skip machine", "skip this machine" → "Skip this one? Say yes to confirm."
+   (Say "this one", never "this machine" — repeating his own words back makes the app
+   deaf to them: the microphone is open while you speak, so his reply is discarded as
+   your echo.)
 
 7️⃣ GO BACK → go_back_to_skipped()
    "go back", "back to skipped"
@@ -651,8 +654,8 @@ UNSUPPORTED REQUESTS (Graceful Rejection)
 Navigation (Not Supported):
 → "Switch to machine X" → "I can't switch machines. I can skip this one though. Want to skip?"
 → "Go back 3 items" → "I can't go back that far. Continue, or start this machine over?"
-→ "Start machine over" → "I can skip this machine and save your place, or you can reset the whole session."
-→ "Jump to end" → "I can skip this machine and save your spot for later."
+→ "Start machine over" → "I can skip this one and save your place, or you can reset the whole session."
+→ "Jump to end" → "I can skip this one and save your spot for later."
 
 Route Management:
 → "Different route" (no name) → List other routes: "You're on [Route]. Want to start [A], [B], or [C]?"
@@ -696,9 +699,13 @@ STATE 2: MID-MACHINE PICKING (currentItem exists, NO pendingMachineTransition)
   * Unclear: anything else
 
 → RESPONSE FOR UNCLEAR INPUT:
-  "Didn't catch that. Say 'next' to continue, 'skip machine' to move on, or ask about slot or par level."
+  "Didn't catch that. What would you like to do?"
   * NEVER ask "top or bottom" mid-machine
   * NEVER reference machine transitions
+  * NEVER list his commands back at him. The microphone is open while you speak, so a
+    sentence containing "skip machine" is heard as HIM saying it and thrown away as your
+    own echo — the app invites the command and then goes deaf to it. Ask an open question
+    instead. (2026-09-17: this exact sentence preceded Davy abandoning a machine at 12/32.)
 
 STATE 3: ROUTE SELECTION (no currentItem, no pendingMachineTransition)
 → Context: User needs to select or start a route

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { guessCommand, resolveUnknownReply, GUESS_ASK_THRESHOLD } from './commandGuess';
+import { guessCommand, resolveUnknownReply, GUESS_ASK_THRESHOLD, CONFIRM_PROMPT } from './commandGuess';
 import { CommandRecognizer, PickingCommand } from './commandRecognizer';
+import { resolveEcho } from '@/hooks/echoFilter';
 
 /**
  * Proof, not a claim.
@@ -63,11 +64,36 @@ describe('the honest fallback is still there', () => {
 describe('the question is short, and in his words', () => {
   it.each([
     ['keep going', 'Next item?'],
-    ['forget this machine', 'Skip this machine?'],
-    ['i missed that', 'Say it again?'],
-    ['i grabbed the wrong one', 'Go back one?'],
+    ['forget this machine', 'Skip this one?'],
+    ['i missed that', 'Repeat it?'],
+    ['i grabbed the wrong one', 'Back one?'],
   ])('"%s" is asked as "%s"', (phrase, question) => {
     expect(resolveUnknownReply(phrase).phrase).toBe(question);
+  });
+
+  // 2026-09-17. The microphone stays open while the app talks, so anything heard within a
+  // breath of it speaking is checked against the sentence it just said and discarded if it
+  // sits inside it. A question that quotes his own command back at him therefore makes the
+  // app deaf to the very answer it asked for: it said "Skip this machine?", he said "skip
+  // this machine", and his words were thrown away as the app's own echo. The question must
+  // not contain anything he might say in reply.
+  it('never puts his own words in his mouth', () => {
+    const hisWords = [
+      'skip this machine', 'skip machine', 'next item', 'go back one',
+      'start at the top', 'start at the bottom', 'say it again',
+    ];
+    for (const question of Object.values(CONFIRM_PROMPT)) {
+      for (const phrase of hisWords) {
+        const verdict = resolveEcho({
+          heard: phrase,
+          lastSpoken: question!.toLowerCase(),
+          msSinceSpeechStarted: 2000,
+          msSinceSpeechEnded: 200,
+          cooldownMs: 300,
+        });
+        expect(verdict, `"${question}" swallows "${phrase}"`).toBe('accept');
+      }
+    }
   });
 
   it('never asks a question longer than a breath', () => {

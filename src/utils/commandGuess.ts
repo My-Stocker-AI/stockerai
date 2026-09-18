@@ -149,11 +149,14 @@ export function guessCommand(transcript: string): CommandGuess | null {
 /** The question to ask, in the words the picker uses. */
 export const CONFIRM_PROMPT: Partial<Record<PickingCommand, string>> = {
   [PickingCommand.NEXT_ITEM]: 'Next item?',
-  [PickingCommand.SKIP_MACHINE]: 'Skip this machine?',
-  [PickingCommand.REPEAT]: 'Say it again?',
-  [PickingCommand.UNDO]: 'Go back one?',
-  [PickingCommand.DIRECTION_TOP]: 'Start at the top?',
-  [PickingCommand.DIRECTION_BOTTOM]: 'Start at the bottom?',
+  // "Skip this one?", never "Skip this machine?" — the microphone stays open while the app
+  // speaks, and his answer is measured against the sentence it just said. If that sentence
+  // contains his exact words, his reply is thrown away as the app's own echo.
+  [PickingCommand.SKIP_MACHINE]: 'Skip this one?',
+  [PickingCommand.REPEAT]: 'Repeat it?',
+  [PickingCommand.UNDO]: 'Back one?',
+  [PickingCommand.DIRECTION_TOP]: 'From the top?',
+  [PickingCommand.DIRECTION_BOTTOM]: 'From the bottom?',
   [PickingCommand.INVENTORY_QUERY]: 'How many to load?',
 };
 
