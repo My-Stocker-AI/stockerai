@@ -9,6 +9,7 @@ import { shouldRunDirectionDetection } from '@/hooks/voiceHandoffPolicy';
 import { resolveFailureSpeech, classifyFailure, type FailureKind } from '@/hooks/voiceFailureSpeech';
 import { resolveTranscriptGate, gateReason } from '@/hooks/transcriptGate';
 import { resolveUnknownReply } from '@/utils/commandGuess';
+import { isBareNumber } from '@/utils/spokenNumber';
 import { resolveLocalIntent } from '@/utils/localCommandIntent';
 import { useStockerAI } from '@/hooks/useStockerAI';
 import { useStockerSession } from '@/hooks/useStockerSession';
@@ -892,6 +893,19 @@ export default function StockerApp() {
           await v.speak(msg);
           processingRef.current = false;
           return;
+        }
+
+        // He is counting the shelf out loud, not talking to the app. Say nothing, change
+        // nothing, stay on the same item — he will say "next" when he is ready. Restricted to
+        // a machine actually in progress: everywhere else a number could be a date ("the
+        // eighteenth") answering the route prompt, and that path is left untouched.
+        if (isBareNumber(correctedTranscript)) {
+          const pickingMachine = routeState.machines.find(m => m.id === routeState.currentMachineId);
+          if (pickingMachine?.status === 'in_progress') {
+            console.log('[CommandRecognizer] 🔢 bare number while picking — counting aloud, staying put:', correctedTranscript);
+            processingRef.current = false;
+            return;
+          }
         }
 
         // The phrase leans toward a real picking ACTION — ask the one-word question rather than
