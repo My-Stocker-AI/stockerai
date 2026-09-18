@@ -35,6 +35,8 @@ function emitDiagnostic(type: string, data: any) {
 }
 
 interface UseVoiceOptions {
+  /** Discard non-input before queueing, interrupting audio, or acknowledging it. */
+  shouldIgnoreTranscript?: (transcript: string) => boolean;
   onTranscript?: (transcript: string, isFinal: boolean) => void;
   onError?: (error: string) => void;
   onWakePhrase?: (command: string | null) => void;
@@ -45,10 +47,11 @@ interface UseVoiceOptions {
 }
 
 export function useVoice(options: UseVoiceOptions = {}) {
-  const { onTranscript, onError, onWakePhrase, keywords, environmentEndpointing, preferredDeviceId } = options;
+  const { onTranscript, onError, onWakePhrase, keywords, environmentEndpointing, preferredDeviceId, shouldIgnoreTranscript } = options;
 
   // Store callbacks in refs to avoid stale closures in WebSocket handlers
   const onTranscriptRef = useRef(onTranscript);
+  const shouldIgnoreTranscriptRef = useRef(shouldIgnoreTranscript);
   const onErrorRef = useRef(onError);
   const onWakePhraseRef = useRef(onWakePhrase);
   const keywordsRef = useRef<string[]>(keywords || []);
@@ -56,6 +59,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
 
   // Keep refs updated when callbacks change
   onTranscriptRef.current = onTranscript;
+  shouldIgnoreTranscriptRef.current = shouldIgnoreTranscript;
   onErrorRef.current = onError;
   onWakePhraseRef.current = onWakePhrase;
   keywordsRef.current = keywords || [];
@@ -469,6 +473,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
     accumulatedTranscriptRef.current = '';
 
     if (!text) return;
+    if (shouldIgnoreTranscriptRef.current?.(text)) return;
 
     const currentStatus = statusRef.current;
     console.log('[Voice] Processing transcript:', text, 'state:', currentStatus);
@@ -1296,9 +1301,11 @@ export function useVoice(options: UseVoiceOptions = {}) {
       if (pendingCommandRef.current) {
         const queued = pendingCommandRef.current;
         pendingCommandRef.current = null;
-        console.log('[Voice] Firing queued command after resume:', queued);
-        playCommandChime(); // Acknowledge the queued command
-        setTimeout(() => onTranscriptRef.current?.(queued, true), 0);
+        if (!shouldIgnoreTranscriptRef.current?.(queued)) {
+          console.log('[Voice] Firing queued command after resume:', queued);
+          playCommandChime(); // Acknowledge the queued command
+          setTimeout(() => onTranscriptRef.current?.(queued, true), 0);
+        }
       }
     } else if (!isConnectedRef.current) {
       pendingCommandRef.current = null; // Clear stale queued command — full reconnect needed, command too old to replay

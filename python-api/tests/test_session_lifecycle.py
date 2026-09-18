@@ -8,25 +8,26 @@
      pick_direction='forward' explicitly and clears stale skipped_at_item marks
      so re-running a route doesn't inherit a prior run's skip state. (commit 236ed01)
 
-Needs live Supabase creds (SUPABASE_URL + SUPABASE_SERVICE_KEY); skips cleanly
-without them. Uses a far-future sentinel date + cleanup so it never touches real data.
+Requires STOCKERAI_DB_TESTS=1 and explicit disposable local test settings.
+Never uses production credentials or configured driver identities.
 """
 import os
 import pytest
+from tests.test_safety import FixtureRoutes
 
 pytestmark = pytest.mark.skipif(
-    not (os.environ.get("SUPABASE_URL") and os.environ.get("SUPABASE_SERVICE_KEY")),
-    reason="needs live Supabase creds (SUPABASE_URL + SUPABASE_SERVICE_KEY)",
+    os.environ.get("STOCKERAI_DB_TESTS") != "1",
+    reason="requires explicitly enabled disposable local database",
 )
 
-TEST_USER = os.environ.get("TEST_USER_ID", "25df14da-6183-4380-9313-8ff0a2da0969")
+FIXTURES = FixtureRoutes()
+TEST_USER = FIXTURES.user_id
 DATE = "2099-12-29"  # far-future sentinel, never a real route
 ROUTE_NAME = "LIFECYCLE_TEST"
 
 
 def _cleanup(db):
-    db.table("sessions").delete().eq("user_id", TEST_USER).execute()
-    db.table("routes").delete().eq("user_id", TEST_USER).eq("delivery_date", DATE).execute()
+    FIXTURES.cleanup(db)
 
 
 @pytest.fixture
@@ -48,6 +49,7 @@ def one_item_route():
         "user_id": TEST_USER, "route_name": ROUTE_NAME, "delivery_date": DATE,
         "total_machines": 1, "total_items": 1,
     }).execute().data[0]["id"]
+    FIXTURES.record(rid)
     mid = db.table("machines").insert({
         "route_id": rid, "route_name": ROUTE_NAME, "machine_name": "M1", "machine_number": 1,
         "location_name": "L1", "sequence": 1, "total_items": 1, "completed_items": 0, "status": "pending",
@@ -95,6 +97,7 @@ def stale_skipped_route():
         "user_id": TEST_USER, "route_name": ROUTE_NAME, "delivery_date": DATE,
         "total_machines": 1, "total_items": 3,
     }).execute().data[0]["id"]
+    FIXTURES.record(rid)
     # A genuinely fresh route (no progress anywhere) — the only case that resets.
     mid = db.table("machines").insert({
         "route_id": rid, "route_name": ROUTE_NAME, "machine_name": "M1", "machine_number": 1,
@@ -136,6 +139,7 @@ def worked_route_no_session():
     _cleanup(db)
     rid = db.table("routes").insert({"user_id": TEST_USER, "route_name": ROUTE_NAME, "delivery_date": DATE,
         "total_machines": 2, "total_items": 5}).execute().data[0]["id"]
+    FIXTURES.record(rid)
     m1 = db.table("machines").insert({"route_id": rid, "route_name": ROUTE_NAME, "machine_name": "M1",
         "machine_number": 1, "location_name": "L", "sequence": 1, "total_items": 3, "completed_items": 3,
         "status": "completed"}).execute().data[0]["id"]

@@ -10,17 +10,20 @@ bottom two items. Fixed across two seams:
   - items.py start-machine: an explicit top/bottom on a not-in_progress machine WITHOUT a skip
     marker is a FRESH start at the true first/last item (base 0), not a resume from a stale count.
 
-Needs live Supabase creds (SUPABASE_URL + SUPABASE_SERVICE_KEY); skips cleanly without them.
+Requires STOCKERAI_DB_TESTS=1 and explicit disposable local test settings.
+Never uses production credentials or configured driver identities.
 """
 import os
 import pytest
+from tests.test_safety import FixtureRoutes
 
 pytestmark = pytest.mark.skipif(
-    not (os.environ.get("SUPABASE_URL") and os.environ.get("SUPABASE_SERVICE_KEY")),
-    reason="needs live Supabase creds (SUPABASE_URL + SUPABASE_SERVICE_KEY)",
+    os.environ.get("STOCKERAI_DB_TESTS") != "1",
+    reason="requires explicitly enabled disposable local database",
 )
 
-TEST_USER = os.environ.get("TEST_USER_ID", "00000000-0000-0000-0000-00000000c001")
+FIXTURES = FixtureRoutes()
+TEST_USER = FIXTURES.user_id
 DATE = "2099-12-30"  # far-future sentinel date, never a real route
 ROUTE = "PHANTOM_TEST"
 N = 5  # items 1..5; true bottom = seq 5
@@ -32,12 +35,12 @@ def _completed(db, machine_id):
 
 def _build(db, *, completed, skipped_at_item):
     """A throwaway N-item machine seeded with a given (possibly phantom) count."""
-    db.table("sessions").delete().eq("user_id", TEST_USER).execute()
-    db.table("routes").delete().eq("user_id", TEST_USER).eq("delivery_date", DATE).execute()
+    FIXTURES.cleanup(db)
     rid = db.table("routes").insert({
         "user_id": TEST_USER, "route_name": ROUTE,
         "delivery_date": DATE, "total_machines": 1, "total_items": N,
     }).execute().data[0]["id"]
+    FIXTURES.record(rid)
     mid = db.table("machines").insert({
         "route_id": rid, "route_name": ROUTE, "machine_name": "M1",
         "machine_number": 1, "location_name": "L1", "sequence": 1,
@@ -62,8 +65,7 @@ def db():
     from app.services.database import get_client
     d = get_client()
     yield d
-    d.table("sessions").delete().eq("user_id", TEST_USER).execute()
-    d.table("routes").delete().eq("user_id", TEST_USER).eq("delivery_date", DATE).execute()
+    FIXTURES.cleanup(d)
 
 
 @pytest.fixture

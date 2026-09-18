@@ -17,24 +17,26 @@ Branches:
      clearServer is dead code), so set-route-sequence resumes the existing session and keeps
      pick_direction. This test proves the current code already satisfies the terminal.
 
-Needs live Supabase creds (SUPABASE_URL + SUPABASE_SERVICE_KEY); skips cleanly without them.
+Requires STOCKERAI_DB_TESTS=1 and explicit disposable local test settings.
+Never uses production credentials or configured driver identities.
 """
 import os
 import pytest
+from tests.test_safety import FixtureRoutes
 
 pytestmark = pytest.mark.skipif(
-    not (os.environ.get("SUPABASE_URL") and os.environ.get("SUPABASE_SERVICE_KEY")),
-    reason="needs live Supabase creds (SUPABASE_URL + SUPABASE_SERVICE_KEY)",
+    os.environ.get("STOCKERAI_DB_TESTS") != "1",
+    reason="requires explicitly enabled disposable local database",
 )
 
-TEST_USER = os.environ.get("TEST_USER_ID", "00000000-0000-0000-0000-00000000c001")
+FIXTURES = FixtureRoutes()
+TEST_USER = FIXTURES.user_id
 DATE = "2099-12-29"  # far-future sentinel (distinct from phantom test's 2099-12-30); never a real route
 ROUTE = "GOTCHAS_TEST"
 
 
 def _clean(db):
-    db.table("sessions").delete().eq("user_id", TEST_USER).execute()
-    db.table("routes").delete().eq("user_id", TEST_USER).eq("delivery_date", DATE).execute()
+    FIXTURES.cleanup(db)
 
 
 def _machine(db, mid):
@@ -51,6 +53,7 @@ def _build(db, *, machines, current_index=0, pick_direction="forward"):
         "user_id": TEST_USER, "route_name": ROUTE, "delivery_date": DATE,
         "total_machines": len(machines), "total_items": sum(m["n_items"] for m in machines),
     }).execute().data[0]["id"]
+    FIXTURES.record(rid)
     mids = []
     for m in machines:
         mid = db.table("machines").insert({

@@ -9,13 +9,11 @@
  * are untouchable by anything in here.
  */
 
-import fs from 'node:fs';
-import path from 'node:path';
+import { testDatabase } from './testSafety';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import {
   buildRoutePlan,
   isFixtureRouteName,
-  FIXTURE_ROUTE_PREFIX,
   FIXTURE_SPOKEN_HANDLE,
   type RoutePlanOptions,
 } from './routePlan';
@@ -48,40 +46,13 @@ export interface SeededRoute {
   itemsForMachine(sequence: number): SeededItem[];
 }
 
-/**
- * Reads .env into process.env for values that aren't already set.
- * Playwright doesn't load .env on its own and we're not adding a dependency for six lines.
- */
-function loadEnvFile(): void {
-  const envPath = path.resolve(process.cwd(), '.env');
-  if (!fs.existsSync(envPath)) return;
-
-  for (const line of fs.readFileSync(envPath, 'utf8').split('\n')) {
-    const match = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(line);
-    if (!match) continue;
-    const [, key, rawValue] = match;
-    if (process.env[key] !== undefined) continue;
-    process.env[key] = rawValue.trim().replace(/^["']|["']$/g, '');
-  }
-}
-
 let cachedClient: SupabaseClient | null = null;
+const createdRoutes = new Set<string>();
 
 /** Service-role client. Tests only — this key must never reach the browser bundle. */
 export function adminClient(): SupabaseClient {
+  const { url, key } = testDatabase();
   if (cachedClient) return cachedClient;
-
-  loadEnvFile();
-
-  const url = process.env.VITE_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!url || !key) {
-    throw new Error(
-      'Test seeding needs VITE_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY. ' +
-        'Both live in .env at the project root.',
-    );
-  }
 
   cachedClient = createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
@@ -106,11 +77,9 @@ export type SeedOptions = Omit<RoutePlanOptions, 'userId' | 'deliveryDate'> & {
  * app straight at a known machine or item instead of hunting for one in the UI.
  */
 export async function seedRoute(options: SeedOptions): Promise<SeededRoute> {
-  loadEnvFile();
-
-  const userId = options.userId || process.env.TEST_USER_ID;
+  const userId = options.userId || process.env.STOCKERAI_TEST_USER_ID;
   if (!userId) {
-    throw new Error('Test seeding needs a userId (or TEST_USER_ID in .env)');
+    throw new Error('Test seeding needs a disposable local STOCKERAI_TEST_USER_ID');
   }
 
   const plan = buildRoutePlan({
@@ -131,6 +100,7 @@ export async function seedRoute(options: SeedOptions): Promise<SeededRoute> {
     throw new Error(`Seeding failed creating the route: ${routeError?.message || 'no row returned'}`);
   }
   const routeId = routeRows[0].id as string;
+  createdRoutes.add(routeId);
 
   const { data: machineRows, error: machineError } = await db
     .from('machines')
@@ -193,11 +163,12 @@ export async function seedRoute(options: SeedOptions): Promise<SeededRoute> {
  * Refuses outright if the route isn't one of ours.
  */
 export async function destroyRoute(routeId: string): Promise<void> {
+  if (!createdRoutes.has(routeId)) throw new Error('Refusing cleanup of a route not created by this worker');
   const db = adminClient();
 
-  const { data: routes } = await db.from('routes').select('id, route_name').eq('id', routeId).limit(1);
+  const { data: routes } = await db.from('routes').select('id, route_name').eq('id', routeId).limit(1).throwOnError();
   const route = routes?.[0];
-  if (!route) return; // already gone
+  if (!route) { createdRoutes.delete(routeId); return; }
 
   if (!isFixtureRouteName(route.route_name as string)) {
     throw new Error(
@@ -205,35 +176,15 @@ export async function destroyRoute(routeId: string): Promise<void> {
     );
   }
 
-  const { data: machines } = await db.from('machines').select('id').eq('route_id', routeId);
+  const { data: machines } = await db.from('machines').select('id').eq('route_id', routeId).throwOnError();
   const machineIds = (machines || []).map((m) => m.id as string);
 
   if (machineIds.length) {
-    await db.from('items').delete().in('machine_id', machineIds);
+    await db.from('items').delete().in('machine_id', machineIds).throwOnError();
   }
   // A session pointing at a deleted route is what makes the NEXT run resume into nothing.
-  await db.from('sessions').delete().eq('current_route_id', routeId);
-  await db.from('machines').delete().eq('route_id', routeId);
-  await db.from('routes').delete().eq('id', routeId);
-}
-
-/**
- * Removes every leftover fixture route — the ones a crashed or killed run never cleaned up.
- * Runs once before the suite. Real routes are filtered out by name before anything is deleted.
- */
-export async function sweepStaleFixtures(): Promise<number> {
-  const db = adminClient();
-
-  const { data: routes, error } = await db
-    .from('routes')
-    .select('id, route_name')
-    .like('route_name', `${FIXTURE_ROUTE_PREFIX} %`);
-
-  if (error) throw new Error(`Could not sweep stale fixtures: ${error.message}`);
-
-  const strays = (routes || []).filter((r) => isFixtureRouteName(r.route_name as string));
-  for (const stray of strays) {
-    await destroyRoute(stray.id as string);
-  }
-  return strays.length;
+  await db.from('sessions').delete().eq('current_route_id', routeId).throwOnError();
+  await db.from('machines').delete().eq('route_id', routeId).throwOnError();
+  await db.from('routes').delete().eq('id', routeId).throwOnError();
+  createdRoutes.delete(routeId);
 }

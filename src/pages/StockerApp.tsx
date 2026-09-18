@@ -308,8 +308,18 @@ export default function StockerApp() {
     // The triggerRouteStart effect will handle sending the command to the AI
   }, []);
 
+  // Counting is not a command while actively picking. Use the same predicate at the
+  // microphone boundary and direct/touch injection boundary, before any side effects.
+  // Route/date selection and top/bottom handoffs keep their existing input semantics.
+  const shouldIgnoreTranscript = useCallback((transcript: string) => {
+    return !!routeState.routeName && !routeState.pendingMachineTransition &&
+      routeState.machines.some(m => m.id === routeState.currentMachineId && m.status === 'in_progress') &&
+      isBareNumber(transcript);
+  }, [routeState]);
+
   const handleTranscript = useCallback(async (transcript: string, isFinal: boolean) => {
     if (!isFinal) return;
+    if (shouldIgnoreTranscript(transcript)) return;
     const v = voiceRef.current;
     if (!v) return;
 
@@ -895,19 +905,6 @@ export default function StockerApp() {
           return;
         }
 
-        // He is counting the shelf out loud, not talking to the app. Say nothing, change
-        // nothing, stay on the same item — he will say "next" when he is ready. Restricted to
-        // a machine actually in progress: everywhere else a number could be a date ("the
-        // eighteenth") answering the route prompt, and that path is left untouched.
-        if (isBareNumber(correctedTranscript)) {
-          const pickingMachine = routeState.machines.find(m => m.id === routeState.currentMachineId);
-          if (pickingMachine?.status === 'in_progress') {
-            console.log('[CommandRecognizer] 🔢 bare number while picking — counting aloud, staying put:', correctedTranscript);
-            processingRef.current = false;
-            return;
-          }
-        }
-
         // The phrase leans toward a real picking ACTION — ask the one-word question rather than
         // risk doing the wrong thing to his route. Actions never wait on a network.
         const reply = resolveUnknownReply(correctedTranscript);
@@ -1155,7 +1152,7 @@ export default function StockerApp() {
     } finally {
       processingRef.current = false;
     }
-  }, [userName, routeState, addMessage, sendToAI, executeToolCalls, updateFromTool, undoLastItem, retryCount, messagesRef, showRouteSelection, availableRoutes, selectRoute]);
+  }, [userName, routeState, addMessage, sendToAI, executeToolCalls, updateFromTool, undoLastItem, retryCount, messagesRef, showRouteSelection, availableRoutes, selectRoute, shouldIgnoreTranscript]);
 
   const handleWakePhrase = useCallback(async (command: string | null) => {
     const v = voiceRef.current;
@@ -1242,6 +1239,7 @@ export default function StockerApp() {
   } = useEnvironmentDetection();
 
   const voice = useVoice({
+    shouldIgnoreTranscript,
     onTranscript: handleTranscript,
     onError: handleVoiceError,
     onWakePhrase: handleWakePhrase,

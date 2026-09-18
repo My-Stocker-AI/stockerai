@@ -155,8 +155,9 @@ export const CONFIRM_PROMPT: Partial<Record<PickingCommand, string>> = {
   [PickingCommand.SKIP_MACHINE]: 'Skip this one?',
   [PickingCommand.REPEAT]: 'Repeat it?',
   [PickingCommand.UNDO]: 'Back one?',
-  [PickingCommand.DIRECTION_TOP]: 'From the top?',
-  [PickingCommand.DIRECTION_BOTTOM]: 'From the bottom?',
+  // Keep full direction replies out of the prompt, without weakening echo filtering.
+  [PickingCommand.DIRECTION_TOP]: 'Begin at the upper end?',
+  [PickingCommand.DIRECTION_BOTTOM]: 'Begin at the lower end?',
   [PickingCommand.INVENTORY_QUERY]: 'How many to load?',
 };
 
