@@ -1239,6 +1239,7 @@ export default function StockerApp() {
   } = useEnvironmentDetection();
 
   const voice = useVoice({
+    onMicrophoneRecovered: () => setError(current => current === 'Microphone disconnected — tap to reconnect.' ? null : current),
     shouldIgnoreTranscript,
     onTranscript: handleTranscript,
     onError: handleVoiceError,
@@ -2009,8 +2010,8 @@ export default function StockerApp() {
     setError('Reconnecting…');            // acknowledge the tap FIRST — this is the ten seconds
     try {
       await voiceRef.current?.unlockAudio?.();   // this tap is the gesture iOS requires
-      await voiceRef.current?.startListening?.();
-      setError(null);
+      const connected = await voiceRef.current?.startListening?.();
+      setError(connected ? null : 'Voice paused — tap to reconnect.');
     } catch (e) {
       console.error('[Voice] Tap-to-reconnect failed:', e);
       setError('Voice paused — tap to reconnect.');
