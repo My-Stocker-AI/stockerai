@@ -35,6 +35,7 @@ function emitDiagnostic(type: string, data: any) {
 }
 
 interface UseVoiceOptions {
+  onMicrophoneRecovered?: () => void;
   /** Discard non-input before queueing, interrupting audio, or acknowledging it. */
   shouldIgnoreTranscript?: (transcript: string) => boolean;
   onTranscript?: (transcript: string, isFinal: boolean) => void;
@@ -131,6 +132,15 @@ export function useVoice(options: UseVoiceOptions = {}) {
   // own reconnect → stacked loops pile up sockets → Deepgram refuses them all (the 1006
   // storm that never recovers, proven in the 2026-06-30 device logs).
   const isConnectingRef = useRef(false);
+  const microphoneGenerationRef = useRef(0);
+  const microphoneRecoveryRef = useRef<Promise<void> | null>(null);
+  const microphoneRequestRef = useRef<Promise<MediaStream> | null>(null);
+  const microphoneRecoveredRef = useRef(options.onMicrophoneRecovered);
+  microphoneRecoveredRef.current = options.onMicrophoneRecovered;
+  const microphoneTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const microphoneNeedsRecoveryRef = useRef(false);
+  const observeMicrophoneRef = useRef<(stream: MediaStream) => void>(() => {});
+  const detachMicrophoneRef = useRef<() => void>(() => {});
 
   // Single-voice lock: only ONE app instance (tab / reload / PWA) may speak or listen
   // at a time. Two instances both greeting on resume = the "two voices talking over each
@@ -702,6 +712,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
 
   const connectDeepgram = useCallback(async () => {
     if (socketRef.current?.readyState === WebSocket.OPEN) {
+      isConnectedRef.current = true;
       return;
     }
     // Single-flight: if an attempt is already running, do NOT start a second one. This is the
@@ -950,32 +961,11 @@ export function useVoice(options: UseVoiceOptions = {}) {
     });
   }, [ensureToken, startKeepAlive, stopKeepAlive, startPcmCapture, handleDeepgramMessage, setStatus]); // Using ref for onError
 
-  // Get or reuse audio stream - CRITICAL for Safari
-  // Safari bug: Multiple getUserMedia calls can permanently mute previous tracks
-  // Solution: Reuse the same stream across reconnections
-  const getOrCreateAudioStream = useCallback(async (): Promise<MediaStream> => {
-    // Check if we have an existing active stream
-    if (audioStreamRef.current) {
-      const tracks = audioStreamRef.current.getAudioTracks();
-      const activeTrack = tracks.find(t => t.readyState === 'live');
-      if (activeTrack) {
-        console.log('[Voice] Reusing existing audio stream');
-        return audioStreamRef.current;
-      }
-      // Stream exists but tracks are ended - clean up
-      console.log('[Voice] Existing stream has ended tracks, creating new stream');
-      audioStreamRef.current = null;
-    }
-
+  const requestAudioStream = useCallback(async (): Promise<MediaStream> => {
     console.log('[Voice] Creating new audio stream');
     // Base audio constraints — unchanged.
-    // echoCancellation OFF — deliberate (Russ, 2026-06-29: "there is never a need to
-    // interrupt the AI", so barge-in is dropped). Requesting hardware AEC puts Android
-    // into communication / phone-call audio mode → routes the AI's voice to the EARPIECE;
-    // with AEC off the device stays in media mode → the loud SPEAKER (this is the config
-    // that worked handsfree earlier today). We no longer need AEC to keep the live mic
-    // from hearing the TTS — barge-in is gone, and the isEcho() text filter remains the
-    // backstop against the AI mis-hearing its own announcement.
+    // Preserve the existing capture constraints during microphone replacement.
+    // Actual Bluetooth routing and echo cancellation still require device testing.
     const baseAudio: MediaTrackConstraints = {
       echoCancellation: true,
       noiseSuppression: true,
@@ -1002,9 +992,131 @@ export function useVoice(options: UseVoiceOptions = {}) {
       // No preferred device — single plain call, identical to before.
       stream = await navigator.mediaDevices.getUserMedia({ audio: baseAudio });
     }
-    audioStreamRef.current = stream;
     return stream;
   }, []);
+
+  // Replace only the microphone source when Bluetooth changes. Keep the existing
+  // worklet/context and speech socket: creating another context off a gesture can
+  // leave Safari suspended, and restarting voice can consume a pending command.
+  const acquireAudioStream = useCallback(async (): Promise<MediaStream> => {
+    const existing = audioStreamRef.current;
+    if (existing?.getAudioTracks().some(t => t.readyState === 'live' && !t.muted) &&
+        !microphoneNeedsRecoveryRef.current &&
+        (!captureCtxRef.current || captureCtxRef.current.state === 'running')) return existing;
+    const generation = microphoneGenerationRef.current;
+    const stream = await requestAudioStream();
+    if (generation !== microphoneGenerationRef.current || !shouldReconnectRef.current) {
+      stream.getTracks().forEach(t => t.stop());
+      throw new Error('Microphone request cancelled');
+    }
+    try {
+      if (!stream.getAudioTracks().some(t => t.readyState === 'live' && !t.muted)) {
+        throw new Error('Microphone is not supplying audio');
+      }
+      const ctx = captureCtxRef.current;
+      if (ctx && captureNodeRef.current) {
+        if (ctx.state === 'suspended') await ctx.resume();
+        if (generation !== microphoneGenerationRef.current || !shouldReconnectRef.current) {
+          throw new Error('Microphone request cancelled');
+        }
+        if (ctx.state !== 'running') throw new Error('Microphone audio is suspended');
+        const source = ctx.createMediaStreamSource(stream);
+        source.connect(captureNodeRef.current);
+        captureSourceRef.current?.disconnect();
+        captureSourceRef.current = source;
+      }
+      detachMicrophoneRef.current();
+      audioStreamRef.current = stream;
+      existing?.getTracks().forEach(t => t.stop());
+      microphoneNeedsRecoveryRef.current = false;
+      observeMicrophoneRef.current(stream);
+      micSendingRef.current = shouldMicSend(statusRef.current);
+      return stream;
+    } catch (error) {
+      stream.getTracks().forEach(t => t.stop());
+      throw error;
+    }
+  }, [requestAudioStream]);
+
+  const getOrCreateAudioStream = useCallback((): Promise<MediaStream> => {
+    if (microphoneRequestRef.current) return microphoneRequestRef.current;
+    const request = acquireAudioStream();
+    microphoneRequestRef.current = request;
+    const clear = () => { if (microphoneRequestRef.current === request) microphoneRequestRef.current = null; };
+    void request.then(clear, clear);
+    return request;
+  }, [acquireAudioStream]);
+
+  const recoverMicrophone = useCallback(() => {
+    if (!shouldReconnectRef.current || !audioStreamRef.current || document.hidden) return Promise.resolve();
+    if (microphoneRecoveryRef.current) return microphoneRecoveryRef.current;
+    const generation = microphoneGenerationRef.current;
+    const recovery = (async () => {
+      emitDiagnostic('microphone-recovery', 'started');
+      try {
+        await getOrCreateAudioStream();
+        if (generation !== microphoneGenerationRef.current) return;
+        emitDiagnostic('microphone-recovery', 'source-rebound');
+        microphoneRecoveredRef.current?.();
+      } catch {
+        if (generation !== microphoneGenerationRef.current || !shouldReconnectRef.current) return;
+        emitDiagnostic('microphone-recovery', 'needs-tap');
+        onErrorRef.current?.('Microphone disconnected — tap to reconnect.');
+      }
+    })();
+    microphoneRecoveryRef.current = recovery;
+    void recovery.finally(() => {
+      if (microphoneRecoveryRef.current === recovery) microphoneRecoveryRef.current = null;
+    });
+    return recovery;
+  }, [getOrCreateAudioStream]);
+
+  useEffect(() => {
+    const schedule = (delay: number) => {
+      if (!shouldReconnectRef.current || !audioStreamRef.current) return;
+      microphoneNeedsRecoveryRef.current = true;
+      if (microphoneTimerRef.current) clearTimeout(microphoneTimerRef.current);
+      microphoneTimerRef.current = setTimeout(() => {
+        microphoneTimerRef.current = null;
+        void recoverMicrophone();
+      }, delay);
+    };
+    observeMicrophoneRef.current = stream => {
+      detachMicrophoneRef.current();
+      const track = stream.getAudioTracks()[0];
+      if (!track) return;
+      const ended = () => schedule(300);
+      const muted = () => schedule(1500); // Allow a transient Bluetooth handoff to settle.
+      const unmuted = () => {
+        if (microphoneTimerRef.current) clearTimeout(microphoneTimerRef.current);
+        microphoneTimerRef.current = null;
+        microphoneNeedsRecoveryRef.current = false;
+      };
+      track.addEventListener('ended', ended);
+      track.addEventListener('mute', muted);
+      track.addEventListener('unmute', unmuted);
+      detachMicrophoneRef.current = () => {
+        track.removeEventListener('ended', ended);
+        track.removeEventListener('mute', muted);
+        track.removeEventListener('unmute', unmuted);
+      };
+    };
+    const changed = () => schedule(300);
+    const visible = () => {
+      if (document.hidden || !shouldReconnectRef.current) return;
+      const tracks = audioStreamRef.current?.getAudioTracks() ?? [];
+      if (microphoneNeedsRecoveryRef.current || tracks.some(t => t.readyState === 'ended' || t.muted)) schedule(300);
+    };
+    navigator.mediaDevices?.addEventListener('devicechange', changed);
+    document.addEventListener('visibilitychange', visible);
+    return () => {
+      navigator.mediaDevices?.removeEventListener('devicechange', changed);
+      document.removeEventListener('visibilitychange', visible);
+      detachMicrophoneRef.current();
+      microphoneGenerationRef.current++;
+      if (microphoneTimerRef.current) clearTimeout(microphoneTimerRef.current);
+    };
+  }, [recoverMicrophone]);
 
   // Scope 2 — capture the environment-tuning snapshot at a connection boundary. The
   // GUARD: if a connection is already open, do nothing — a setting change made mid-pick
@@ -1084,6 +1196,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
     refreshEnvTuningSnapshot();
 
     // STOP FIX: Reset all state flags to clean state
+    const microphoneGeneration = microphoneGenerationRef.current;
     stoppedRef.current = false;
     shouldReconnectRef.current = true;
     isConnectedRef.current = false;
@@ -1132,14 +1245,17 @@ export function useVoice(options: UseVoiceOptions = {}) {
       console.log('[Voice] Audio stream obtained:', stream.getTracks().length, 'tracks');
 
       await connectDeepgram();
+      if (microphoneGeneration !== microphoneGenerationRef.current || !shouldReconnectRef.current) return false;
       console.log('[Voice] Deepgram connected successfully');
 
       setStatus('listening');
+      micSendingRef.current = true;
       setIsDeepgramConnected(true);
 
       console.log('[Voice] startListening complete - voice active');
       return true;
     } catch (error: any) {
+      if (microphoneGeneration !== microphoneGenerationRef.current || !shouldReconnectRef.current) return false;
       console.error('[Voice] startListening failed:', error);
 
       // Handle specific microphone errors
@@ -1167,6 +1283,13 @@ export function useVoice(options: UseVoiceOptions = {}) {
   const stopListening = useCallback(() => {
     console.log('[Voice] stopListening called - cleaning up resources');
     shouldReconnectRef.current = false;
+    microphoneGenerationRef.current++;
+    microphoneRequestRef.current = null;
+    microphoneRecoveryRef.current = null;
+    detachMicrophoneRef.current();
+    if (microphoneTimerRef.current) clearTimeout(microphoneTimerRef.current);
+    microphoneTimerRef.current = null;
+    microphoneNeedsRecoveryRef.current = false;
     stopKeepAlive();
 
     // Clear silence timer and accumulated transcript
