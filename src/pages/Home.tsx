@@ -253,8 +253,7 @@ const Home = () => {
               See Your Savings
             </h2>
             <p className="text-xl text-muted-foreground max-w-3xl mx-auto">
-              Voice guidance delivers up to 35% faster picking. At $15-20/driver/month,
-              that's typically less than 10% of your labor savings.
+              Estimate the value of time saved using your actual picking hours and labor cost. Adjust the assumptions below to fit your operation.
             </p>
           </div>
 

@@ -7,15 +7,18 @@ import { Label } from "@/components/ui/label";
 
 const ROICalculator = () => {
   const [drivers, setDrivers] = useState(5);
-  const [hourlyWage, setHourlyWage] = useState(22);
+  const [hourlyWage, setHourlyWage] = useState(21);
+  const [pickingHours, setPickingHours] = useState(1.5);
+  const [daysPerWeek, setDaysPerWeek] = useState(5);
+  const [reduction, setReduction] = useState(35);
 
   const calculations = useMemo(() => {
-    // Monthly labor hours = drivers × 8 hours × 22 days
-    const monthlyLaborHours = drivers * 8 * 22;
+    // Monthly picking hours, averaged over 52 working weeks per year
+    const monthlyLaborHours = drivers * pickingHours * daysPerWeek * 52 / 12;
     // Monthly labor cost = hours × hourly wage
     const monthlyLaborCost = monthlyLaborHours * hourlyWage;
-    // Estimated savings (35%) = labor cost × 0.35
-    const estimatedSavings = monthlyLaborCost * 0.35;
+    // Estimated value of picking time saved
+    const estimatedSavings = monthlyLaborCost * reduction / 100;
     // Stocker AI cost based on tier
     let perDriverCost = 20;
     if (drivers > 20) perDriverCost = 15;
@@ -29,14 +32,14 @@ const ROICalculator = () => {
       stockerCost,
       netSavings,
     };
-  }, [drivers, hourlyWage]);
+  }, [drivers, hourlyWage, pickingHours, daysPerWeek, reduction]);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("en-US", {
       style: "currency",
       currency: "USD",
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
     }).format(amount);
   };
 
@@ -68,6 +71,18 @@ const ROICalculator = () => {
             </div>
           </div>
 
+          {[
+            { id: "picking-hours", label: "Picking hours per driver per workday", value: pickingHours, set: setPickingHours, max: 24, step: 0.25 },
+            { id: "picking-days", label: "Picking days per week", value: daysPerWeek, set: setDaysPerWeek, max: 7, step: 1 },
+            { id: "time-reduction", label: "Assumed reduction in picking time (%)", value: reduction, set: setReduction, max: 100, step: 1 },
+          ].map(({ id, label, value, set, max, step }) => (
+            <div key={id} className="space-y-2">
+              <Label htmlFor={id}>{label}</Label>
+              <Input id={id} type="number" min={0} max={max} step={step} value={value}
+                onChange={(e) => set(Math.min(max, Math.max(0, Number(e.target.value) || 0)))}
+                className="max-w-[120px]" />
+            </div>
+          ))}
           {/* Hourly wage input */}
           <div className="space-y-2">
             <Label htmlFor="wage" className="text-base font-medium">
@@ -76,10 +91,9 @@ const ROICalculator = () => {
             <Input
               id="wage"
               type="number"
-              min={10}
-              max={50}
+              min={0} step={0.5}
               value={hourlyWage}
-              onChange={(e) => setHourlyWage(Number(e.target.value) || 18)}
+              onChange={(e) => setHourlyWage(Math.max(0, Number(e.target.value) || 0))}
               className="max-w-[120px]"
             />
           </div>
@@ -88,7 +102,7 @@ const ROICalculator = () => {
         {/* Results */}
         <div className="bg-alt rounded-lg p-6 space-y-4">
           <div className="flex justify-between items-center py-2 border-b border-border">
-            <span className="text-muted-foreground">Estimated monthly labor savings</span>
+            <span className="text-muted-foreground">Monthly value of picking time saved</span>
             <span className="text-xl font-semibold text-foreground">
               {formatCurrency(calculations.estimatedSavings)}
             </span>
@@ -100,7 +114,7 @@ const ROICalculator = () => {
             </span>
           </div>
           <div className="flex justify-between items-center py-2">
-            <span className="text-lg font-medium text-foreground">Net monthly savings</span>
+            <span className="text-lg font-medium text-foreground">Monthly value after subscription</span>
             <span className="text-2xl font-bold text-primary">
               {formatCurrency(calculations.netSavings)}
             </span>
@@ -116,7 +130,7 @@ const ROICalculator = () => {
 
         {/* Footnote */}
         <p className="text-sm text-muted-foreground text-center">
-          Based on industry research showing 25-35% productivity gains with voice-directed picking.
+          Estimate uses picking hours only, averaged over 52 working weeks per year. The 35% default is an assumed reduction in time, not a guaranteed result. Time freed up is not necessarily a reduction in payroll. Subscription pricing includes a two-driver minimum.
         </p>
       </div>
     </div>
