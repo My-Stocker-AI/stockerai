@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 
 const ROICalculator = () => {
   const [drivers, setDrivers] = useState(5);
+  const [routes, setRoutes] = useState(5);
   const [hourlyWage, setHourlyWage] = useState(21);
   const [pickingHours, setPickingHours] = useState(1.5);
   const [daysPerWeek, setDaysPerWeek] = useState(5);
@@ -14,7 +15,7 @@ const ROICalculator = () => {
 
   const calculations = useMemo(() => {
     // Monthly picking hours, averaged over 52 working weeks per year
-    const monthlyLaborHours = drivers * pickingHours * daysPerWeek * 52 / 12;
+    const monthlyLaborHours = routes * pickingHours * daysPerWeek * 52 / 12;
     // Monthly labor cost = hours × hourly wage
     const monthlyLaborCost = monthlyLaborHours * hourlyWage;
     // Estimated value of picking time saved
@@ -32,7 +33,7 @@ const ROICalculator = () => {
       stockerCost,
       netSavings,
     };
-  }, [drivers, hourlyWage, pickingHours, daysPerWeek, reduction]);
+  }, [drivers, routes, hourlyWage, pickingHours, daysPerWeek, reduction]);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("en-US", {
@@ -48,11 +49,18 @@ const ROICalculator = () => {
       <div className="space-y-8">
         {/* Inputs */}
         <div className="space-y-6">
+          <div className="space-y-2">
+            <Label htmlFor="routes">Routes picked per workday</Label>
+            <Input id="routes" type="number" min={0} step={1} value={routes}
+              onChange={(e) => setRoutes(Math.max(0, Math.floor(Number(e.target.value) || 0)))}
+              className="max-w-[120px]" />
+            <p className="text-sm text-muted-foreground">Total routes picked across your operation each workday. Savings are based on routes, not driver count.</p>
+          </div>
           {/* Driver count slider */}
           <div className="space-y-3">
             <div className="flex justify-between items-center">
               <Label htmlFor="drivers" className="text-base font-medium">
-                Number of drivers
+                Number of drivers (subscription pricing only)
               </Label>
               <span className="text-2xl font-bold text-primary">{drivers}</span>
             </div>
@@ -72,7 +80,7 @@ const ROICalculator = () => {
           </div>
 
           {[
-            { id: "picking-hours", label: "Picking hours per driver per workday", value: pickingHours, set: setPickingHours, max: 24, step: 0.25 },
+            { id: "picking-hours", label: "Picking hours per route per workday", value: pickingHours, set: setPickingHours, max: 24, step: 0.25 },
             { id: "picking-days", label: "Picking days per week", value: daysPerWeek, set: setDaysPerWeek, max: 7, step: 1 },
             { id: "time-reduction", label: "Assumed reduction in picking time (%)", value: reduction, set: setReduction, max: 100, step: 1 },
           ].map(({ id, label, value, set, max, step }) => (
