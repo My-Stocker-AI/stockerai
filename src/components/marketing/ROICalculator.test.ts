@@ -19,26 +19,30 @@ test('zero picking time has no labor benefit and still includes subscription', (
   expect(screen.getByText('$0.00')).toBeTruthy();
   expect(screen.getByText('-$100.00')).toBeTruthy();
 });
-test('changing workdays changes annualized savings; invalid negative hours cannot create savings', () => {
+test('driver slider updates savings and applies six-driver pricing', () => {
   show();
-  fireEvent.change(screen.getByLabelText('Picking days per week'), {target:{value:'4'}});
-  expect(screen.getByText('$955.50')).toBeTruthy();
-  fireEvent.change(screen.getByLabelText('Picking hours per route per workday'), {target:{value:'-2'}});
-  expect(screen.getByText('$0.00')).toBeTruthy();
-});
-
-
-test('route count changes savings without changing driver subscription cost', () => {
-  show();
-  fireEvent.change(screen.getByLabelText('Routes picked per workday'), {target:{value:'10'}});
-  expect(screen.getByText('$2,388.75')).toBeTruthy();
-  expect(screen.getByText('$100.00/mo')).toBeTruthy();
-  expect(screen.getByText('$2,288.75')).toBeTruthy();
-});
-test('driver tier changes subscription without changing route savings', () => {
-  show();
+  expect(screen.queryByLabelText('Routes picked per workday')).toBeNull();
+  expect(screen.queryByLabelText('Picking days per week')).toBeNull();
   fireEvent.keyDown(screen.getByRole('slider'), {key:'ArrowRight'});
-  expect(screen.getByText('$1,194.38')).toBeTruthy();
+  expect(screen.getByText('$1,433.25')).toBeTruthy();
   expect(screen.getByText('$108.00/mo')).toBeTruthy();
-  expect(screen.getByText('$1,086.38')).toBeTruthy();
+  expect(screen.getByText('$1,325.25')).toBeTruthy();
+});
+test('picking time remains adjustable with five workdays assumed', () => {
+  show();
+  fireEvent.change(screen.getByLabelText('Picking hours per route per workday'), {target:{value:'2'}});
+  expect(screen.getByText('$1,592.50')).toBeTruthy();
+  expect(screen.getByText('$1,492.50')).toBeTruthy();
+});
+
+test('estimated reduction stays within 25 to 35 percent', () => {
+  show();
+  const reduction = screen.getByLabelText('Estimated picking-time reduction (%)');
+  fireEvent.change(reduction, {target:{value:'25'}});
+  expect(screen.getByText('$853.13')).toBeTruthy();
+  fireEvent.change(reduction, {target:{value:'10'}});
+  expect((reduction as HTMLInputElement).value).toBe('25');
+  fireEvent.change(reduction, {target:{value:'50'}});
+  expect((reduction as HTMLInputElement).value).toBe('35');
+  expect(screen.getByText('$1,194.38')).toBeTruthy();
 });

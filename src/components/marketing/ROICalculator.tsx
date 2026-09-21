@@ -7,15 +7,13 @@ import { Label } from "@/components/ui/label";
 
 const ROICalculator = () => {
   const [drivers, setDrivers] = useState(5);
-  const [routes, setRoutes] = useState(5);
   const [hourlyWage, setHourlyWage] = useState(21);
   const [pickingHours, setPickingHours] = useState(1.5);
-  const [daysPerWeek, setDaysPerWeek] = useState(5);
   const [reduction, setReduction] = useState(35);
 
   const calculations = useMemo(() => {
     // Monthly picking hours, averaged over 52 working weeks per year
-    const monthlyLaborHours = routes * pickingHours * daysPerWeek * 52 / 12;
+    const monthlyLaborHours = drivers * pickingHours * 5 * 52 / 12;
     // Monthly labor cost = hours × hourly wage
     const monthlyLaborCost = monthlyLaborHours * hourlyWage;
     // Estimated value of picking time saved
@@ -33,7 +31,7 @@ const ROICalculator = () => {
       stockerCost,
       netSavings,
     };
-  }, [drivers, routes, hourlyWage, pickingHours, daysPerWeek, reduction]);
+  }, [drivers, hourlyWage, pickingHours, reduction]);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("en-US", {
@@ -49,18 +47,11 @@ const ROICalculator = () => {
       <div className="space-y-8">
         {/* Inputs */}
         <div className="space-y-6">
-          <div className="space-y-2">
-            <Label htmlFor="routes">Routes picked per workday</Label>
-            <Input id="routes" type="number" min={0} step={1} value={routes}
-              onChange={(e) => setRoutes(Math.max(0, Math.floor(Number(e.target.value) || 0)))}
-              className="max-w-[120px]" />
-            <p className="text-sm text-muted-foreground">Total routes picked across your operation each workday. Savings are based on routes, not driver count.</p>
-          </div>
           {/* Driver count slider */}
           <div className="space-y-3">
             <div className="flex justify-between items-center">
               <Label htmlFor="drivers" className="text-base font-medium">
-                Number of drivers (subscription pricing only)
+                Number of drivers
               </Label>
               <span className="text-2xl font-bold text-primary">{drivers}</span>
             </div>
@@ -80,14 +71,13 @@ const ROICalculator = () => {
           </div>
 
           {[
-            { id: "picking-hours", label: "Picking hours per route per workday", value: pickingHours, set: setPickingHours, max: 24, step: 0.25 },
-            { id: "picking-days", label: "Picking days per week", value: daysPerWeek, set: setDaysPerWeek, max: 7, step: 1 },
-            { id: "time-reduction", label: "Assumed reduction in picking time (%)", value: reduction, set: setReduction, max: 100, step: 1 },
-          ].map(({ id, label, value, set, max, step }) => (
+            { id: "picking-hours", label: "Picking hours per route per workday", value: pickingHours, set: setPickingHours, min: 0, max: 24, step: 0.25 },
+            { id: "time-reduction", label: "Estimated picking-time reduction (%)", value: reduction, set: setReduction, min: 25, max: 35, step: 1 },
+          ].map(({ id, label, value, set, min, max, step }) => (
             <div key={id} className="space-y-2">
               <Label htmlFor={id}>{label}</Label>
-              <Input id={id} type="number" min={0} max={max} step={step} value={value}
-                onChange={(e) => set(Math.min(max, Math.max(0, Number(e.target.value) || 0)))}
+              <Input id={id} type="number" min={min} max={max} step={step} value={value}
+                onChange={(e) => set(Math.min(max, Math.max(min, Number(e.target.value) || min)))}
                 className="max-w-[120px]" />
             </div>
           ))}
@@ -138,7 +128,7 @@ const ROICalculator = () => {
 
         {/* Footnote */}
         <p className="text-sm text-muted-foreground text-center">
-          Estimate uses picking hours only, averaged over 52 working weeks per year. The 35% default is an assumed reduction in time, not a guaranteed result. Time freed up is not necessarily a reduction in payroll. Subscription pricing includes a two-driver minimum.
+          Assumes one route per driver per workday, five workdays per week, and 52 working weeks per year. Savings use picking time only. The 35% default is an assumed reduction in time, not a guaranteed result. Time freed up is not necessarily a reduction in payroll. Subscription pricing includes a two-driver minimum.
         </p>
       </div>
     </div>
