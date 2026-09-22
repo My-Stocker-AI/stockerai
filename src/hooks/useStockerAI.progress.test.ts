@@ -6,8 +6,8 @@ const mocks = vi.hoisted(() => ({ fetch: vi.fn() }));
 vi.mock('@/lib/authFetch', () => ({ authFetch: mocks.fetch }));
 let useStockerAI: typeof import('./useStockerAI').useStockerAI;
 const session = '11111111-1111-4111-8111-111111111111';
-const context = { currentMachineId: 'machine-a', pickDirection: 'forward',
-  machines: [{ id: 'machine-a', completedItems: 4 }] };
+const context = { routeId: 'route-a', pickingRevision: 'revision-a', currentMachineId: 'machine-a', pickDirection: 'forward',
+  machines: [{ id: 'machine-a', completedItems: 4, status: 'in_progress' }] };
 const tool = (name = 'get_next_item', args = {}) => ({ id: 'tool-1', function: { name, arguments: JSON.stringify(args) } });
 
 beforeEach(async () => {
@@ -26,10 +26,10 @@ it.each([false, true])('binds progress to application state in two-item mode=%s'
     session_id: 'invented', user_id: 'outsider', expected_machine_id: 'wrong',
     expected_completed_items: 99, expected_direction: 'reverse', operation_id: 'invented', count: 2,
   })], undefined, false, context);
-  expect(mocks.fetch.mock.calls[0][0]).toBe('https://stockerai-api.onrender.com/api/advance-item');
+  expect(mocks.fetch.mock.calls[0][0]).toBe('https://stockerai-api.onrender.com/api/picking-transition');
   const sent = JSON.parse(mocks.fetch.mock.calls[0][1].body);
   expect(sent).toMatchObject({ session_id: session, user_id: 'caller', expected_machine_id: 'machine-a',
-    expected_completed_items: 4, expected_direction: 'forward', count: two ? 2 : 1 });
+    expected_revision: 'revision-a', action: 'next', direction: 'forward', count: two ? 2 : 1 });
   expect(sent.operation_id).toMatch(/^[0-9a-f-]{36}$/);
 });
 

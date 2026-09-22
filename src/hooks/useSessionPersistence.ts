@@ -6,6 +6,7 @@ const STORE_NAME = 'active-session';
 const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 interface SessionData {
+  pickingRevision?: string;
   id?: string;
   sessionId: string;
   userId: string | null;

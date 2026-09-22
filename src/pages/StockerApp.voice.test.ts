@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { act, cleanup, render } from '@testing-library/react';
+import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -10,10 +10,11 @@ const mocks = vi.hoisted(() => ({
   state: null as any,
   voice: null as any,
   update: vi.fn(), track: vi.fn(),
+  loading: true, clear: vi.fn(async () => {}),
 }));
 vi.mock('react-router-dom', () => ({ useNavigate: () => vi.fn(), useSearchParams: () => [new URLSearchParams()] }));
 vi.mock('@tanstack/react-query', () => ({ useQueryClient: () => ({ invalidateQueries: vi.fn() }) }));
-vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ user: null, loading: true }) }));
+vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ user: null, loading: mocks.loading }) }));
 vi.mock('@/hooks/useVoice', () => ({ useVoice: (options: any) => { mocks.options = options; return mocks.voice; } }));
 vi.mock('@/hooks/useStockerSession', () => ({ useStockerSession: () => ({
   routeState: mocks.state, sessionId: 'disposable-session', messages: [], messagesRef: { current: [] },
@@ -23,7 +24,7 @@ vi.mock('@/hooks/useStockerSession', () => ({ useStockerSession: () => ({
 vi.mock('@/hooks/useStockerAI', () => ({ useStockerAI: () => ({
   setSession: vi.fn(), sendToAI: mocks.send, executeToolCalls: mocks.execute, getRoutes: vi.fn(),
 }) }));
-vi.mock('@/hooks/useSessionPersistence', () => ({ useSessionPersistence: () => ({ save: vi.fn() }) }));
+vi.mock('@/hooks/useSessionPersistence', () => ({ useSessionPersistence: () => ({ save: vi.fn(), clear: mocks.clear }) }));
 vi.mock('@/hooks/useKeywordLearning', () => ({ useKeywordLearning: () => ({ trackKeywords: mocks.track }) }));
 vi.mock('@/hooks/useEnvironmentDetection', () => ({ useEnvironmentDetection: () => ({ environment: { endpointing: 300 } }) }));
 vi.mock('@/integrations/supabase/client', () => ({ supabase: {} }));
@@ -33,6 +34,7 @@ import StockerApp from './StockerApp';
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.loading = true;
   mocks.execute.mockImplementation(async () => []);
   vi.stubGlobal('fetch', vi.fn(() => { throw new Error('Network forbidden in this test'); }));
   window.matchMedia = vi.fn(() => ({ matches: false })) as any;
@@ -57,6 +59,34 @@ async function say(text: string) {
 }
 
 describe('actual StockerApp transcript dispatch with mocked services', () => {
+  it('clears local progress only after the server confirms reset', async () => {
+    mocks.loading=false;
+    let finish!: (value: any) => void;
+    mocks.execute.mockImplementation(() => new Promise(resolve => { finish=resolve; }));
+    const view=render(React.createElement(StockerApp));
+    fireEvent.click(view.getByRole('button',{name:'Reset Route'}));
+    fireEvent.click(view.getAllByRole('button',{name:'Reset Route'})[0]);
+    expect(mocks.clear).not.toHaveBeenCalled();
+    await act(async () => { finish([{result:{action:'route_reset'}}]); });
+    expect(mocks.clear).toHaveBeenCalledOnce();
+  });
+
+  it('a failed server reset keeps local progress and binds to the confirmed target', async () => {
+    mocks.loading = false;
+    mocks.execute.mockResolvedValue([{result:{error:'conflict'}}] as any);
+    const view=render(React.createElement(StockerApp));
+    fireEvent.click(view.getByRole('button',{name:'Reset Route'}));
+    const original=mocks.state;
+    mocks.state={...original,currentMachineId:'newer-machine'};
+    view.rerender(React.createElement(StockerApp));
+    await act(async () => {fireEvent.click(view.getAllByRole('button',{name:'Reset Route'})[0]);});
+    expect(mocks.execute).toHaveBeenCalledOnce();
+    expect((mocks.execute.mock.calls[0] as any[])[3]).toBe(original);
+    expect((mocks.execute.mock.calls[0] as any[])[4]).toBe(true);
+    expect(mocks.clear).not.toHaveBeenCalled();
+    expect(view.getByText('Reset could not be confirmed. Reload your saved route before continuing.')).toBeTruthy();
+  });
+
   it.each(['skip it', 'skip this machine'])('targets the current handoff for %s and explains a refusal', async text => {
     mocks.state.currentItem = null;
     mocks.state.machines[0].status = 'skipped';

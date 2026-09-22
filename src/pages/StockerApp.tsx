@@ -180,6 +180,7 @@ export default function StockerApp() {
   const [showResumeDialog, setShowResumeDialog] = useState(false);
   const [showStopConfirm, setShowStopConfirm] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const resetTargetRef = useRef<{ sessionId: string; state: typeof routeState } | null>(null);
   const [isClearing, setIsClearing] = useState(false);
   const [showMicHelp, setShowMicHelp] = useState(false);
   const [showHelpSheet, setShowHelpSheet] = useState(false);
@@ -240,6 +241,7 @@ export default function StockerApp() {
     if (!routeState.routeName || !userId) return;
 
     const sessionData = {
+      pickingRevision: routeState.pickingRevision,
       sessionId,
       userId,
       routeId: routeState.routeId,
@@ -1543,6 +1545,7 @@ export default function StockerApp() {
                 completed: false,
                 pendingMachineTransition: null,
                 pickDirection: snap.pick_direction || null,
+                pickingRevision: snap.picking_revision,
               });
               if (snap.session_id) {
                 setSessionId(snap.session_id);
@@ -1689,6 +1692,7 @@ export default function StockerApp() {
               completed: saved.completed || false,
               pendingMachineTransition: saved.pendingMachineTransition || null,
               pickDirection: saved.pickDirection || null,
+              pickingRevision: saved.pickingRevision,
             });
 
             // Restore conversation history
@@ -1806,7 +1810,8 @@ export default function StockerApp() {
       machines: savedSession.machines || [],
       completed: savedSession.completed || false,
       pendingMachineTransition: savedSession.pendingMachineTransition || null,
-      pickDirection: savedSession.pickDirection || null
+      pickDirection: savedSession.pickDirection || null,
+      pickingRevision: savedSession.pickingRevision,
     });
     // Restore saved session ID, or generate new one if missing
     if (savedSession.sessionId) {
@@ -2123,10 +2128,16 @@ export default function StockerApp() {
 
   // Reset Route - Clear all progress and start fresh
   const handleResetClick = () => {
+    resetTargetRef.current = { sessionId, state: routeState };
     setShowResetConfirm(true);
   };
 
   const confirmReset = async () => {
+    if (processingRef.current) {
+      setError('Please wait for the current action to finish before resetting.');
+      return;
+    }
+    processingRef.current = true;
     try {
       console.log('[Reset] Starting reset process...');
 
@@ -2134,13 +2145,20 @@ export default function StockerApp() {
       setIsClearing(true);
       console.log('[Reset] Auto-save blocked');
 
-      // Step 2: Wait for any pending operations to complete
-      await new Promise(resolve => setTimeout(resolve, 500));
-      console.log('[Reset] Waited for pending operations');
+      voice.stopAudio();
+      voice.stopListening();
+      const target = resetTargetRef.current;
+      if (!target || target.sessionId !== sessionId) throw new Error('Session changed');
+      const results = await executeToolCalls([{ id: crypto.randomUUID(), function: {
+        name: 'reset_route', arguments: '{}',
+      } }], undefined, false, target.state, true);
+      if (results[0]?.result?.action !== 'route_reset') {
+        throw new Error('Reset was not confirmed. Reload saved progress before continuing.');
+      }
 
-      // Step 3: Clear both local (IndexedDB) and server (Supabase) sessions
+      // Clear the local cache only after the server confirms the reset.
       await sessionPersistence.clear(userId);
-      console.log('[Reset] Session cleared from IndexedDB and Supabase');
+      console.log('[Reset] Server reset confirmed; local session cleared');
 
       // Step 4: Invalidate React Query cache so dashboard shows fresh state
       try {
@@ -2153,18 +2171,16 @@ export default function StockerApp() {
         // Continue - page reload will clear state anyway
       }
 
-      // Step 5: Wait for clear to propagate
-      await new Promise(resolve => setTimeout(resolve, 300));
-      console.log('[Reset] Verified clear completed');
-
       // Step 6: Navigate to /app without route param to get clean state
       // Using href (not reload) ensures ?route=X is stripped, preventing stale route restart
       console.log('[Reset] Navigating to clean /app...');
       window.location.href = '/app';
     } catch (error) {
       console.error('[Reset] Failed to reset route:', error);
-      setError('Failed to reset route. Please refresh the page.');
+      setError('Reset could not be confirmed. Reload your saved route before continuing.');
       setIsClearing(false); // Reset flag on error
+    } finally {
+      processingRef.current = false;
     }
   };
 
@@ -2410,7 +2426,7 @@ export default function StockerApp() {
             <ul className="text-gray-400 text-sm space-y-1 mb-4 list-disc list-inside">
               <li>Clear all picked items</li>
               <li>Reset to route selection</li>
-              <li>Delete session progress</li>
+              <li>Reset saved progress for every machine on this route</li>
             </ul>
             <p className="text-orange-400 text-sm mb-4">You'll need to choose the route again to continue.</p>
             <div className="flex gap-3">

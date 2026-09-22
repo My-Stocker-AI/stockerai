@@ -222,15 +222,19 @@ const WEBHOOK_MAP: Record<string, string> = USE_PYTHON ? {
 };
 
 export interface PickingContext {
+  pickingRevision?: string;
   routeId?: string | null;
   currentMachineId: string | null;
   pickDirection?: string | null;
-  machines: { id: string; completedItems: number }[];
+  machines: { id: string; completedItems: number; status?: string }[];
 }
 
 export function useStockerAI() {
   const sessionIdRef = useRef<string>('');
   const userIdRef = useRef<string | null>(null);
+  // Pin the bootstrap revision even after a lost response. Never silently refresh
+  // an old command's revision and thereby authorize it against newer progress.
+  const bootstrapRevisionRef = useRef<{ session: string; revision: string } | null>(null);
 
   // CONCURRENT FIX: Debounce rapid duplicate commands (prevents double-tap race condition)
   const lastCommandRef = useRef<{ name: string; timestamp: number } | null>(null);
@@ -799,7 +803,8 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
     toolCalls: any[],
     onResult?: (name: string, result: any) => void,
     routeCompleted?: boolean,  // NEW: Flag to check if route is complete
-    pickingContext?: PickingContext
+    pickingContext?: PickingContext,
+    resetConfirmed = false
   ) => {
     // BUG-N8N-2 FIX: Validate session exists before executing tools
     if (!sessionIdRef.current || sessionIdRef.current === '') {
@@ -825,7 +830,11 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
     for (const tc of toolCalls) {
       const name = tc.function.name;
       const args = JSON.parse(tc.function.arguments);
-      const path = WEBHOOK_MAP[name];
+      if (name === 'reset_route' && !resetConfirmed) {
+        results.push({ tool_call_id: tc.id, result: { error: 'Reset requires explicit confirmation' } });
+        break;
+      }
+      const path = name === 'reset_route' && USE_PYTHON ? '/picking-transition' : WEBHOOK_MAP[name];
 
       if (!path) {
         console.error('[Tools] Unknown tool:', name);
@@ -853,10 +862,13 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
         // Construct endpoint URL (full URL if path starts with http, otherwise prepend N8N_BASE)
         let endpoint = path.startsWith('http') ? path : `${N8N_BASE}${path}`;
         let progressTarget: Record<string, unknown> = {};
-        if (name === 'get_next_item' && USE_PYTHON) {
+        const transitionAction = ({ get_next_item: 'next', start_machine: 'start',
+          skip_current_machine: 'skip', go_back_to_skipped: 'back', reset_route: 'reset' } as Record<string, string>)[name];
+        if (transitionAction && USE_PYTHON) {
           const machine = pickingContext?.machines.find(m => m.id === pickingContext.currentMachineId);
           if (!pickingContext || !machine || !Number.isInteger(machine.completedItems) ||
-              !['forward', 'reverse'].includes(pickingContext.pickDirection || '')) {
+              !['pending', 'in_progress', 'skipped', 'completed'].includes(machine.status || '') ||
+              !['forward', 'reverse'].includes(pickingContext.pickDirection || 'forward')) {
             throw new Error('Missing authoritative picking context');
           }
           // Old installations saved a browser-generated session ID. Resolve it
@@ -871,18 +883,45 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
                 !pickingContext.routeId || snapshot.route?.id !== pickingContext.routeId ||
                 snapshot.current_machine?.id !== machine.id ||
                 snapshot.current_machine?.completed_items !== machine.completedItems ||
-                snapshot.pick_direction !== pickingContext.pickDirection || !snapshot.session_id) {
+                snapshot.pick_direction !== (pickingContext.pickDirection || 'forward') || !snapshot.session_id) {
               throw new Error('Saved route differs from displayed route');
             }
             requestSession = snapshot.session_id;
             sessionIdRef.current = requestSession;
           }
-          endpoint = `${PYTHON_API_BASE}/advance-item`;
+          let revision = pickingContext.pickingRevision ||
+            (bootstrapRevisionRef.current?.session === requestSession ? bootstrapRevisionRef.current.revision : undefined);
+          if (!revision) {
+            const contextResponse = await fetchWithTimeout(`${PYTHON_API_BASE}/picking-context`, {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ session_id: requestSession }),
+            });
+            if (!contextResponse.ok) throw new Error('Could not verify picking context');
+            const snapshot = await contextResponse.json();
+            if (requestSession !== sessionIdRef.current || requestUser !== userIdRef.current ||
+                snapshot.route_id !== pickingContext.routeId || snapshot.current_machine_id !== machine.id ||
+                snapshot.pick_direction !== (pickingContext.pickDirection || 'forward') ||
+                !snapshot.picking_revision || snapshot.machines?.length !== pickingContext.machines.length ||
+                !pickingContext.machines.every(local => snapshot.machines.some((saved: any) =>
+                  saved.id === local.id && saved.completedItems === local.completedItems && saved.status === local.status))) {
+              throw new Error('Saved route differs from displayed route');
+            }
+            revision = snapshot.picking_revision;
+            bootstrapRevisionRef.current = { session: requestSession, revision };
+          }
+          if (name === 'start_machine' && !['beginning', 'end'].includes(args.direction)) {
+            throw new Error('Invalid start direction');
+          }
+          endpoint = `${PYTHON_API_BASE}/picking-transition`;
           progressTarget = {
             operation_id: crypto.randomUUID(),
             expected_machine_id: machine.id,
-            expected_completed_items: machine.completedItems,
-            expected_direction: pickingContext.pickDirection,
+            expected_revision: revision,
+            expected_state: { completed_items: machine.completedItems, status: machine.status,
+              direction: pickingContext.pickDirection || 'forward' },
+            action: transitionAction,
+            direction: name === 'start_machine' ? (args.direction === 'end' ? 'reverse' : 'forward') :
+              (pickingContext.pickDirection || 'forward'),
           };
         }
         console.log(`[Tools] Calling ${name}:`, { args, endpoint });
@@ -903,7 +942,7 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
         // authFetch adds the caller's login and handles a refused expired token.
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
 
-        // Only the new advancement path has an operation receipt. Keep automatic
+        // Versioned picking transitions have operation receipts. Keep automatic
         // retries off across tools; never fall back after an uncertain write.
         const resp = await fetchWithTimeout(endpoint, {
           method: 'POST',
@@ -953,6 +992,7 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
 
         if (name === 'set_route_sequence' && result.session_id) {
           sessionIdRef.current = result.session_id;
+          bootstrapRevisionRef.current = null;
         }
         onResult?.(name, result);
         results.push({ tool_call_id: tc.id, result });
