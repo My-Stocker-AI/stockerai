@@ -53,6 +53,71 @@ class AdvanceItemRequest(BaseModel):
     count: int = Field(1, ge=1, le=2)
 
 
+class PickingContextRequest(BaseModel):
+    session_id: UUID
+
+
+class ExpectedPickingState(BaseModel):
+    completed_items: int = Field(ge=0)
+    status: Literal['pending', 'in_progress', 'skipped', 'completed']
+    direction: Literal['forward', 'reverse']
+
+
+class PickingTransitionRequest(PickingContextRequest):
+    operation_id: UUID
+    expected_revision: UUID
+    expected_machine_id: UUID
+    action: Literal['next', 'start', 'skip', 'back', 'reset']
+    expected_state: ExpectedPickingState
+    direction: Literal['forward', 'reverse'] = 'forward'
+    count: int = Field(1, ge=1, le=2)
+
+
+def _picking_rpc(name, params):
+    try:
+        return rpc(name, params)
+    except Exception as exc:
+        if getattr(exc, 'code', None) == '42501':
+            raise HTTPException(status_code=403, detail='Not available on this account.') from None
+        if getattr(exc, 'message', None) == 'Picking state conflict':
+            raise HTTPException(status_code=409, detail='Picking state changed. Reload your saved route before continuing.') from None
+        raise HTTPException(status_code=503, detail='Could not confirm picking progress. Reload your saved route before continuing.') from None
+
+
+@router.post('/picking-context')
+def picking_context(req: PickingContextRequest, caller: Caller = AuthCaller):
+    return _picking_rpc('picking_context', {'p_user_id': caller.user_id,
+        'p_team_user_ids': caller.team_user_ids, 'p_session_id': str(req.session_id)})
+
+
+@router.post('/picking-transition')
+def picking_transition(req: PickingTransitionRequest, caller: Caller = AuthCaller):
+    row = _picking_rpc('transition_picking', {
+        'p_user_id': caller.user_id, 'p_team_user_ids': caller.team_user_ids,
+        'p_session_id': str(req.session_id), 'p_operation_id': str(req.operation_id),
+        'p_revision': str(req.expected_revision), 'p_machine_id': str(req.expected_machine_id),
+        'p_action': req.action, 'p_count': req.count, 'p_direction': req.direction,
+        'p_expected': req.expected_state.model_dump(),
+    })
+    if not isinstance(row, dict) or not row.get('picking_revision'):
+        raise HTTPException(status_code=503, detail='Could not confirm picking progress. Reload your saved route before continuing.')
+    if req.action == 'next':
+        formatter = {'next_machine': _format_next_machine, 'complete': _format_complete}
+        result = _format_next_item(row, req.count) if row['action'] == 'next_item' else formatter[row['action']](row)
+    elif req.action == 'start':
+        result = _format_next_item(row, req.count)
+        result.update(action='item_ready', direction=row['direction'])
+        parsed = parse_product(row['product_name'])
+        parsed2 = parse_product(row['product_name2']) if row.get('product_name2') else None
+        result['voice_text'] = generate_start_machine_voice(row['direction'], parsed, row['quantity'], parsed2, row.get('quantity2'))
+        result['spoken'] = result['voice_text']
+        result['display_text'] = generate_start_machine_display(row['direction'], parsed, row['quantity'], parsed2, row.get('quantity2'))
+    else:
+        result = {**row, 'voice_text': row['spoken']}
+    return {**result, 'session_id': str(req.session_id), 'operation_id': str(req.operation_id),
+            'picking_revision': row['picking_revision']}
+
+
 @router.post('/advance-item')
 def advance_item(req: AdvanceItemRequest, caller: Caller = AuthCaller):
     """One transaction for progress, handoff/completion and a replayable result.
@@ -509,6 +574,14 @@ def resume_state(req: ResumeStateRequest, caller: Caller = AuthCaller):
     if not session.data:
         return {"has_session": False}
     s = session.data[0]
+    # Capture the revision before loading the remaining snapshot. A concurrent
+    # writer during the following reads makes the next transition conflict.
+    guard = _picking_rpc('picking_context', {'p_user_id': caller.user_id,
+        'p_team_user_ids': caller.team_user_ids, 'p_session_id': s['id']})
+    if guard['status'] != 'stocking':
+        return {'has_session': False}
+    s.update(current_route_id=guard['route_id'], current_machine_id=guard['current_machine_id'],
+             pick_direction=guard['pick_direction'])
     route_id = s.get("current_route_id")
     if not route_id:
         return {"has_session": False}
@@ -555,6 +628,7 @@ def resume_state(req: ResumeStateRequest, caller: Caller = AuthCaller):
 
     return {
         "has_session": True,
+        "picking_revision": guard['picking_revision'],
         "session_id": s["id"],
         "route": {
             "id": r["id"], "route_name": r["route_name"], "route_date": r["delivery_date"],

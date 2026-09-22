@@ -436,6 +436,7 @@ def set_route_sequence(req: SetRouteSequenceRequest, caller: Caller = AuthCaller
         "machine_index": machine_index,
         "machines": machines_list,
         "session_id": session_id,
+        "pick_direction": db.table('sessions').select('pick_direction').eq('id', session_id).single().execute().data['pick_direction'],
         "voice_text": route_phrase,
         "spoken": route_phrase,
     }

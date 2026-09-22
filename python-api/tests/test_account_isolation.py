@@ -225,6 +225,7 @@ def test_all_commands_are_present():
     assert paths == {
         "/api/get-routes", "/api/delete-route", "/api/set-route-sequence",
         "/api/start-machine", "/api/get-next-item", "/api/advance-item", "/api/skip-machine",
+        "/api/picking-context", "/api/picking-transition",
         "/api/go-back-to-skipped", "/api/update-session", "/api/resume-state",
         "/api/upload-pdf", "/api/diag", "/api/openai-chat",
     }, sorted(paths)

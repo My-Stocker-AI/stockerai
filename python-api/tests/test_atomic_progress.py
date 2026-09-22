@@ -165,7 +165,8 @@ def test_direct_browser_roles_cannot_call_progress_function_or_read_ledger():
     assert values == 'f|f|f|f'
 
 
-def test_real_local_login_can_advance_and_anonymous_request_cannot(client, route):
+@pytest.mark.parametrize('path', ['/api/advance-item', '/api/picking-transition'])
+def test_real_local_login_can_advance_and_anonymous_request_cannot(client, route, path):
     """Use local Auth/JWKS/account resolution, not the usual picking-test stand-in."""
     import secrets
     from supabase import create_client
@@ -183,13 +184,21 @@ def test_real_local_login_can_advance_and_anonymous_request_cannot(client, route
         login = auth_client.auth.sign_in_with_password({'email': f'{FIXTURES.user_id}@example.invalid', 'password': password})
         assert login.session
         request = body(route)
-        assert client.post('/api/advance-item', json=request).status_code == 401
+        if path.endswith('picking-transition'):
+            rid = db.table('sessions').select('current_route_id').eq('id',route[1]).execute().data[0]['current_route_id']
+            revision = db.table('routes').select('picking_revision').eq('id',rid).execute().data[0]['picking_revision']
+            request.update(action='next',direction='forward',expected_revision=revision,
+                expected_state={'completed_items':1,'status':'in_progress','direction':'forward'})
+        assert client.post(path, json=request).status_code == 401
         headers = {'Authorization': f'Bearer {login.session.access_token}'}
+        if path.endswith('picking-transition'):
+            assert client.post('/api/picking-context',json={'session_id':route[1]}).status_code==401
+            assert client.post('/api/picking-context',json={'session_id':route[1]},headers=headers).status_code==200
         missing = {**request, 'session_id': str(uuid4())}
-        assert client.post('/api/advance-item', json=missing, headers=headers).status_code == 403
+        assert client.post(path, json=missing, headers=headers).status_code == 403
         # A body-supplied identity must not override the real local access token.
         request['user_id'] = str(uuid4())
-        response = client.post('/api/advance-item', json=request,
+        response = client.post(path, json=request,
             headers=headers)
         assert response.status_code == 200, response.text
         assert progress(route)[0]['completed_items'] == 2
