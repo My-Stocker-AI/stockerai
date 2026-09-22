@@ -389,7 +389,7 @@ export default function StockerApp() {
       const twoItemMode = localStorage.getItem('stocker-call-two-items') === 'true';
 
       // Priority 1: Use lastItemPair if available (supports 2-item mode)
-      if (lastItemPair && lastItemPair.spokenText) {
+      if (routeState.currentItem && lastItemPair && lastItemPair.spokenText) {
         await v.speak(lastItemPair.spokenText);
         console.log('[Repeat] Using lastItemPair:', twoItemMode ? '2-item mode' : '1-item mode', lastItemPair.spokenText);
       }
@@ -519,7 +519,8 @@ export default function StockerApp() {
         // shouldn't send it at all — prompt for a direction instead. The pendingMachineTransition
         // block above covers machine 2+; this covers the FIRST machine, where that transition is
         // never set (status is still 'pending' and currentItem is null until top/bottom is said).
-        if (commandMatch.command === PickingCommand.NEXT_ITEM) {
+        if (commandMatch.command === PickingCommand.NEXT_ITEM ||
+            (commandMatch.command === PickingCommand.AFFIRMATIVE && !routeState.pendingMachineTransition)) {
           const currentMachine = routeState.machines.find(m => m.id === routeState.currentMachineId);
           if (!currentMachine || currentMachine.status !== 'in_progress') {
             console.log('[CommandRecognizer] ❌ BLOCKED - "next" before machine started:', currentMachine?.status ?? 'no-current-machine');
@@ -562,7 +563,8 @@ export default function StockerApp() {
                 function: {
                   name: 'skip_current_machine',
                   arguments: JSON.stringify({
-                    session_id: sessionId
+                    session_id: sessionId,
+                    expected_machine_id: routeState.currentMachineId
                   })
                 }
               }];
@@ -794,7 +796,8 @@ export default function StockerApp() {
               }
 
               // Store last item pair for repeat functionality
-              if (name === 'get_next_item' || name === 'start_machine') {
+              if ((name === 'get_next_item' || name === 'start_machine') &&
+                  (result.action === 'next_item' || result.action === 'item_ready')) {
                 const spokenText = result.voice_text || result.spoken;
                 if (spokenText) {
                   const newItemPair = {
@@ -804,10 +807,28 @@ export default function StockerApp() {
                   };
                   setLastItemPair(newItemPair);
                 }
+              } else {
+                setLastItemPair(null);
               }
             },
             routeState.sessionInvalidated || routeState.completed  // CATASTROPHIC FAILURE FIX: Prevent commands after completion
           );
+
+            const failure = toolResults.find(tr => tr.result?.error);
+            if (failure) {
+              const message = failure.result.user_message || "I couldn't confirm that action. Check your saved route before trying again.";
+              setAiResponse(message);
+              v.playErrorBeep();
+              await v.speak(message);
+              await keywordLearning.trackKeywords(transcript, false);
+              processingRef.current = false;
+              return;
+            }
+            if (toolResults.length > 0 && toolResults.every(tr => tr.result?.ignored)) {
+              processingRef.current = false;
+              v.resumeListening();
+              return;
+            }
 
             // ============================================================================
             // CONTRACT VALIDATION - AI Text Generation Rules
@@ -1013,6 +1034,21 @@ export default function StockerApp() {
 
         for (const tr of toolResults) {
           addMessage({ role: 'tool', tool_call_id: tr.tool_call_id, content: JSON.stringify(tr.result) });
+        }
+
+        const failure = toolResults.find(tr => tr.result?.error);
+        if (failure) {
+          const message = failure.result.user_message || "I couldn't confirm that action. Check your saved route before trying again.";
+          setAiResponse(message);
+          addMessage({ role: 'assistant', content: message });
+          v.playErrorBeep();
+          await v.speak(message);
+          await keywordLearning.trackKeywords(transcript, false);
+          return; // Never let the AI automatically reissue a failed mutation.
+        }
+        if (toolResults.length > 0 && toolResults.every(tr => tr.result?.ignored)) {
+          v.resumeListening();
+          return;
         }
 
         // Helper: Build display-friendly text (correct spelling) from tool result

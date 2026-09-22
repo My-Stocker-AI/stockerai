@@ -11,11 +11,32 @@ Install the locked frontend dependencies with `npm ci`. Use a separate Python en
 
 Backend tests replace ordinary application database settings with dummy values before application import, disable dotenv discovery, refuse unmocked Supabase clients by default and block external socket connections. Loopback sockets remain available for Windows' in-process test client. Picking logic tests use mocked authentication; passing them does not establish authenticated end-to-end behavior.
 
-The 23 database scenarios require explicit opt-in and otherwise report skips. These skips are not acceptance evidence. Unexpected application import errors now fail rather than becoming configuration skips.
+The 26 database scenarios require explicit opt-in and otherwise report skips. These skips are not acceptance evidence. Unexpected application import errors fail rather than becoming configuration skips.
 
 ## Disposable database scenarios
 
-Provision and review a disposable local Supabase schema first (remediation 04). This change does not provide a complete production-equivalent schema. Never forward a local port to production; a loopback URL cannot prove what service is behind it.
+On September 22, 2026, the local `stockerai-disposable` project was provisioned and all 26 database scenarios passed. The full database-enabled backend suite reported 123 passed and one intentionally skipped unit-mode guard. A separate unit-mode run covers that guard. This is not a complete production-equivalent environment: authentication at the HTTP picking boundary is mocked, platform images are newer, and function ownership/ACLs, Storage and external integrations are not reproduced as production acceptance evidence.
+
+The local baseline generator is `scripts/disposable-db/generate-baseline.py`. It reads the September 18 public catalog/column captures, copies 23 function definitions, and recreates 14 public tables with constraints, indexes, public policies and relevant triggers. It imports no driver data. The generated migration lives only under ignored `.test-runtime/disposable/supabase/migrations/`; never apply it to a hosted project. A service-role-only marker identifies this test database.
+
+The running services are PostgreSQL, Auth, PostgREST and Kong. Docker project/network labels identify `stockerai-disposable`; database port 55322 and API port 55321 bind explicitly to `127.0.0.1`. The network is a dedicated bridge, **not an outbound firewall**. Python tests block external sockets, load no application dotenv credentials, require the exact local configuration, and check the database marker before provisioning identities. Never forward these ports to production.
+
+Run the backend suite from the repository root in PowerShell:
+
+```powershell
+& scripts/disposable-db/run-tests.ps1
+```
+
+The wrapper checks container/network identity and loopback bindings, obtains only local credentials without printing them, and enables the guarded tests. Credentials and generated Compose configuration remain in ignored `.test-runtime`, not source control.
+
+To stop/restart the existing local environment without deleting its schema volume:
+
+```powershell
+docker compose -p stockerai-disposable -f .test-runtime/disposable/compose.json stop
+docker compose -p stockerai-disposable -f .test-runtime/disposable/compose.json up -d
+```
+
+Initial reconstruction used pinned Supabase CLI 2.117.0, `init --workdir .test-runtime/disposable`, and a generated config with project ID `stockerai-disposable`, API 55321, DB 55322, shadow DB 55320, Postgres 17 and seed disabled. Generate the SQL before starting. Create the labeled `stockerai-disposable-local` Docker bridge; start with `--workdir .test-runtime/disposable --network-id stockerai-disposable-local --exclude realtime,storage-api,imgproxy,mailpit,postgres-meta,studio,edge-runtime,logflare,vector,supavisor`. Do not use the repository-root Supabase project or link/push commands. On this Docker Desktop installation an internal bridge prevented host access and the CLI ignored the bridge's default loopback binding. `scripts/disposable-db/bind-local.py` therefore recreates only the four named test containers with explicit loopback ports, preserving the local volume and gateway configuration. This is a one-time conversion from CLI containers; subsequent starts use the generated Compose file. Check service health before tests. Initial CLI startup briefly publishes all-interface ports, so perform first-time provisioning on a trusted host; the test runner refuses such bindings.
 
 Explicit environment settings:
 
@@ -29,7 +50,7 @@ Explicit environment settings:
 | `STOCKERAI_TEST_USER_ID` | Disposable local browser fixture identity |
 | `STOCKERAI_TEST_EMAIL` | Disposable local login identity ending `@example.invalid` |
 
-Backend fixtures use generated user UUIDs and record each successfully inserted route ID. Cleanup targets those IDs, including sessions linked to those routes; it does not delete all sessions of a configured driver. A finalizer attempts cleanup after setup/test failures. If the isolated schema requires Auth/profile rows for these UUIDs, provision the fixture identity model before enabling these scenarios; no real database run has validated those constraints yet.
+Backend fixtures use generated user UUIDs and record each successfully inserted route ID. Cleanup targets those IDs, including sessions linked to those routes; it does not delete all sessions of a configured driver. A module fixture checks the local marker, creates disposable Auth users (exercising the captured profile trigger), and deletes them after route cleanup. The September 22 run verified these foreign keys/triggers and confirmed zero remaining routes, machines, items, sessions, Auth users and profiles. HTTP caller authentication remains mocked.
 
 Browser configuration refuses to load without explicit test settings. It does not reuse an existing dev server, overrides frontend Supabase settings, disables service workers, and uses context request/WebSocket guards for external destinations. Browser login uses explicit local credentials; its API interception forwards to the specified local API without following redirects. The application's Render URL remains hard-coded: other picking scenarios need explicit local interception or a later configurable API change before they can pass. External voice providers are blocked rather than exercised.
 

@@ -137,27 +137,10 @@ export function useStockerSession(userId: string | null) {
   };
 
   const updateFromTool = useCallback(async (toolName: string, result: any) => {
-    // CRITICAL FIX: Enhanced error recovery for start_machine failure
+    // A refused start never moved the server back to the previous machine.
+    // Preserve the current handoff so a deliberate retry still targets it.
     if (result && result.error && toolName === 'start_machine') {
-      machineTransitionLockRef.current = false; // Release lock
-      console.log('[Session] ⚠️  start_machine FAILED - Error:', result.error);
-      setRouteState(prev => {
-        // Find the previous in-progress machine (before failed transition)
-        const previousMachine = prev.machines.find(m => m.status === 'completed' && m.sequence === prev.currentMachineIndex - 1);
-
-        console.log('[Session] 🔙 ROLLBACK STATE:', {
-          restoring: { machineId: previousMachine?.id, machineName: previousMachine?.name },
-          clearingPending: prev.pendingMachineTransition?.nextMachineName
-        });
-
-        return {
-          ...prev,
-          pendingMachineTransition: null,
-          // Restore to previous machine if transition failed
-          currentMachineId: previousMachine?.id || prev.currentMachineId,
-          currentMachineName: previousMachine?.name || prev.currentMachineName
-        };
-      });
+      machineTransitionLockRef.current = false;
       return;
     }
 
@@ -477,7 +460,7 @@ export function useStockerSession(userId: string | null) {
           if (result.next_machine_id) {
             next.machines = next.machines.map(m =>
               m.id === result.next_machine_id
-                ? { ...m, status: 'pending' as const }
+                ? { ...m, status: result.returning_to_skipped ? 'skipped' as const : 'pending' as const }
                 : m
             );
             // Update total items for the next machine's progress display
@@ -527,11 +510,12 @@ export function useStockerSession(userId: string | null) {
         }
 
         // Mark current machine as skipped
-        if (prev.currentMachineId) {
-          const currentMachine = prev.machines.find(m => m.id === prev.currentMachineId);
+        const skippedId = result.skipped_machine_id || prev.currentMachineId;
+        if (skippedId) {
+          const currentMachine = prev.machines.find(m => m.id === skippedId);
           next.machines = prev.machines.map(m =>
-            m.id === prev.currentMachineId
-              ? { ...m, status: 'skipped' as const, skippedAtItem: currentMachine?.completedItems || 0 }
+            m.id === skippedId
+              ? { ...m, status: 'skipped' as const, skippedAtItem: m.skippedAtItem ?? currentMachine?.completedItems ?? 0 }
               : m
           );
         }
@@ -541,17 +525,21 @@ export function useStockerSession(userId: string | null) {
         const action = result.action || '';
 
         if (action === 'next_machine' && result.next_machine_id) {
+          const nextIndex = prev.machines.findIndex(m => m.id === result.next_machine_id) + 1;
+          const destination = prev.machines.find(m => m.id === result.next_machine_id);
           // Set pending transition - wait for user direction (same as get_next_item)
           next.pendingMachineTransition = {
             nextMachineId: result.next_machine_id,
             nextMachineName: result.next_machine || '',
-            nextMachineIndex: (prev.currentMachineIndex || 0) + 1
+            nextMachineIndex: nextIndex || prev.currentMachineIndex
           };
           // Fix: Update currentMachineId to next machine so server persistence
           // doesn't overwrite the backend's session update with the stale machine id
           next.currentMachineId = result.next_machine_id;
           next.currentMachineName = result.next_machine || '';
-          next.currentMachineIndex = (prev.currentMachineIndex || 0) + 1;
+          next.currentMachineIndex = nextIndex || prev.currentMachineIndex;
+          next.currentMachineTotalItems = destination?.totalItems || 0;
+          next.currentMachineItemsRemaining = Math.max(0, (destination?.totalItems || 0) - (destination?.completedItems || 0));
           next.currentItem = null;
           next.currentItem2 = null;
 
@@ -597,12 +585,13 @@ export function useStockerSession(userId: string | null) {
           next.machines = prev.machines.map(m =>
             m.id === result.machine_id
               ? { ...m, status: 'pending' as const }
-              : m.id === prev.currentMachineId
-                ? { ...m, status: 'pending' as const } // Put current back to pending
-                : m
+              : m
           );
           next.currentMachineId = result.machine_id;
           next.currentMachineName = result.machine_name || '';
+          next.currentMachineIndex = prev.machines.findIndex(m => m.id === result.machine_id) + 1 || prev.currentMachineIndex;
+          next.currentItem = null;
+          next.currentItem2 = null;
           // Use fresh counts from API response (not stale local state)
           const apiTotal = result.total_items;
           const apiCompleted = result.completed_items;
@@ -627,7 +616,7 @@ export function useStockerSession(userId: string | null) {
           next.pendingMachineTransition = {
             nextMachineId: result.machine_id,
             nextMachineName: result.machine_name || '',
-            nextMachineIndex: prev.currentMachineIndex || 0
+            nextMachineIndex: next.currentMachineIndex
           };
         }
       }
