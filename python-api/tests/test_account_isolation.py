@@ -218,13 +218,13 @@ def test_every_api_command_requires_a_login():
     assert not ungated, f"these commands answer without a login: {ungated}"
 
 
-def test_all_twelve_commands_are_present():
+def test_all_commands_are_present():
     """If a command disappears from this list, the gate audit above stops covering it."""
     from app.main import app
     paths = {r.path for r in app.routes if getattr(r, "path", "").startswith("/api")}
     assert paths == {
         "/api/get-routes", "/api/delete-route", "/api/set-route-sequence",
-        "/api/start-machine", "/api/get-next-item", "/api/skip-machine",
+        "/api/start-machine", "/api/get-next-item", "/api/advance-item", "/api/skip-machine",
         "/api/go-back-to-skipped", "/api/update-session", "/api/resume-state",
         "/api/upload-pdf", "/api/diag", "/api/openai-chat",
     }, sorted(paths)

@@ -6,6 +6,8 @@ Core item flow endpoints:
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
+from uuid import UUID
+from typing import Literal
 from app.services.auth import AuthCaller, Caller, assert_machine_in_account
 from app.services.database import get_client, rpc
 from app.services.formatting import (
@@ -40,6 +42,46 @@ class StartMachineRequest(BaseModel):
     user_id: str | None = None
     direction: str  # "beginning" or "end"
     count: int = Field(1, ge=1, le=2)  # 1- or 2-pick only; reject malformed counts
+
+
+class AdvanceItemRequest(BaseModel):
+    session_id: UUID
+    operation_id: UUID
+    expected_machine_id: UUID
+    expected_completed_items: int = Field(ge=0)
+    expected_direction: Literal['forward', 'reverse']
+    count: int = Field(1, ge=1, le=2)
+
+
+@router.post('/advance-item')
+def advance_item(req: AdvanceItemRequest, caller: Caller = AuthCaller):
+    """One transaction for progress, handoff/completion and a replayable result.
+
+    The legacy endpoint remains for already-open clients during rollout. Never
+    fall back to it on an uncertain result from this endpoint.
+    """
+    try:
+        row = rpc('advance_picking', {
+            'p_user_id': caller.user_id,
+            'p_team_user_ids': caller.team_user_ids,
+            'p_session_id': str(req.session_id),
+            'p_operation_id': str(req.operation_id),
+            'p_machine_id': str(req.expected_machine_id),
+            'p_completed_items': req.expected_completed_items,
+            'p_direction': req.expected_direction,
+            'p_count': req.count,
+        })
+    except Exception as exc:
+        if getattr(exc, 'code', None) == '42501':
+            raise HTTPException(status_code=403, detail='Not available on this account.') from None
+        if getattr(exc, 'message', None) == 'Picking state conflict':
+            raise HTTPException(status_code=409, detail='Picking state changed. Reload your saved route before continuing.') from None
+        raise HTTPException(status_code=503, detail='Could not confirm picking progress. Reload your saved route before continuing.') from None
+    if not isinstance(row, dict) or row.get('action') not in {'next_item', 'next_machine', 'complete'}:
+        raise HTTPException(status_code=503, detail='Could not confirm picking progress. Reload your saved route before continuing.')
+    formatter = {'next_machine': _format_next_machine, 'complete': _format_complete}
+    result = _format_next_item(row, req.count) if row['action'] == 'next_item' else formatter[row['action']](row)
+    return {**result, 'operation_id': str(req.operation_id), 'session_id': str(req.session_id)}
 
 
 # ─── GET NEXT ITEM ────────────────────────────────────────────────────────────
