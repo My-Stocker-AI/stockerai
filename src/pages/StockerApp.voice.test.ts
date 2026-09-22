@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   send: vi.fn(async () => ({ content: 'test reply' })),
   state: null as any,
   voice: null as any,
+  update: vi.fn(), track: vi.fn(),
 }));
 vi.mock('react-router-dom', () => ({ useNavigate: () => vi.fn(), useSearchParams: () => [new URLSearchParams()] }));
 vi.mock('@tanstack/react-query', () => ({ useQueryClient: () => ({ invalidateQueries: vi.fn() }) }));
@@ -16,14 +17,14 @@ vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ user: null, loading: true 
 vi.mock('@/hooks/useVoice', () => ({ useVoice: (options: any) => { mocks.options = options; return mocks.voice; } }));
 vi.mock('@/hooks/useStockerSession', () => ({ useStockerSession: () => ({
   routeState: mocks.state, sessionId: 'disposable-session', messages: [], messagesRef: { current: [] },
-  updateFromTool: vi.fn(), addMessage: vi.fn(), reset: vi.fn(), setRouteState: vi.fn(),
+  updateFromTool: mocks.update, addMessage: vi.fn(), reset: vi.fn(), setRouteState: vi.fn(),
   setMessages: vi.fn(), setSessionId: vi.fn(), generateNewSessionId: vi.fn(),
 }) }));
 vi.mock('@/hooks/useStockerAI', () => ({ useStockerAI: () => ({
   setSession: vi.fn(), sendToAI: mocks.send, executeToolCalls: mocks.execute, getRoutes: vi.fn(),
 }) }));
 vi.mock('@/hooks/useSessionPersistence', () => ({ useSessionPersistence: () => ({ save: vi.fn() }) }));
-vi.mock('@/hooks/useKeywordLearning', () => ({ useKeywordLearning: () => ({ trackKeywords: vi.fn() }) }));
+vi.mock('@/hooks/useKeywordLearning', () => ({ useKeywordLearning: () => ({ trackKeywords: mocks.track }) }));
 vi.mock('@/hooks/useEnvironmentDetection', () => ({ useEnvironmentDetection: () => ({ environment: { endpointing: 300 } }) }));
 vi.mock('@/integrations/supabase/client', () => ({ supabase: {} }));
 vi.mock('@/lib/authFetch', () => ({ authFetch: vi.fn(() => { throw new Error('Unexpected API request'); }) }));
@@ -32,12 +33,14 @@ import StockerApp from './StockerApp';
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.execute.mockImplementation(async () => []);
   vi.stubGlobal('fetch', vi.fn(() => { throw new Error('Network forbidden in this test'); }));
   window.matchMedia = vi.fn(() => ({ matches: false })) as any;
   mocks.voice = {
     status: 'listening', getStatus: () => 'listening', speak: mocks.speak,
     stopListening: vi.fn(), stopAudio: vi.fn(), setAwaitingDirection: vi.fn(),
     setThinking: vi.fn(), resumeListening: vi.fn(), playErrorBeep: vi.fn(),
+    playSuccessBeep: vi.fn(), prefetchTTS: vi.fn(),
   };
   mocks.state = {
     routeId: 'route-test', routeName: 'Fixture', routeDate: '2099-01-01',
@@ -54,6 +57,47 @@ async function say(text: string) {
 }
 
 describe('actual StockerApp transcript dispatch with mocked services', () => {
+  it.each(['skip it', 'skip this machine'])('targets the current handoff for %s and explains a refusal', async text => {
+    mocks.state.currentItem = null;
+    mocks.state.machines[0].status = 'skipped';
+    mocks.state.pendingMachineTransition = { nextMachineId: 'machine-test', nextMachineName: 'Fixture machine', nextMachineIndex: 1 };
+    const before = structuredClone(mocks.state);
+    mocks.execute.mockResolvedValue([{ result: { error: 'Request failed', user_message: 'This machine is still skipped. You can return to the unfinished work or pause for now.' } }] as any);
+    render(React.createElement(StockerApp));
+    await say(text);
+    expect(JSON.parse(mocks.execute.mock.calls[0][0][0].function.arguments).expected_machine_id).toBe('machine-test');
+    expect(mocks.speak).toHaveBeenLastCalledWith('This machine is still skipped. You can return to the unfinished work or pause for now.');
+    expect(mocks.voice.playSuccessBeep).not.toHaveBeenCalled();
+    expect(mocks.track).toHaveBeenLastCalledWith(text, false);
+    expect(mocks.update).not.toHaveBeenCalled();
+    expect(mocks.state).toEqual(before);
+  });
+
+  it.each(['okay', 'next'])('does not advance skipped work on %s after an offer', async text => {
+    mocks.state.currentItem = null;
+    mocks.state.machines[0].status = 'skipped';
+    render(React.createElement(StockerApp));
+    await say(text);
+    expect(mocks.execute).not.toHaveBeenCalled();
+    expect(mocks.speak).toHaveBeenLastCalledWith(expect.stringContaining('top or bottom'));
+  });
+
+  it('go back stays available after deferring the remaining skipped machines', async () => {
+    mocks.state.currentItem = null;
+    mocks.state.machines[0].status = 'skipped';
+    render(React.createElement(StockerApp));
+    await say('go back to skipped');
+    expect(mocks.execute.mock.calls[0][0][0].function.name).toBe('go_back_to_skipped');
+  });
+
+  it('a debounced duplicate is not reported as a speech failure', async () => {
+    mocks.execute.mockResolvedValue([{ result: { ignored: true } }] as any);
+    render(React.createElement(StockerApp));
+    await say('skip it');
+    expect(mocks.speak).not.toHaveBeenCalled();
+    expect(mocks.voice.resumeListening).toHaveBeenCalled();
+  });
+
   it.each([[[]], [['12']], [['twelve', '12']]])(
     'keeps the original skip confirmation when counting %j', async counts => {
       render(React.createElement(StockerApp));

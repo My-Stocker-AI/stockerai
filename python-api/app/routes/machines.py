@@ -28,6 +28,7 @@ SKIP_PHRASES = [
 
 class SkipMachineRequest(BaseModel):
     session_id: str
+    expected_machine_id: str | None = None
     # Accepted so an older app build keeps working, but never read. Who you are comes from
     # the login on the Authorization header — a user_id in the body reaches no query.
     user_id: str | None = None
@@ -74,29 +75,34 @@ def skip_machine(req: SkipMachineRequest, caller: Caller = AuthCaller):
         db, machine_id, caller, "id, machine_name, sequence, status, completed_items"
     )
 
-    if current_machine["status"] == "skipped":
-        raise HTTPException(status_code=400, detail="Machine is already skipped")
+    if req.expected_machine_id and req.expected_machine_id != machine_id:
+        raise HTTPException(status_code=409, detail="Machine changed. Check the current machine before continuing.")
 
     if current_machine["status"] == "completed":
         raise HTTPException(status_code=400, detail="Machine is already completed")
 
-    # Step 3: Mark machine as skipped (trigger auto_set_skipped_at_item handles skipped_at_item)
-    db.table("machines").update({"status": "skipped"}).eq("id", machine_id).execute()
+    # A completion handoff can point at an already-skipped machine. Deferring it
+    # again is valid; preserve its saved progress and do not re-fire skip triggers.
+    if current_machine["status"] != "skipped":
+        db.table("machines").update({"status": "skipped"}).eq("id", machine_id).execute()
 
-    # Step 4: Find next machine with higher sequence (exclude skipped AND completed)
+    # Prefer work ahead, then wrap to unfinished work earlier in the route.
+    # Never bounce automatically between skips after the driver defers one.
     next_machine_result = (
         db.table("machines")
         .select("id, machine_name, machine_number, location_name, sequence")
         .eq("route_id", route_id)
-        .gt("sequence", current_machine["sequence"])
+        .neq("id", machine_id)
         .filter("status", "not.in", '("skipped","completed")')
         .order("sequence")
-        .limit(1)
         .execute()
     )
 
     if next_machine_result.data:
-        next_machine = next_machine_result.data[0]
+        next_machine = next(
+            (m for m in next_machine_result.data if m["sequence"] > current_machine["sequence"]),
+            next_machine_result.data[0],
+        )
 
         # Update session to point to next machine
         db.table("sessions").update({
@@ -111,6 +117,7 @@ def skip_machine(req: SkipMachineRequest, caller: Caller = AuthCaller):
 
         return {
             "action": "next_machine",
+            "skipped_machine_id": machine_id,
             "skipped_machine": current_machine["machine_name"],
             "next_machine": next_machine["machine_name"],
             "next_machine_id": next_machine["id"],
@@ -121,55 +128,30 @@ def skip_machine(req: SkipMachineRequest, caller: Caller = AuthCaller):
             "display": f"Skipped: {current_machine['machine_name']} → Next: {next_machine['machine_name']}",
         }
 
-    # Step 5: No next machine — check for OTHER skipped machines to return to
-    # Exclude the machine we just skipped to prevent infinite loop
+    # Only skipped work remains. Keep it recoverable, without implying completion
+    # or automatically returning to a machine the driver just declined.
     skipped_result = (
         db.table("machines")
         .select("id, machine_name, machine_number, location_name")
         .eq("route_id", route_id)
         .eq("status", "skipped")
-        .neq("id", machine_id)
         .order("sequence")
-        .limit(1)
         .execute()
     )
-
-    if skipped_result.data:
-        skipped = skipped_result.data[0]
-        db.table("sessions").update({
-            "current_machine_id": skipped["id"],
-        }).eq("id", session["id"]).execute()
-
-        skip_phrase = f"No more machines ahead. Going back to {skipped['machine_name']} at {skipped['location_name']}. Top or bottom?"
-        return {
-            "action": "next_machine",
-            "skipped_machine": current_machine["machine_name"],
-            "next_machine": skipped["machine_name"],
-            "next_machine_id": skipped["id"],
-            "next_location": skipped["location_name"],
-            "voice_text": skip_phrase,
-            "spoken": skip_phrase,
-            "display": f"Returning to: {skipped['machine_name']}",
-        }
-
-    # Step 6: No machine ahead, and no OTHER skipped machine to jump to — but we just
-    # skipped the CURRENT one, so it is still unstocked. NEVER declare the route complete
-    # here: the old code marked the session 'completed', which abandoned the machine with
-    # no way back (skip the last/only machine → stranded forever). A skipped machine is
-    # never silently passed. Keep the session ACTIVE and OFFER to go back and finish it —
-    # the driver says "go back" (or taps it in the list) to resume, or leaves it for later
-    # (resume-state will surface it again next time). The route is genuinely NOT complete
-    # while a machine remains unstocked, so "complete-with-skips" is an offer, not a finish.
+    remaining = len(skipped_result.data or [])
+    work = "One skipped machine remains" if remaining == 1 else f"{remaining} skipped machines remain"
     offer_phrase = (
-        f"That was the last machine, and {current_machine['machine_name']} is still skipped. "
-        f"Say 'go back' to finish it, or you're all done for now."
+        f"{work}. Your route is still open. "
+        "You can return to the unfinished work or pause for now. What would you like to do?"
     )
     return {
         "action": "offer_go_back",
+        "skipped_machine_id": machine_id,
         "skipped_machine": current_machine["machine_name"],
+        "remaining_skipped": remaining,
         "voice_text": offer_phrase,
         "spoken": offer_phrase,
-        "display": f"Last machine skipped: {current_machine['machine_name']} — say 'go back' to finish it",
+        "display_text": f"{work}. Say ‘go back’ to resume, or ‘pause’ to take a break.",
     }
 
 

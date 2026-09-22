@@ -70,6 +70,37 @@ def _cleanup_recorded_routes(request):
         from app.services.database import get_client
         fixtures.cleanup(get_client())
 
+
+@pytest.fixture(scope="module", autouse=True)
+def _disposable_identity(request):
+    """Provision the Auth -> profile FK chain only on our marked local database.
+
+    HTTP authentication remains mocked for picking logic tests. Auth creation here
+    exercises the captured profile trigger, not the application's signup journey.
+    """
+    fixtures = getattr(request.module, "FIXTURES", None)
+    if not _database_enabled or fixtures is None:
+        yield
+        return
+    import secrets
+    from app.services.database import get_client
+    db = get_client()
+    if db.rpc("stockerai_disposable_marker").execute().data != "stockerai-local-only-20260918":
+        raise RuntimeError("Target is not the marked StockerAI disposable database")
+    created = db.auth.admin.create_user({
+        "id": fixtures.user_id,
+        "email": f"{fixtures.user_id}@example.invalid",
+        "password": secrets.token_urlsafe(32),
+        "email_confirm": True,
+    })
+    if not created.user or created.user.id != fixtures.user_id:
+        raise RuntimeError("Disposable Auth identity did not match the requested fixture")
+    try:
+        yield
+    finally:
+        fixtures.cleanup(db)
+        db.auth.admin.delete_user(fixtures.user_id)
+
 DEFAULT_TEST_USER = "00000000-0000-0000-0000-00000000c001"
 
 
@@ -85,8 +116,8 @@ def _make_stand_in(Caller):
     Stands in for the login gate while the server tests run.
 
     Every command needs a verified login now. These tests are about picking logic — resume
-    points, skip handling, double-count guards — and they use throwaway users that do not
-    exist in Supabase Auth at all, so a real login could never be issued for them.
+    points, skip handling, double-count guards. Database-enabled runs create throwaway
+    Auth/profile identities, but these requests still bypass the real login gate.
 
     So the gate is replaced by one that takes the caller from the request, as the server used
     to. That is only safe because it is confined to this file: the real gate is proved by

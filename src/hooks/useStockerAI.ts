@@ -1,5 +1,6 @@
 import { useCallback, useRef } from 'react';
 import { authFetch } from '@/lib/authFetch';
+import { toolFailureMessage } from '@/utils/toolFailure';
 
 const PYTHON_API_BASE = 'https://stockerai-api.onrender.com/api';
 const N8N_BASE_URL = 'https://visionairy.app.n8n.cloud/webhook';
@@ -797,7 +798,7 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
       const error = "Hold on, I'm still getting ready. Give me a second to load your route data.";
       console.error('[Tools] Session validation failed - session not initialized', {
         sessionIdRef: sessionIdRef.current,
-        toolName: name,
+        toolNames: toolCalls.map(tc => tc.function.name),
         timestamp: new Date().toISOString()
       });
       throw new Error(error);
@@ -832,7 +833,7 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
         console.warn(`[Tools] Ignoring duplicate ${name} command (${now - lastCommandRef.current.timestamp}ms since last)`);
         results.push({
           tool_call_id: tc.id,
-          result: { success: false, message: 'Duplicate command ignored (too fast)' }
+          result: { ignored: true, success: false, message: 'Duplicate command ignored (too fast)' }
         });
         continue;
       }
@@ -856,11 +857,12 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
           });
         }
 
-        // Edge Functions have verify_jwt=false, no auth header needed
+        // authFetch adds the caller's login and handles a refused expired token.
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
 
-        // PRIORITY 1.3: Use retry logic for webhook calls
-        const resp = await fetchWithRetry(endpoint, {
+        // Picking mutations have no server idempotency key. A lost response or 5xx
+        // may follow a committed write: never automatically replay the command.
+        const resp = await fetchWithTimeout(endpoint, {
           method: 'POST',
           headers,
           body: JSON.stringify({
@@ -879,10 +881,23 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
             statusText: resp.statusText,
             body: errorText
           });
-          throw new Error(`Workflow error (${resp.status}): ${errorText}`);
+          let detail: unknown;
+          try { detail = JSON.parse(errorText).detail; } catch { /* non-JSON response */ }
+          results.push({ tool_call_id: tc.id, result: {
+            error: `Request failed (${resp.status})`,
+            status: resp.status,
+            user_message: toolFailureMessage(resp.status, detail),
+          } });
+          break; // Do not execute further dependent actions after a refusal.
         }
 
         let result = await resp.json();
+        if (!result || result.error || result.success === false) {
+          results.push({ tool_call_id: tc.id, result: {
+            error: 'Action was not confirmed', user_message: toolFailureMessage(),
+          } });
+          break;
+        }
         console.log(`[Tools] ${name} succeeded:`, result);
 
         // Workflow now returns item2 directly when count=2
@@ -891,7 +906,19 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
         results.push({ tool_call_id: tc.id, result });
       } catch (e: any) {
         console.error(`[Tools] ${name} exception:`, e);
-        results.push({ tool_call_id: tc.id, result: { error: e.message } });
+        results.push({ tool_call_id: tc.id, result: {
+          error: 'Action outcome could not be confirmed',
+          user_message: toolFailureMessage(),
+        } });
+        break;
+      }
+    }
+
+    // Preserve a tool result for every requested call in conversation history,
+    // even when the batch stopped after an error. Nothing else is sent to the API.
+    for (const tc of toolCalls) {
+      if (!results.some(r => r.tool_call_id === tc.id)) {
+        results.push({ tool_call_id: tc.id, result: { error: 'Not executed after earlier failure' } });
       }
     }
 
