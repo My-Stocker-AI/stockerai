@@ -137,6 +137,9 @@ export function useStockerSession(userId: string | null) {
   };
 
   const updateFromTool = useCallback(async (toolName: string, result: any) => {
+    if ((toolName === 'set_route_sequence' || toolName === 'get_next_item') && result?.session_id && !result.error) {
+      setSessionId(result.session_id);
+    }
     // A refused start never moved the server back to the previous machine.
     // Preserve the current handoff so a deliberate retry still targets it.
     if (result && result.error && toolName === 'start_machine') {

@@ -221,6 +221,13 @@ const WEBHOOK_MAP: Record<string, string> = USE_PYTHON ? {
   'go_back_to_skipped': '/back-to-skipped'
 };
 
+export interface PickingContext {
+  routeId?: string | null;
+  currentMachineId: string | null;
+  pickDirection?: string | null;
+  machines: { id: string; completedItems: number }[];
+}
+
 export function useStockerAI() {
   const sessionIdRef = useRef<string>('');
   const userIdRef = useRef<string | null>(null);
@@ -791,7 +798,8 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
   const executeToolCalls = useCallback(async (
     toolCalls: any[],
     onResult?: (name: string, result: any) => void,
-    routeCompleted?: boolean  // NEW: Flag to check if route is complete
+    routeCompleted?: boolean,  // NEW: Flag to check if route is complete
+    pickingContext?: PickingContext
   ) => {
     // BUG-N8N-2 FIX: Validate session exists before executing tools
     if (!sessionIdRef.current || sessionIdRef.current === '') {
@@ -840,8 +848,43 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
       lastCommandRef.current = { name, timestamp: now };
 
       try {
+        let requestSession = sessionIdRef.current;
+        const requestUser = userIdRef.current;
         // Construct endpoint URL (full URL if path starts with http, otherwise prepend N8N_BASE)
-        const endpoint = path.startsWith('http') ? path : `${N8N_BASE}${path}`;
+        let endpoint = path.startsWith('http') ? path : `${N8N_BASE}${path}`;
+        let progressTarget: Record<string, unknown> = {};
+        if (name === 'get_next_item' && USE_PYTHON) {
+          const machine = pickingContext?.machines.find(m => m.id === pickingContext.currentMachineId);
+          if (!pickingContext || !machine || !Number.isInteger(machine.completedItems) ||
+              !['forward', 'reverse'].includes(pickingContext.pickDirection || '')) {
+            throw new Error('Missing authoritative picking context');
+          }
+          // Old installations saved a browser-generated session ID. Resolve it
+          // read-only, only when the entire displayed target matches the server.
+          if (!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(requestSession)) {
+            const resumed = await fetchWithTimeout(`${PYTHON_API_BASE}/resume-state`, {
+              method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+            });
+            if (!resumed.ok) throw new Error('Could not resolve saved session');
+            const snapshot = await resumed.json();
+            if (requestSession !== sessionIdRef.current || requestUser !== userIdRef.current ||
+                !pickingContext.routeId || snapshot.route?.id !== pickingContext.routeId ||
+                snapshot.current_machine?.id !== machine.id ||
+                snapshot.current_machine?.completed_items !== machine.completedItems ||
+                snapshot.pick_direction !== pickingContext.pickDirection || !snapshot.session_id) {
+              throw new Error('Saved route differs from displayed route');
+            }
+            requestSession = snapshot.session_id;
+            sessionIdRef.current = requestSession;
+          }
+          endpoint = `${PYTHON_API_BASE}/advance-item`;
+          progressTarget = {
+            operation_id: crypto.randomUUID(),
+            expected_machine_id: machine.id,
+            expected_completed_items: machine.completedItems,
+            expected_direction: pickingContext.pickDirection,
+          };
+        }
         console.log(`[Tools] Calling ${name}:`, { args, endpoint });
 
         // Check if 2-item mode is enabled (read FRESH from localStorage each call)
@@ -860,17 +903,19 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
         // authFetch adds the caller's login and handles a refused expired token.
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
 
-        // Picking mutations have no server idempotency key. A lost response or 5xx
-        // may follow a committed write: never automatically replay the command.
+        // Only the new advancement path has an operation receipt. Keep automatic
+        // retries off across tools; never fall back after an uncertain write.
         const resp = await fetchWithTimeout(endpoint, {
           method: 'POST',
           headers,
           body: JSON.stringify({
-            session_id: sessionIdRef.current,
-            user_id: userIdRef.current,
             ...args,
+            // Identity/targets come from application state, never AI arguments.
+            session_id: requestSession,
+            user_id: requestUser,
+            ...progressTarget,
             // count AFTER args so localStorage setting always wins over AI arguments
-            ...(shouldAddCount ? { count: 2 } : {}),
+            ...((name === 'start_machine' || name === 'get_next_item') ? { count: callTwoItems ? 2 : 1 } : {}),
           })
         });
 
@@ -892,6 +937,10 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
         }
 
         let result = await resp.json();
+        if (requestSession !== sessionIdRef.current || requestUser !== userIdRef.current) {
+          results.push({ tool_call_id: tc.id, result: { ignored: true, success: false, message: 'Session changed while request was in flight' } });
+          break;
+        }
         if (!result || result.error || result.success === false) {
           results.push({ tool_call_id: tc.id, result: {
             error: 'Action was not confirmed', user_message: toolFailureMessage(),
@@ -902,6 +951,9 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
 
         // Workflow now returns item2 directly when count=2
 
+        if (name === 'set_route_sequence' && result.session_id) {
+          sessionIdRef.current = result.session_id;
+        }
         onResult?.(name, result);
         results.push({ tool_call_id: tc.id, result });
       } catch (e: any) {

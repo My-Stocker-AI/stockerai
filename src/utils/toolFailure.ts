@@ -4,7 +4,7 @@
 export function toolFailureMessage(status?: number, detail?: unknown): string {
   if (status === 401) return 'Please sign in again to continue your route.';
   if (status === 403) return 'This action is not available on your account. Check your route access.';
-  if (status === 409) return 'The current machine changed. Check your route screen before continuing.';
+  if (status === 409) return 'Your saved picking progress changed. Reload your route before continuing.';
   if (status === 429) return 'The service is busy. Please wait a moment before continuing.';
   if (status === 400 || status === 404) {
     switch (detail) {

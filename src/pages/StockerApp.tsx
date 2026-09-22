@@ -811,7 +811,8 @@ export default function StockerApp() {
                 setLastItemPair(null);
               }
             },
-            routeState.sessionInvalidated || routeState.completed  // CATASTROPHIC FAILURE FIX: Prevent commands after completion
+            routeState.sessionInvalidated || routeState.completed,
+            routeState
           );
 
             const failure = toolResults.find(tr => tr.result?.error);
@@ -1029,7 +1030,8 @@ export default function StockerApp() {
               }
             }
           },
-          routeState.sessionInvalidated || routeState.completed  // CATASTROPHIC FAILURE FIX: Prevent commands after completion
+          routeState.sessionInvalidated || routeState.completed,
+          routeState
         );
 
         for (const tr of toolResults) {
@@ -1682,9 +1684,11 @@ export default function StockerApp() {
               currentMachineItemsRemaining: saved.currentMachineItemsRemaining || 0,
               currentItem: restoredItem1,
               currentItem2: restoredItem2,
-              totalItems: saved.totalItems,
               completedItems: saved.completedItems,
-              machines: saved.machines || []
+              machines: saved.machines || [],
+              completed: saved.completed || false,
+              pendingMachineTransition: saved.pendingMachineTransition || null,
+              pickDirection: saved.pickDirection || null,
             });
 
             // Restore conversation history
