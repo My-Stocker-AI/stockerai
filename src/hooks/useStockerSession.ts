@@ -31,6 +31,7 @@ export interface MachineState {
 }
 
 export interface RouteState {
+  pickingRevision?: string;
   routeId: string | null;
   routeName: string | null;
   routeDate: string | null;
@@ -137,7 +138,7 @@ export function useStockerSession(userId: string | null) {
   };
 
   const updateFromTool = useCallback(async (toolName: string, result: any) => {
-    if ((toolName === 'set_route_sequence' || toolName === 'get_next_item') && result?.session_id && !result.error) {
+    if (result?.session_id && !result.error) {
       setSessionId(result.session_id);
     }
     // A refused start never moved the server back to the previous machine.
@@ -181,6 +182,9 @@ export function useStockerSession(userId: string | null) {
         return machine.totalItems;
       };
       const next = { ...prev };
+      if (result.picking_revision) next.pickingRevision = result.picking_revision;
+      else if (toolName === 'set_route_sequence') next.pickingRevision = undefined;
+      if (toolName === 'set_route_sequence') next.pickDirection = result.pick_direction || 'forward';
 
       if (toolName === 'set_route_sequence') {
         next.routeName = result.route_name || result.route || null;

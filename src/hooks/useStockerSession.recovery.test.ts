@@ -4,6 +4,15 @@ import { afterEach, expect, it } from 'vitest';
 import { useStockerSession, MachineState } from './useStockerSession';
 
 afterEach(cleanup);
+
+it('retains the server revision and identity for the next command', async () => {
+  const {result}=renderHook(() => useStockerSession(null));
+  await act(() => result.current.updateFromTool('skip_current_machine', {
+    action:'offer_go_back',picking_revision:'revision-new',session_id:'server-session',
+  }));
+  expect(result.current.routeState.pickingRevision).toBe('revision-new');
+  expect(result.current.sessionId).toBe('server-session');
+});
 function setup() {
   const hook = renderHook(() => useStockerSession(null));
   const machines: MachineState[] = [
