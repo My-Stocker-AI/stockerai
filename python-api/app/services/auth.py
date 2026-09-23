@@ -18,7 +18,6 @@ records that do not exist ANYWHERE as well as for records owned by someone else.
 answers differed, the difference itself would tell an outsider which ids are real.
 """
 
-import time
 from dataclasses import dataclass
 
 import httpx
@@ -42,12 +41,8 @@ _ALGORITHMS = ["ES256", "RS256", "HS256"]
 
 _jwk_client: PyJWKClient | None = None
 
-# Resolving a user's account costs two small queries. A stocker issues hundreds of voice
-# commands an hour and every one of them would pay that twice, so the answer is held briefly.
-# The cost of staleness is small and bounded: a teammate added to an account waits at most this
-# long to be recognised. Membership changes are rare; mid-route latency is not.
-_ACCOUNT_TTL_SECONDS = 300
-_account_cache: dict[str, tuple[float, str, list[str]]] = {}
+# Resolve membership in one database snapshot per request. Revocations must not
+# remain authorized by a five-minute process cache.
 
 
 @dataclass(frozen=True)
@@ -100,35 +95,16 @@ def _verify_token(token: str) -> dict:
 
 
 def _resolve_account(user_id: str) -> tuple[str, list[str]]:
-    """Map a signed-in user to their account and everyone else inside it."""
-    cached = _account_cache.get(user_id)
-    if cached and (time.monotonic() - cached[0]) < _ACCOUNT_TTL_SECONDS:
-        return cached[1], cached[2]
-
-    db = get_client()
-    membership = (
-        db.table("account_users")
-        .select("account_id")
-        .eq("user_id", user_id)
-        .limit(1)
-        .execute()
-    )
-    if not membership.data:
-        # A real login that belongs to no account can reach nothing. Same refusal as reaching
-        # into someone else's account — because that is exactly what it would be.
+    """Fail closed on missing/ambiguous membership; never choose an arbitrary tenant."""
+    try:
+        rows = get_client().rpc('resolve_picking_account', {'p_user_id': user_id}).execute().data
+    except Exception as exc:
+        if getattr(exc, 'code', None) == '42501':
+            raise forbidden() from None
+        raise HTTPException(status_code=503, detail='Could not verify account access. Try again.') from None
+    if not rows or len(rows) != 1 or not rows[0].get('account_id') or user_id not in (rows[0].get('team_user_ids') or []):
         raise forbidden()
-
-    account_id = membership.data[0]["account_id"]
-    members = (
-        db.table("account_users")
-        .select("user_id")
-        .eq("account_id", account_id)
-        .execute()
-    )
-    team_user_ids = [m["user_id"] for m in (members.data or [])]
-
-    _account_cache[user_id] = (time.monotonic(), account_id, team_user_ids)
-    return account_id, team_user_ids
+    return rows[0]['account_id'], rows[0]['team_user_ids']
 
 
 def require_auth(request: Request) -> Caller:
@@ -203,7 +179,7 @@ def assert_route_in_account(db, route_id: str, caller: Caller) -> dict:
     """
     result = (
         db.table("routes")
-        .select("id, route_name, user_id")
+        .select("id, route_name, user_id, delivery_date")
         .eq("id", route_id)
         .limit(1)
         .execute()
