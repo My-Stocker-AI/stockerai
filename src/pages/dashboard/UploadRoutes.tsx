@@ -35,6 +35,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { uploadConnectionMessage, uploadResponseMessage } from "@/utils/userFacingErrors";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -295,12 +296,7 @@ const UploadRoutes = () => {
         }
       }
       if (!response) {
-        const build = typeof __BUILD_TIME__ !== 'undefined'
-          ? new Date(__BUILD_TIME__).toLocaleString()
-          : 'unknown';
-        throw new Error(
-          `Couldn't reach the server after several tries · Address: ${uploadUrl} · Reason: ${errorMessage(lastNetErr)} · App build: ${build}`
-        );
+        throw new Error(uploadConnectionMessage(lastNetErr));
       }
 
       if (!response.ok) {
@@ -313,7 +309,7 @@ const UploadRoutes = () => {
         } catch {
           errorMsg = errorText || 'Upload failed';
         }
-        throw new Error(errorMsg);
+        throw new Error(uploadResponseMessage(response.status, errorMsg));
       }
 
       const result = await response.json();

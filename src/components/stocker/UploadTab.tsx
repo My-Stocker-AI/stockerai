@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
+import { uploadConnectionMessage, uploadResponseMessage } from "@/utils/userFacingErrors";
 import { supabase } from "@/integrations/supabase/client";
 import { format, addDays } from "date-fns";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
@@ -144,12 +145,7 @@ export function UploadTab() {
         }
       }
       if (!response) {
-        const build = typeof __BUILD_TIME__ !== 'undefined'
-          ? new Date(__BUILD_TIME__).toLocaleString()
-          : 'unknown';
-        throw new Error(
-          `Couldn't reach the server after several tries · Address: ${uploadUrl} · Reason: ${errorMessage(lastNetErr)} · App build: ${build}`
-        );
+        throw new Error(uploadConnectionMessage(lastNetErr));
       }
 
       if (!response.ok) {
@@ -162,7 +158,7 @@ export function UploadTab() {
         } catch {
           errorMsg = errorText || 'Upload failed';
         }
-        throw new Error(errorMsg);
+        throw new Error(uploadResponseMessage(response.status, errorMsg));
       }
 
       const result = await response.json();

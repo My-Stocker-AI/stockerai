@@ -198,6 +198,32 @@ def test_browser_rls_hides_foreign_company_data(tenants):
     assert a['client'].table('machines').select('id').eq('id', other['machine']).execute().data == []
 
 
+def test_account_admin_sees_teammate_routes_but_not_another_company(tenants):
+    db, actors, _ = tenants
+    admin, teammate, outsider = actors
+    db.table('account_users').update({
+        'role': 'primary_admin',
+        'can_view_all_routes': True,
+        'can_upload_routes': True,
+    }).eq('user_id', admin['uid']).execute()
+
+    visible = admin['client'].table('routes').select('id').execute().data
+    visible_ids = {row['id'] for row in visible}
+    assert admin['route'] in visible_ids
+    assert teammate['route'] in visible_ids
+    assert outsider['route'] not in visible_ids
+
+
+def test_driver_sees_only_their_route_inside_the_company(tenants):
+    _, actors, _ = tenants
+    driver, teammate, outsider = actors
+    visible = driver['client'].table('routes').select('id').execute().data
+    visible_ids = {row['id'] for row in visible}
+    assert driver['route'] in visible_ids
+    assert teammate['route'] not in visible_ids
+    assert outsider['route'] not in visible_ids
+
+
 @pytest.mark.parametrize('role', ['anon', 'authenticated'])
 @pytest.mark.parametrize('signature,args', [
     ('get_next_item_data(uuid)', 'NULL::uuid'),
