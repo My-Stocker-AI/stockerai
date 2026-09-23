@@ -173,11 +173,8 @@ def test_real_local_login_can_advance_and_anonymous_request_cannot(client, route
     from app.main import app
     from app.services.auth import require_auth
     db, _, _ = route
-    account_id = None
     previous = app.dependency_overrides.pop(require_auth, None)
     try:
-        account_id = db.table('accounts').insert({'name': 'DISPOSABLE_AUTH_TEST'}).execute().data[0]['id']
-        db.table('account_users').insert({'account_id': account_id, 'user_id': FIXTURES.user_id, 'role': 'driver'}).execute()
         password = secrets.token_urlsafe(32)
         db.auth.admin.update_user_by_id(FIXTURES.user_id, {'password': password})
         auth_client = create_client(os.environ['SUPABASE_URL'], os.environ['SUPABASE_SERVICE_KEY'])
@@ -205,6 +202,3 @@ def test_real_local_login_can_advance_and_anonymous_request_cannot(client, route
     finally:
         if previous is not None:
             app.dependency_overrides[require_auth] = previous
-        if account_id:
-            db.table('account_users').delete().eq('account_id', account_id).eq('user_id', FIXTURES.user_id).execute()
-            db.table('accounts').delete().eq('id', account_id).execute()

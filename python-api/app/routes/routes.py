@@ -23,12 +23,12 @@ class DeleteRouteRequest(BaseModel):
 def get_routes(req: GetRoutesRequest, caller: Caller = AuthCaller):
     db = get_client()
 
-    # Routes are shared across everyone in the account, and that membership list is derived
-    # from the verified login — so there is no longer any user_id a caller can name to widen it.
+    # Company ownership is stored on the route itself. Driver membership can change without
+    # orphaning company data or changing which company is allowed to see the route.
     routes_result = (
         db.table("routes")
         .select("id, route_name, delivery_date, machines(id, machine_name, items(id))")
-        .in_("user_id", caller.team_user_ids)
+        .eq("account_id", caller.account_id)
         .eq("delivery_date", req.date)
         .execute()
     )

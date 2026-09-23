@@ -45,7 +45,8 @@ def tenants(client):
             auth = create_client(os.environ['SUPABASE_URL'], os.environ['SUPABASE_SERVICE_KEY'])
             login = auth.auth.sign_in_with_password({'email': email, 'password': password})
             actors.append({'uid': uid, 'account': account, 'route': rid, 'machine': mid, 'session': sid,
-                           'headers': {'Authorization': f'Bearer {login.session.access_token}'}})
+                           'headers': {'Authorization': f'Bearer {login.session.access_token}'},
+                           'client': auth})
         yield db, actors, accounts
     finally:
         if previous is not None:
@@ -55,11 +56,9 @@ def tenants(client):
         for rid, uid in routes:
             db.table('routes').delete().eq('id', rid).eq('user_id', uid).execute()
         for uid in users:
-            db.table('account_users').delete().eq('user_id', uid).execute()
+            db.auth.admin.delete_user(uid)
         for account in accounts:
             db.table('accounts').delete().eq('id', account).execute()
-        for uid in users:
-            db.auth.admin.delete_user(uid)
 
 
 def test_status_uses_verified_identity_and_allows_separate_companies(client, tenants):
@@ -91,17 +90,46 @@ def test_removed_membership_is_refused_on_next_request(client, tenants):
     assert client.post('/api/get-current-status', headers=a['headers']).status_code == 200
     db.table('account_users').delete().eq('user_id', a['uid']).eq('account_id', a['account']).execute()
     assert client.post('/api/get-current-status', headers=a['headers']).status_code == 403
+    assert client.post('/api/picking-context', json={'session_id': a['session']},
+                       headers=a['headers']).status_code == 403
 
 
-def test_ambiguous_member_cannot_authenticate_or_share_routes(client, tenants):
+def test_company_keeps_route_when_original_driver_is_removed(client, tenants):
+    db, actors, _ = tenants
+    owner, teammate, _ = actors
+    db.table('sessions').update({
+        'current_route_id': owner['route'], 'current_machine_id': owner['machine']
+    }).eq('id', teammate['session']).execute()
+    db.table('account_users').delete().eq('user_id', owner['uid']).execute()
+
+    routes = client.post('/api/get-routes', headers=teammate['headers'],
+        json={'session_id': teammate['session'], 'date': '2099-12-28'}).json()['routes']
+    assert owner['route'] in {route['id'] for route in routes}
+    context = client.post('/api/picking-context', headers=teammate['headers'],
+        json={'session_id': teammate['session']})
+    assert context.status_code == 200
+    assert context.json()['route_id'] == owner['route']
+
+
+def test_login_cannot_be_added_to_a_second_company(client, tenants):
     db, actors, accounts = tenants
-    a, teammate, _ = actors
-    db.table('account_users').insert({'user_id': a['uid'], 'account_id': accounts[1], 'role': 'driver'}).execute()
+    a = actors[0]
+    with pytest.raises(Exception):
+        db.table('account_users').insert(
+            {'user_id': a['uid'], 'account_id': accounts[1], 'role': 'driver'}
+        ).execute()
+    assert client.post('/api/get-current-status', headers=a['headers']).status_code == 200
+
+
+def test_removed_login_cannot_join_a_different_company(client, tenants):
+    db, actors, accounts = tenants
+    a = actors[0]
+    db.table('account_users').delete().eq('user_id', a['uid']).execute()
+    with pytest.raises(Exception):
+        db.table('account_users').insert(
+            {'user_id': a['uid'], 'account_id': accounts[1], 'role': 'driver'}
+        ).execute()
     assert client.post('/api/get-current-status', headers=a['headers']).status_code == 403
-    # A teammate's existing session must not make an ambiguous owner's route accessible.
-    db.table('sessions').update({'current_route_id': a['route'], 'current_machine_id': a['machine']}).eq('id', teammate['session']).execute()
-    assert client.post('/api/get-current-status', headers=teammate['headers']).status_code == 403
-    assert client.post('/api/picking-context', json={'session_id': teammate['session']}, headers=teammate['headers']).status_code == 403
 
 
 @pytest.mark.parametrize('foreign_route', [True, False])
@@ -111,8 +139,63 @@ def test_status_refuses_cross_tenant_session_references(client, tenants, foreign
     patch = {'current_machine_id': other['machine']}
     if foreign_route:
         patch['current_route_id'] = other['route']
-    db.table('sessions').update(patch).eq('id', a['session']).execute()
-    assert client.post('/api/get-current-status', headers=a['headers']).status_code == 403
+    with pytest.raises(Exception):
+        db.table('sessions').update(patch).eq('id', a['session']).execute()
+    state = db.table('sessions').select('current_route_id,current_machine_id').eq('id', a['session']).execute().data[0]
+    assert state == {'current_route_id': a['route'], 'current_machine_id': a['machine']}
+
+
+def test_route_company_cannot_be_changed(tenants):
+    db, actors, accounts = tenants
+    with pytest.raises(Exception):
+        db.table('routes').update({'account_id': accounts[1]}).eq('id', actors[0]['route']).execute()
+    route = db.table('routes').select('account_id').eq('id', actors[0]['route']).execute().data[0]
+    assert route['account_id'] == accounts[0]
+
+
+def test_route_driver_can_change_only_inside_original_company(tenants):
+    db, actors, _ = tenants
+    owner, teammate, other = actors
+    db.table('routes').update({'user_id': teammate['uid']}).eq('id', owner['route']).execute()
+    route = db.table('routes').select('user_id,account_id').eq('id', owner['route']).execute().data[0]
+    assert route == {'user_id': teammate['uid'], 'account_id': owner['account']}
+    with pytest.raises(Exception):
+        db.table('routes').update({'user_id': other['uid']}).eq('id', owner['route']).execute()
+    db.table('routes').update({'user_id': owner['uid']}).eq('id', owner['route']).execute()
+
+
+def test_machines_and_items_cannot_be_moved_between_parents(tenants):
+    db, actors, _ = tenants
+    a, teammate, _ = actors
+    item = db.table('items').select('id').eq('machine_id', a['machine']).limit(1).execute().data[0]
+    with pytest.raises(Exception):
+        db.table('machines').update({'route_id': teammate['route']}).eq('id', a['machine']).execute()
+    with pytest.raises(Exception):
+        db.table('items').update({'machine_id': teammate['machine']}).eq('id', item['id']).execute()
+
+
+def test_assignments_cannot_cross_company_boundaries(tenants):
+    db, actors, _ = tenants
+    owner, teammate, other = actors
+    assignment = db.table('route_assignments').insert({
+        'route_id': owner['route'], 'user_id': teammate['uid'], 'assigned_by': owner['uid']
+    }).execute().data[0]
+    assert assignment['route_id'] == owner['route']
+    with pytest.raises(Exception):
+        db.table('route_assignments').insert({
+            'route_id': other['route'], 'user_id': teammate['uid'], 'assigned_by': teammate['uid']
+        }).execute()
+    with pytest.raises(Exception):
+        db.table('route_assignments').insert({
+            'route_id': teammate['route'], 'user_id': owner['uid'], 'assigned_by': other['uid']
+        }).execute()
+
+
+def test_browser_rls_hides_foreign_company_data(tenants):
+    _, actors, _ = tenants
+    a, _, other = actors
+    assert a['client'].table('routes').select('id').eq('id', other['route']).execute().data == []
+    assert a['client'].table('machines').select('id').eq('id', other['machine']).execute().data == []
 
 
 @pytest.mark.parametrize('role', ['anon', 'authenticated'])
@@ -134,3 +217,25 @@ def test_direct_browser_rpc_execution_denied(role, signature, args):
     assert 'permission denied for function' in result.stderr
     grant = subprocess.check_output(command + ['-Atc', f"SELECT has_function_privilege('service_role','public.{signature}','EXECUTE')"], text=True).strip()
     assert grant == 't'
+
+
+@pytest.mark.parametrize('signature,args', [
+    ('picking_context(uuid,uuid)', 'NULL::uuid,NULL::uuid'),
+    ('advance_picking(uuid,uuid,uuid,uuid,integer,integer,text)',
+     'NULL::uuid,NULL::uuid,NULL::uuid,NULL::uuid,0,1,NULL::text'),
+    ('transition_picking(uuid,uuid,uuid,uuid,uuid,text,integer,text,jsonb)',
+     'NULL::uuid,NULL::uuid,NULL::uuid,NULL::uuid,NULL::uuid,NULL::text,1,NULL::text,NULL::jsonb'),
+])
+def test_new_tenant_picking_functions_are_service_only(signature, args):
+    command = ['docker', 'exec', 'supabase_db_stockerai-disposable', 'psql', '-U', 'postgres',
+               '-d', 'postgres', '-v', 'ON_ERROR_STOP=1']
+    name = signature.split('(')[0]
+    for role in ('anon', 'authenticated'):
+        result = subprocess.run(command + ['-c',
+            f'BEGIN; SET LOCAL ROLE {role}; SELECT public.{name}({args}); ROLLBACK;'],
+            capture_output=True, text=True)
+        assert result.returncode != 0
+        assert 'permission denied for function' in result.stderr
+    assert subprocess.check_output(command + ['-Atc',
+        f"SELECT has_function_privilege('service_role','public.{signature}','EXECUTE')"],
+        text=True).strip() == 't'

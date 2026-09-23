@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 USER = "00000000-0000-0000-0000-00000000c001"
+ACCOUNT = "00000000-0000-0000-0000-00000000a001"
 
 
 class Query:
@@ -64,7 +65,7 @@ class Store:
                               location_name="Test", machine_number=i, sequence=i,
                               status=status, total_items=5, completed_items=2,
                               skipped_at_item=2 if status == "skipped" else None,
-                              routes={"user_id": USER}) for i, status in enumerate(statuses)],
+                              routes={"account_id": ACCOUNT}) for i, status in enumerate(statuses)],
             "items": [],
         }
     def table(self, name): return Query(self, name)
@@ -168,7 +169,7 @@ def test_completion_handoff_then_skip_uses_the_returned_machine(client, setup, m
 
 def test_account_boundary_still_applies_to_skipped_machine(client, setup):
     db = setup(['skipped'])
-    db.rows['machines'][0]['routes']['user_id'] = 'other-account'
+    db.rows['machines'][0]['routes']['account_id'] = '00000000-0000-0000-0000-00000000a999'
     response = skip(client)
     assert response.status_code == 403
     assert db.writes == []

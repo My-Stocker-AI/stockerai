@@ -22,7 +22,7 @@ def test_transition_uses_verified_caller_and_never_falls_back():
     assert mock.call_count==1
     params=mock.call_args.args[1]
     assert params['p_user_id']==caller.user_id
-    assert params['p_team_user_ids']==caller.team_user_ids
+    assert 'p_team_user_ids' not in params
 
 
 @pytest.mark.parametrize('field,value',[('expected_revision','bad'),('action','destroy'),('direction','sideways'),

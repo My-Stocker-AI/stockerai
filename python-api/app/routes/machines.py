@@ -250,15 +250,12 @@ def set_route_sequence(req: SetRouteSequenceRequest, caller: Caller = AuthCaller
     """
     db = get_client()
 
-    # Step 1: the account's members, taken from the verified login. There is no longer a
-    # user_id a caller can name to reach a route outside their own account.
-    team_user_ids = caller.team_user_ids
-
-    # Step 2: Find route (exact match first, then partial)
+    # Step 1: Find a route permanently owned by the caller's company. Assignment to a
+    # particular driver does not define or transfer the company's ownership.
     routes_result = (
         db.table("routes")
         .select("id, route_name, delivery_date")
-        .in_("user_id", team_user_ids)
+        .eq("account_id", caller.account_id)
         .eq("delivery_date", req.date)
         .execute()
     )

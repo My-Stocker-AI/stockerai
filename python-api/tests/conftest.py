@@ -14,6 +14,7 @@ from tests.test_safety import require_local_target
 _dotenv_patch = patch("dotenv.load_dotenv", return_value=False)
 _dotenv_patch.start()
 _database_enabled = os.environ.get("STOCKERAI_DB_TESTS") == "1"
+DEFAULT_TEST_ACCOUNT = "00000000-0000-0000-0000-00000000a001"
 if _database_enabled:
     try:
         os.environ["SUPABASE_URL"] = require_local_target(os.environ.get("STOCKERAI_TEST_SUPABASE_URL", ""))
@@ -95,11 +96,18 @@ def _disposable_identity(request):
     })
     if not created.user or created.user.id != fixtures.user_id:
         raise RuntimeError("Disposable Auth identity did not match the requested fixture")
+    db.table("accounts").insert({"id": DEFAULT_TEST_ACCOUNT, "name": "DISPOSABLE_TEST_ACCOUNT"}).execute()
+    db.table("account_users").insert({
+        "account_id": DEFAULT_TEST_ACCOUNT,
+        "user_id": fixtures.user_id,
+        "role": "driver",
+    }).execute()
     try:
         yield
     finally:
         fixtures.cleanup(db)
         db.auth.admin.delete_user(fixtures.user_id)
+        db.table("accounts").delete().eq("id", DEFAULT_TEST_ACCOUNT).execute()
 
 DEFAULT_TEST_USER = "00000000-0000-0000-0000-00000000c001"
 
@@ -137,7 +145,7 @@ def _make_stand_in(Caller):
         except Exception:
             pass
         user_id = user_id or os.environ.get("TEST_USER_ID") or DEFAULT_TEST_USER
-        return Caller(user_id=user_id, account_id="test-account", team_user_ids=[user_id])
+        return Caller(user_id=user_id, account_id=DEFAULT_TEST_ACCOUNT, team_user_ids=[user_id])
 
     return _caller_for_tests
 

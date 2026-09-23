@@ -179,7 +179,7 @@ def assert_route_in_account(db, route_id: str, caller: Caller) -> dict:
     """
     result = (
         db.table("routes")
-        .select("id, route_name, user_id, delivery_date")
+        .select("id, route_name, user_id, account_id, delivery_date")
         .eq("id", route_id)
         .limit(1)
         .execute()
@@ -188,7 +188,7 @@ def assert_route_in_account(db, route_id: str, caller: Caller) -> dict:
         raise forbidden()
 
     route = result.data[0]
-    if route["user_id"] not in caller.team_user_ids:
+    if route.get("account_id") != caller.account_id:
         raise forbidden()
     return route
 
@@ -202,7 +202,7 @@ def assert_machine_in_account(db, machine_id: str, caller: Caller, columns: str)
     """
     result = (
         db.table("machines")
-        .select(f"{columns}, routes(user_id)")
+        .select(f"{columns}, routes(account_id)")
         .eq("id", machine_id)
         .limit(1)
         .execute()
@@ -212,7 +212,7 @@ def assert_machine_in_account(db, machine_id: str, caller: Caller, columns: str)
 
     machine = result.data[0]
     parent = machine.pop("routes", None) or {}
-    if parent.get("user_id") not in caller.team_user_ids:
+    if parent.get("account_id") != caller.account_id:
         raise forbidden()
     return machine
 
