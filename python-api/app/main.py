@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 
 from app.config import require_runtime_settings
-from app.routes import session, routes, proxy, items, machines, upload, diag
+from app.routes import session, routes, proxy, items, machines, upload, diag, status
 
 
 @asynccontextmanager
@@ -70,6 +70,7 @@ app.include_router(items.router, prefix="/api")
 app.include_router(machines.router, prefix="/api")
 app.include_router(upload.router, prefix="/api")
 app.include_router(diag.router, prefix="/api")
+app.include_router(status.router, prefix="/api")
 
 
 @app.exception_handler(Exception)

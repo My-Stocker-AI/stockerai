@@ -171,7 +171,7 @@ def test_real_local_login_can_advance_and_anonymous_request_cannot(client, route
     import secrets
     from supabase import create_client
     from app.main import app
-    from app.services.auth import require_auth, _account_cache
+    from app.services.auth import require_auth
     db, _, _ = route
     account_id = None
     previous = app.dependency_overrides.pop(require_auth, None)
@@ -205,7 +205,6 @@ def test_real_local_login_can_advance_and_anonymous_request_cannot(client, route
     finally:
         if previous is not None:
             app.dependency_overrides[require_auth] = previous
-        _account_cache.pop(FIXTURES.user_id, None)
         if account_id:
             db.table('account_users').delete().eq('account_id', account_id).eq('user_id', FIXTURES.user_id).execute()
             db.table('accounts').delete().eq('id', account_id).execute()

@@ -6,6 +6,10 @@ verify_jwt = false
 [functions.get-current-status-optimized]
 verify_jwt = false
 
+# All three compatibility handlers delegate JWT verification to the authenticated API.
+[functions.get-next-item-data]
+verify_jwt = false
+
 [functions.create-checkout]
 verify_jwt = false
 
