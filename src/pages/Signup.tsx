@@ -57,7 +57,7 @@ const Signup = () => {
     // Handle "50+" as 50 drivers - enterprise users can adjust in settings
     const parsedDriverCount = driverCount === "50+" ? 50 : (parseInt(driverCount) || 2);
 
-    const { error: signUpError } = await signUp(
+    const { error: signUpError, requiresEmailConfirmation } = await signUp(
       email,
       password,
       firstName,
@@ -76,8 +76,12 @@ const Signup = () => {
       return;
     }
 
-    toast.success("Account created! Check your email to confirm your account.");
-    navigate("/dashboard");
+    if (requiresEmailConfirmation) {
+      navigate("/login?signup=check-email", { replace: true });
+    } else {
+      toast.success("Account created!");
+      navigate("/dashboard");
+    }
   };
 
   return (

@@ -148,7 +148,6 @@ const Settings = () => {
         .from('accounts')
         .update({
           name: accountName,
-          driver_count: driverCount,
           machines_per_driver: machinesPerDriver,
         })
         .eq('id', userRole.account_id);
@@ -326,11 +325,12 @@ const Settings = () => {
                     min="1"
                     max="999"
                     value={driverCount}
-                    onChange={(e) => setDriverCount(parseInt(e.target.value) || 2)}
+                    readOnly
+                    aria-readonly="true"
                     className="bg-dashboard-bg border-dashboard-border text-dashboard-text"
                   />
                   <p className="text-xs text-dashboard-text-secondary">
-                    Number of drivers in your subscription. Current rate: ${driverCount <= 5 ? 20 : driverCount <= 20 ? 18 : 15}/driver/month
+                    Managed from Billing so seat access and subscription quantities stay synchronized.
                   </p>
                 </div>
 

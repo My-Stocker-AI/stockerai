@@ -130,14 +130,12 @@ const AdminSubscriptions = () => {
 
     setSaving(true);
     try {
-      const { error } = await supabase
-        .from('accounts')
-        .update({
-          subscription_status: editForm.subscription_status,
-          driver_count: editForm.driver_count,
-          is_platform_account: editForm.is_platform_account,
-        })
-        .eq('id', selectedAccount.id);
+      const { error } = await supabase.rpc('admin_update_account_access', {
+        p_account_id: selectedAccount.id,
+        p_driver_count: editForm.driver_count,
+        p_is_complimentary: editForm.is_platform_account,
+        p_subscription_status: editForm.subscription_status,
+      });
 
       if (error) throw error;
 
