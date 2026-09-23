@@ -28,6 +28,9 @@ interface TeamMember {
   } | null;
 }
 
+const errorMessage = (error: unknown) =>
+  error instanceof Error ? error.message : String(error);
+
 export function UploadTab() {
   const { user, userRole } = useAuth();
   const { toast } = useToast();
@@ -125,14 +128,14 @@ export function UploadTab() {
       // the first upload never arrived, the second returned 200. So auto-retry the
       // connection a few times; the driver never sees a transient "Failed to fetch".
       let response: Response | null = null;
-      let lastNetErr: any = null;
+      let lastNetErr: unknown = null;
       for (let attempt = 1; attempt <= 4; attempt++) {
         try {
           // authFetch attaches the login. The browser still sets the multipart boundary
           // itself, because nothing here sets Content-Type.
           response = await authFetch(uploadUrl, { method: 'POST', body: formData });
           break;
-        } catch (netErr: any) {
+        } catch (netErr) {
           lastNetErr = netErr;
           if (attempt < 4) {
             // brief, growing pause so the radio/connection has time to come up
@@ -145,7 +148,7 @@ export function UploadTab() {
           ? new Date(__BUILD_TIME__).toLocaleString()
           : 'unknown';
         throw new Error(
-          `Couldn't reach the server after several tries · Address: ${uploadUrl} · Reason: ${lastNetErr?.message || lastNetErr} · App build: ${build}`
+          `Couldn't reach the server after several tries · Address: ${uploadUrl} · Reason: ${errorMessage(lastNetErr)} · App build: ${build}`
         );
       }
 
@@ -165,11 +168,11 @@ export function UploadTab() {
       const result = await response.json();
 
       // Retry logic to find the newly created route (n8n may take time to insert)
-      let newRoute = null;
+      let newRoute: { id: string } | null = result.route_id ? { id: result.route_id } : null;
       const maxRetries = 5;
       const deliveryDateStr = format(deliveryDate, 'yyyy-MM-dd');
 
-      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      for (let attempt = 1; !newRoute && attempt <= maxRetries; attempt++) {
         // Wait with exponential backoff: 1s, 2s, 4s, 8s, 16s
         await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, attempt - 1)));
 
@@ -188,14 +191,17 @@ export function UploadTab() {
         }
       }
 
-      if (newRoute) {
-        await supabase
+      if (newRoute && !result.assignment_confirmed) {
+        const { error: assignmentError } = await supabase
           .from('route_assignments')
           .insert({
             route_id: newRoute.id,
             user_id: driverId,
             assigned_by: user.id,
           });
+        if (assignmentError) throw assignmentError;
+      } else if (!newRoute) {
+        throw new Error('The route was uploaded, but its driver assignment could not be confirmed. Refresh the route list before retrying.');
       }
 
       const driverName = selectedDriverId === 'self'
@@ -208,11 +214,11 @@ export function UploadTab() {
       });
 
       setFile(null);
-    } catch (error: any) {
+    } catch (error) {
       console.error('Upload error:', error);
       toast({
         title: "Upload failed",
-        description: error.message || "Please try again",
+        description: errorMessage(error) || "Please try again",
         variant: "destructive",
       });
     } finally {

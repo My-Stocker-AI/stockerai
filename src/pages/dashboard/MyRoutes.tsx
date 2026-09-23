@@ -53,16 +53,19 @@ const MyRoutes = () => {
 
   // Fetch routes based on role
   const { data: routes = [], isLoading } = useQuery({
-    queryKey: ['my-routes', user?.id, canViewAllRoutes],
+    queryKey: ['my-routes', userRole?.account_id, user?.id, canViewAllRoutes],
     queryFn: async () => {
       if (!user) return [];
 
       if (canViewAllRoutes) {
-        // Admin or user with can_view_all_routes - fetch all routes for the user
+        if (!userRole?.account_id) return [];
+
+        // Admin or user with can_view_all_routes sees the account's routes even
+        // when a route is assigned to a different driver.
         const { data, error } = await supabase
           .from('routes')
           .select('*, profiles(first_name, last_name)')
-          .eq('user_id', user.id)
+          .eq('account_id', userRole.account_id)
           .order('delivery_date', { ascending: true });
 
         if (error) throw error;
@@ -89,7 +92,7 @@ const MyRoutes = () => {
         return data as RouteData[];
       }
     },
-    enabled: !!user,
+    enabled: !!user && !!userRole,
   });
 
   // Fetch sessions to get route status
@@ -287,7 +290,7 @@ const MyRoutes = () => {
               <p className="text-sm text-dashboard-text-secondary">
                 {route.total_machines || 0} machines · {route.total_items || 0} items
                 {route.profiles && (
-                  <span className="ml-2">· Created by: {route.profiles.first_name} {route.profiles.last_name}</span>
+                  <span className="ml-2">· Driver: {route.profiles.first_name} {route.profiles.last_name}</span>
                 )}
               </p>
             </div>

@@ -68,6 +68,9 @@ interface RouteAssignment {
   user_id: string;
 }
 
+const errorMessage = (error: unknown) =>
+  error instanceof Error ? error.message : String(error);
+
 const UploadRoutes = () => {
   const { userRole, user } = useAuth();
   const { toast } = useToast();
@@ -94,17 +97,17 @@ const UploadRoutes = () => {
   const { data: routes = [], isLoading: routesLoading } = useQuery({
     queryKey: ['routes', userRole?.account_id],
     queryFn: async () => {
-      if (!user) return [];
+      if (!userRole?.account_id) return [];
       const { data, error } = await supabase
         .from('routes')
         .select('*, profiles(first_name, last_name)')
-        .eq('user_id', user.id)
+        .eq('account_id', userRole.account_id)
         .order('delivery_date', { ascending: false });
 
       if (error) throw error;
       return data as Route[];
     },
-    enabled: !!user,
+    enabled: !!userRole?.account_id,
   });
 
   // Fetch team members for assignment
@@ -277,14 +280,14 @@ const UploadRoutes = () => {
       // the connection so that transient drop never surfaces as "Failed to fetch".
       // Safe to retry: the backend de-dupes routes by name+date before inserting.
       let response: Response | null = null;
-      let lastNetErr: any = null;
+      let lastNetErr: unknown = null;
       for (let attempt = 1; attempt <= 4; attempt++) {
         try {
           // authFetch attaches the login. The browser still sets the multipart boundary
           // itself, because nothing here sets Content-Type.
           response = await authFetch(uploadUrl, { method: 'POST', body: formData });
           break;
-        } catch (netErr: any) {
+        } catch (netErr) {
           lastNetErr = netErr;
           if (attempt < 4) {
             await new Promise((r) => setTimeout(r, 700 * attempt));
@@ -296,7 +299,7 @@ const UploadRoutes = () => {
           ? new Date(__BUILD_TIME__).toLocaleString()
           : 'unknown';
         throw new Error(
-          `Couldn't reach the server after several tries · Address: ${uploadUrl} · Reason: ${lastNetErr?.message || lastNetErr} · App build: ${build}`
+          `Couldn't reach the server after several tries · Address: ${uploadUrl} · Reason: ${errorMessage(lastNetErr)} · App build: ${build}`
         );
       }
 
@@ -329,12 +332,13 @@ const UploadRoutes = () => {
         return;
       }
 
-      // Retry logic to find the newly created route (n8n may take time to insert)
-      let newRoute = null;
+      // The Python API returns the exact route and confirms its assignment. Keep the
+      // lookup only for the legacy n8n response during staged rollout.
+      let newRoute: { id: string } | null = result.route_id ? { id: result.route_id } : null;
       const maxRetries = 5;
       const deliveryDateStr = format(deliveryDate, 'yyyy-MM-dd');
 
-      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      for (let attempt = 1; !newRoute && attempt <= maxRetries; attempt++) {
         // Wait with exponential backoff: 1s, 2s, 4s, 8s, 16s
         await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, attempt - 1)));
 
@@ -355,17 +359,18 @@ const UploadRoutes = () => {
         console.log(`[Upload] Route not found, attempt ${attempt}/${maxRetries}`);
       }
 
-      if (newRoute && driverId) {
+      if (newRoute && driverId && !result.assignment_confirmed) {
         // Create route assignment for the selected driver
-        await supabase
+        const { error: assignmentError } = await supabase
           .from('route_assignments')
           .insert({
             route_id: newRoute.id,
             user_id: driverId,
             assigned_by: user.id,
           });
+        if (assignmentError) throw assignmentError;
       } else if (!newRoute) {
-        console.warn('[Upload] Route created but could not find it for assignment');
+        throw new Error('The route was uploaded, but its driver assignment could not be confirmed. Refresh the route list before retrying.');
       }
 
       const driverName = selectedDriverId === 'self' || !selectedDriverId
@@ -390,11 +395,12 @@ const UploadRoutes = () => {
       setFile(null);
       setSelectedDriverId('');
       queryClient.invalidateQueries({ queryKey: ['routes'] });
-    } catch (error: any) {
+      queryClient.invalidateQueries({ queryKey: ['my-routes'] });
+    } catch (error) {
       console.error('Upload error:', error);
       toast({
         title: "Upload failed",
-        description: error.message || "Please try again",
+        description: errorMessage(error) || "Please try again",
         variant: "destructive",
       });
     } finally {
@@ -502,19 +508,24 @@ const UploadRoutes = () => {
                   <SelectTrigger className="bg-dashboard-bg border-dashboard-border text-dashboard-text">
                     <SelectValue placeholder="Select driver..." />
                   </SelectTrigger>
-                  <SelectContent style={{ backgroundColor: '#161b22' }} className="border-dashboard-border">
-                    <SelectItem value="self" className="text-dashboard-text">
+                  <SelectContent className="border-dashboard-border bg-[#161b22] text-white">
+                    <SelectItem
+                      value="self"
+                      className="cursor-pointer text-white focus:bg-gray-700 focus:text-white data-[highlighted]:bg-gray-700 data-[highlighted]:text-white"
+                    >
                       Myself
                     </SelectItem>
-                    {teamMembers.map((member) => (
-                      <SelectItem
-                        key={member.user_id}
-                        value={member.user_id}
-                        className="text-dashboard-text"
-                      >
-                        {member.profiles?.first_name} {member.profiles?.last_name} ({member.profiles?.email})
-                      </SelectItem>
-                    ))}
+                    {teamMembers
+                      .filter((member) => member.user_id !== user?.id)
+                      .map((member) => (
+                        <SelectItem
+                          key={member.user_id}
+                          value={member.user_id}
+                          className="cursor-pointer text-white focus:bg-gray-700 focus:text-white data-[highlighted]:bg-gray-700 data-[highlighted]:text-white"
+                        >
+                          {member.profiles?.first_name} {member.profiles?.last_name} ({member.profiles?.email})
+                        </SelectItem>
+                      ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -525,9 +536,13 @@ const UploadRoutes = () => {
                   <SelectTrigger className="bg-dashboard-bg border-dashboard-border text-dashboard-text">
                     <SelectValue placeholder="Which system is this report from?" />
                   </SelectTrigger>
-                  <SelectContent style={{ backgroundColor: '#161b22' }} className="border-dashboard-border">
+                  <SelectContent className="border-dashboard-border bg-[#161b22] text-white">
                     {['Parlevel', 'Nayax', 'Cantaloupe/Seed', 'Gimme', 'VendSoft', 'VendSys', 'Vagabond', 'Vend-Trak', 'VendMAX', 'Other'].map((v) => (
-                      <SelectItem key={v} value={v} className="text-dashboard-text">
+                      <SelectItem
+                        key={v}
+                        value={v}
+                        className="cursor-pointer text-white focus:bg-gray-700 focus:text-white data-[highlighted]:bg-gray-700 data-[highlighted]:text-white"
+                      >
                         {v}
                       </SelectItem>
                     ))}
@@ -589,7 +604,7 @@ const UploadRoutes = () => {
                             <p className="text-sm text-dashboard-text-secondary">
                               {route.total_machines || 0} machines · {route.total_items || 0} items
                               {route.profiles && (
-                                <span className="ml-2">· Created by: {route.profiles.first_name} {route.profiles.last_name}</span>
+                                <span className="ml-2">· Driver: {route.profiles.first_name} {route.profiles.last_name}</span>
                               )}
                             </p>
                           </div>
