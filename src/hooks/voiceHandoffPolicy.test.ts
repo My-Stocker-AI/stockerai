@@ -5,6 +5,7 @@ import {
   resolveHandoffCommand,
   recoverStatus,
   watchdogAction,
+  nextWatchdogStartedAt,
   WATCHDOG_STUCK_THRESHOLD_MS,
   type VoiceStatus,
 } from './voiceHandoffPolicy';
@@ -191,6 +192,14 @@ describe('BRANCH 5 — watchdog: recover a real freeze, never interrupt legit pr
  * to stop.
  */
 describe('GRID-001 — the watchdog can now actually fire', () => {
+  it('starts a fresh clock for every new non-listening operation', () => {
+    expect(nextWatchdogStartedAt({ newStatus: 'speaking', now: 1000 })).toBe(1000);
+    // A second announcement can begin before the first speak() has fully unwound.
+    expect(nextWatchdogStartedAt({ newStatus: 'speaking', now: 7000 })).toBe(7000);
+    expect(nextWatchdogStartedAt({ newStatus: 'thinking', now: 8000 })).toBe(8000);
+    expect(nextWatchdogStartedAt({ newStatus: 'listening', now: 9000 })).toBeNull();
+  });
+
   it('recovers a freeze with NOTHING queued — the case that was unreachable', () => {
     // This is the exact assertion that used to read 'noop' and kept the rescue switched off.
     expect(
@@ -226,6 +235,32 @@ describe('GRID-001 — the watchdog can now actually fire', () => {
         isActivelySpeaking: true,
       }),
     ).toBe('noop');
+  });
+
+  it('does not recover while a bounded TTS request is preparing playback', () => {
+    expect(
+      watchdogAction({
+        status: 'speaking',
+        hasPendingCommand: false,
+        stuckMs: WATCHDOG_STUCK_THRESHOLD_MS + 500,
+        thresholdMs: WATCHDOG_STUCK_THRESHOLD_MS,
+        isActivelySpeaking: false,
+        isSpeechPreparing: true,
+      }),
+    ).toBe('noop');
+  });
+
+  it('still recovers a speaking state after preparation has expired', () => {
+    expect(
+      watchdogAction({
+        status: 'speaking',
+        hasPendingCommand: false,
+        stuckMs: WATCHDOG_STUCK_THRESHOLD_MS + 500,
+        thresholdMs: WATCHDOG_STUCK_THRESHOLD_MS,
+        isActivelySpeaking: false,
+        isSpeechPreparing: false,
+      }),
+    ).toBe('recover');
   });
 
   it("DOES recover from 'speaking' once the audio has actually finished", () => {

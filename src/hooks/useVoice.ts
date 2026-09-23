@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { readEnvVoiceTuning, EnvVoiceTuning } from '@/lib/settingsCore';
 import { gentleReconnect, shouldReconnectFromStatus } from './reconnectPolicy';
-import { watchdogAction, recoverStatus, resolveHandoffCommand, WATCHDOG_STUCK_THRESHOLD_MS } from './voiceHandoffPolicy';
+import { nextWatchdogStartedAt, watchdogAction, recoverStatus, resolveHandoffCommand, WATCHDOG_STUCK_THRESHOLD_MS } from './voiceHandoffPolicy';
 import { shouldMicSend } from './captureHoldPolicy';
 import { shouldSpeakFallback } from './speechFallbackPolicy';
 import { accumulateTranscript } from './transcriptAccumulator';
@@ -12,6 +12,9 @@ export type VoiceStatus = 'idle' | 'listening' | 'speaking' | 'thinking' | 'paus
 
 // TTS via Cloudflare Worker (same as original PWA)
 const TTS_URL = 'https://solitary-base-799c.russ-731.workers.dev';
+// TTS fetches abort at 15 seconds. Give the request one extra second to reject and enter the
+// fallback path before the general voice watchdog treats preparation as stalled.
+const TTS_PREPARATION_WATCHDOG_MS = 16000;
 
 // Deepgram STT via Cloudflare Worker (same as original PWA)
 const DEEPGRAM_TOKEN_URL = 'https://stocker-deepgram-stt.russ-731.workers.dev/token';
@@ -19,7 +22,7 @@ const DEEPGRAM_TOKEN_URL = 'https://stocker-deepgram-stt.russ-731.workers.dev/to
 // Build marker — bump alongside package.json "version" and sw.js SW_VERSION on each deploy.
 // Emitted to the diagnostic pipe on startListening so Davy's Render logs show EXACTLY which
 // build his phone is running (kills the "tested stale code" trap).
-const BUILD_VERSION = 'v0.2.0-gridfixes';
+const BUILD_VERSION = 'v0.2.1-watchdog';
 
 // Wake phrases including common mishearings (from original PWA).
 // Moved to src/utils/wakePhrases.ts 2026-07-30 so the command matcher reads the SAME list —
@@ -73,20 +76,21 @@ export function useVoice(options: UseVoiceOptions = {}) {
 
   // Status ref to avoid stale closures in WebSocket callbacks (matches original PWA this.state pattern)
   const statusRef = useRef<VoiceStatus>('idle');
-  // Watchdog bookkeeping (branch 5): timestamp of when status last LEFT 'listening', so the
-  // watchdog can tell a brief legitimate 'thinking' window from a real stuck-freeze. Null while
-  // listening. See voiceHandoffPolicy.watchdogAction.
+  // Watchdog bookkeeping (branch 5): timestamp of the CURRENT non-listening operation. A fresh
+  // announcement can start while the previous one is still unwinding, so carrying the first
+  // timestamp forward makes legitimate work look frozen. Null while listening.
   const stuckSinceRef = useRef<number | null>(null);
   const setStatus = useCallback((newStatus: VoiceStatus) => {
-    if (newStatus === 'listening') {
-      stuckSinceRef.current = null;
-    } else if (statusRef.current === 'listening') {
-      // First tick leaving 'listening' — start the stuck clock.
-      stuckSinceRef.current = Date.now();
-    }
+    stuckSinceRef.current = nextWatchdogStartedAt({ newStatus, now: Date.now() });
     statusRef.current = newStatus;
     setStatusState(newStatus);
   }, []);
+
+  // A generation prevents an interrupted, older speak() call from clearing the preparation
+  // marker belonging to the next announcement. The marker covers only the bounded TTS request;
+  // actual playback remains protected by audioRef / speechSynthesis below.
+  const speechGenerationRef = useRef(0);
+  const speechPreparationRef = useRef<{ generation: number; startedAt: number } | null>(null);
 
   // Deepgram refs
   const socketRef = useRef<WebSocket | null>(null);
@@ -215,7 +219,10 @@ export function useVoice(options: UseVoiceOptions = {}) {
   // dead spot moved around and never reproduced the same way twice.
   //
   // Called at the moment audio actually starts, on both playback paths.
-  const markSpeechStarted = useCallback((spokenText: string) => {
+  const markSpeechStarted = useCallback((spokenText: string, generation: number) => {
+    if (speechPreparationRef.current?.generation === generation) {
+      speechPreparationRef.current = null;
+    }
     lastSpokenTextRef.current = spokenText.toLowerCase();
     lastSpeakTimeRef.current = Date.now();
     lastSpeakEndTimeRef.current = null; // speaker is live from here until playback ends
@@ -1442,10 +1449,10 @@ export function useVoice(options: UseVoiceOptions = {}) {
   // ── Freeze watchdog (branch 5, strictly additive) ───────────────────────────────────────────
   // Davy's 2026-07-12 route died when the app got stuck non-listening after a TTS barge-in: it
   // kept transcribing but never acted, with a command stranded in the queue. This safety net
-  // polls the status FSM and, only when it has been stuck non-listening with a pending command
-  // past the threshold (long enough that a real in-flight API 'thinking' call would already have
-  // resolved), force-recovers to listening and flushes the backlog via resumeListening. A normal
-  // short 'thinking' window is left untouched. Decision logic is the unit-tested watchdogAction.
+  // polls the status FSM after a bounded grace period, force-recovers a genuinely stalled
+  // operation to listening, and flushes any backlog via resumeListening. A current TTS request,
+  // active playback, short thinking window, deliberate stop, pause, and mute are left untouched.
+  // Decision logic is the unit-tested watchdogAction.
   const resumeListeningRef = useRef(resumeListening);
   resumeListeningRef.current = resumeListening;
   useEffect(() => {
@@ -1459,17 +1466,29 @@ export function useVoice(options: UseVoiceOptions = {}) {
       const isActivelySpeaking =
         (!!el && !el.paused && !el.ended) ||
         (typeof window !== 'undefined' && !!window.speechSynthesis?.speaking);
+      const preparation = speechPreparationRef.current;
+      const speechPreparationMs = preparation === null ? null : Date.now() - preparation.startedAt;
+      const isSpeechPreparing =
+        statusRef.current === 'speaking' &&
+        speechPreparationMs !== null &&
+        speechPreparationMs < TTS_PREPARATION_WATCHDOG_MS;
       const action = watchdogAction({
         status: statusRef.current,
         hasPendingCommand: pendingCommandRef.current !== null,
         stuckMs,
         thresholdMs: WATCHDOG_STUCK_THRESHOLD_MS,
         isActivelySpeaking,
+        isSpeechPreparing,
       });
       if (action === 'recover') {
         const target = recoverStatus(statusRef.current); // 'listening' (preserves paused/muted)
         console.warn('[Voice] ⏱️ Watchdog: stuck off listening past threshold — force-recovering to', target);
-        emitDiagnostic('watchdog-recover', { stuckMs, from: statusRef.current, to: target });
+        emitDiagnostic('watchdog-recover', {
+          stuckMs,
+          from: statusRef.current,
+          to: target,
+          speechPreparationMs,
+        });
         setStatus(target);
         // resumeListening() re-arms capture AND fires the stranded command from pendingCommandRef.
         resumeListeningRef.current().catch(() => { /* best effort — a failed resume re-arms next tick */ });
@@ -1569,7 +1588,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
     } catch (e) {}
   }, []);
 
-  const speakBrowser = useCallback((text: string): Promise<void> => {
+  const speakBrowser = useCallback((text: string, generation: number): Promise<void> => {
     return new Promise((resolve) => {
       // Timeout: Chrome onend is unreliable and can hang indefinitely
       const timeout = setTimeout(() => {
@@ -1583,7 +1602,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
         utterance.rate = 1.0;
         // GRID-002: the flat fallback voice is still the app talking, so it needs the same
         // echo window as the normal voice — anchored to when sound actually starts.
-        utterance.onstart = () => { markSpeechStarted(text); };
+        utterance.onstart = () => { markSpeechStarted(text, generation); };
         utterance.onend = () => { clearTimeout(timeout); resolve(); };
         utterance.onerror = () => { clearTimeout(timeout); resolve(); };
         window.speechSynthesis.speak(utterance);
@@ -1655,6 +1674,9 @@ export function useVoice(options: UseVoiceOptions = {}) {
       releaseSpeakLock();
       return;
     }
+
+    const speechGeneration = ++speechGenerationRef.current;
+    speechPreparationRef.current = { generation: speechGeneration, startedAt: Date.now() };
 
     try {
       // 2. Set state FIRST (before stopping recognition) - matches original PWA
@@ -1808,7 +1830,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
               playPromise
                 .then(() => {
                   // GRID-002: sound is actually coming out NOW — start the echo window here.
-                  markSpeechStarted(processed);
+                  markSpeechStarted(processed, speechGeneration);
                   console.log('[Voice] HTMLAudioElement playback started (speakerphone)');
                 })
                 .catch(err => {
@@ -1884,7 +1906,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
                 try {
                   source.start(0);
                   // GRID-002: sound is actually coming out NOW — start the echo window here.
-                  markSpeechStarted(processed);
+                  markSpeechStarted(processed, speechGeneration);
                   console.log('[Voice] Web Audio API playback started');
                 } catch (err: any) {
                   console.error('[Voice] Web Audio playback failed:', err);
@@ -1916,7 +1938,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
         // because there he genuinely has not heard the item and silence would be worse.
         if (shouldSpeakFallback({ stoppedOnPurpose: stoppedRef.current })) {
           // Use processed text so pronunciation corrections apply
-          await speakBrowser(processed);
+          await speakBrowser(processed, speechGeneration);
         } else {
           console.log('[Voice] Playback stopped deliberately — not re-speaking in the backup voice');
           emitDiagnostic('tts-stop-not-failure', processed);
@@ -1939,6 +1961,9 @@ export function useVoice(options: UseVoiceOptions = {}) {
     } catch (outerError) {
       console.error('[Voice] Speak failed:', outerError);
     } finally {
+      if (speechPreparationRef.current?.generation === speechGeneration) {
+        speechPreparationRef.current = null;
+      }
       // CRITICAL: Always reset from 'speaking' state to prevent permanent voice lockout
       // If status is still 'speaking' here, something threw before setStatus('listening')
       if (!stoppedRef.current && statusRef.current === 'speaking') {

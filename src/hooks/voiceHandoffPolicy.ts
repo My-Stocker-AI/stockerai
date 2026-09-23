@@ -20,6 +20,19 @@ export type VoiceStatus =
   | 'error';
 
 /**
+ * Track the beginning of the CURRENT non-listening operation, not merely the first time the
+ * state left listening. A second announcement can begin while the previous announcement is
+ * still unwinding; carrying the old timestamp into that new operation makes the watchdog treat
+ * fresh work as a six-second-old freeze.
+ */
+export function nextWatchdogStartedAt(args: {
+  newStatus: VoiceStatus;
+  now: number;
+}): number | null {
+  return args.newStatus === 'listening' ? null : args.now;
+}
+
+/**
  * BRANCH 1 — first-machine direction detection.
  *
  * The forgiving direction matcher (phoneticCorrection.detectDirection) accepts "at the bottom",
@@ -144,8 +157,10 @@ export function watchdogAction(args: {
    * the freeze it is.
    */
   isActivelySpeaking?: boolean;
+  /** True while a bounded TTS request is preparing audio but playback has not started yet. */
+  isSpeechPreparing?: boolean;
 }): 'recover' | 'noop' {
-  const { status, stuckMs, thresholdMs, isActivelySpeaking } = args;
+  const { status, stuckMs, thresholdMs, isActivelySpeaking, isSpeechPreparing } = args;
   if (status === 'listening') return 'noop';
   if (status === 'paused' || status === 'muted') return 'noop'; // user hold — never override
 
@@ -172,7 +187,7 @@ export function watchdogAction(args: {
   // What replaces it is narrower and true: never interrupt the app while it is genuinely
   // speaking. A long announcement outlasts the threshold honestly, and chopping it off in the
   // driver's ear would be a new defect of exactly the kind this sweep exists to prevent.
-  if (status === 'speaking' && isActivelySpeaking) return 'noop';
+  if (status === 'speaking' && (isActivelySpeaking || isSpeechPreparing)) return 'noop';
 
   if (stuckMs < thresholdMs) return 'noop'; // still within a legitimate processing window
   return 'recover';
