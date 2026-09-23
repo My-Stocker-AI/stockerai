@@ -69,10 +69,11 @@ afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 async function start() {
   const heard = vi.fn();
   const errors = vi.fn();
-  const hook = renderHook(({ picking }) => useVoice({
+  const hook = renderHook(({ picking, context }) => useVoice({
     shouldIgnoreTranscript: text => picking && isBareNumber(text),
+    commandContextKey: context,
     onTranscript: heard, onError: errors,
-  }), { initialProps: { picking: true } });
+  }), { initialProps: { picking: true, context: 'route-1:machine-1:item-1' } });
   await act(async () => { expect(await hook.result.current.startListening()).toBe(true); });
   expect(errors).not.toHaveBeenCalled();
   chime.mockClear(); cancelSpeech.mockClear(); heard.mockClear();
@@ -334,14 +335,14 @@ describe('real microphone transcript dispatch with fake browser devices', () => 
 
   it('rechecks queued numeric input when picking begins before dispatch', async () => {
     const { result, rerender, heard } = await start();
-    rerender({ picking: false });
+    rerender({ picking: false, context: 'route-1:machine-1:item-1' });
     await act(async () => {
       result.current.setStatus('error');
       FakeSocket.latest.transcript('12');
     });
     expect(heard).not.toHaveBeenCalled();
     expect(chime).not.toHaveBeenCalled();
-    rerender({ picking: true });
+    rerender({ picking: true, context: 'route-1:machine-1:item-1' });
     await act(async () => {
       await result.current.resumeListening();
       await vi.advanceTimersByTimeAsync(1);
@@ -359,6 +360,34 @@ describe('real microphone transcript dispatch with fake browser devices', () => 
       expect(chime).not.toHaveBeenCalled();
       result.current.stopListening();
       expect(await result.current.startListening()).toBe(true);
+      await result.current.resumeListening();
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(heard).not.toHaveBeenCalled();
+    expect(chime).not.toHaveBeenCalled();
+  });
+
+  it('does not replay a queued command after the route item context changes', async () => {
+    const { result, rerender, heard } = await start();
+    await act(async () => {
+      result.current.setStatus('error');
+      FakeSocket.latest.transcript('next');
+    });
+    rerender({ picking: true, context: 'route-1:machine-1:item-2' });
+    await act(async () => {
+      await result.current.resumeListening();
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(heard).not.toHaveBeenCalled();
+    expect(chime).not.toHaveBeenCalled();
+  });
+
+  it('does not replay a queued command after its recovery window expires', async () => {
+    const { result, heard } = await start();
+    await act(async () => {
+      result.current.setStatus('error');
+      FakeSocket.latest.transcript('next');
+      await vi.advanceTimersByTimeAsync(5001);
       await result.current.resumeListening();
       await vi.advanceTimersByTimeAsync(1);
     });
@@ -441,7 +470,7 @@ describe('real microphone transcript dispatch with fake browser devices', () => 
 
   it('uses current route context after rerender, allowing numeric route/date answers', async () => {
     const { rerender, heard } = await start();
-    rerender({ picking: false });
+    rerender({ picking: false, context: 'route-1:machine-1:item-1' });
     await act(async () => { FakeSocket.latest.transcript('12'); });
     expect(heard).toHaveBeenCalledExactlyOnceWith('12', true);
   });

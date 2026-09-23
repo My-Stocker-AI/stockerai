@@ -1297,6 +1297,13 @@ export default function StockerApp() {
   const voice = useVoice({
     onMicrophoneRecovered: () => setError(current => current === 'Microphone disconnected — tap to reconnect.' ? null : current),
     shouldIgnoreTranscript,
+    commandContextKey: JSON.stringify([
+      sessionId,
+      routeState.currentMachineId,
+      routeState.currentItem?.slot ?? null,
+      routeState.currentItem2?.slot ?? null,
+      routeState.pendingMachineTransition?.nextMachineId ?? null,
+    ]),
     onTranscript: handleTranscript,
     onError: handleVoiceError,
     onWakePhrase: handleWakePhrase,

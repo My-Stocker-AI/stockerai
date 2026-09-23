@@ -15,6 +15,7 @@ const TTS_URL = 'https://solitary-base-799c.russ-731.workers.dev';
 // TTS fetches abort at 15 seconds. Give the request one extra second to reject and enter the
 // fallback path before the general voice watchdog treats preparation as stalled.
 const TTS_PREPARATION_WATCHDOG_MS = 16000;
+const PENDING_COMMAND_MAX_AGE_MS = 5000;
 
 // Deepgram STT via Cloudflare Worker (same as original PWA)
 const DEEPGRAM_TOKEN_URL = 'https://stocker-deepgram-stt.russ-731.workers.dev/token';
@@ -41,6 +42,8 @@ interface UseVoiceOptions {
   onMicrophoneRecovered?: () => void;
   /** Discard non-input before queueing, interrupting audio, or acknowledging it. */
   shouldIgnoreTranscript?: (transcript: string) => boolean;
+  /** Stable identity for the route/item state a deferred command would act on. */
+  commandContextKey?: string;
   onTranscript?: (transcript: string, isFinal: boolean) => void;
   onError?: (error: string) => void;
   onWakePhrase?: (command: string | null) => void;
@@ -51,7 +54,7 @@ interface UseVoiceOptions {
 }
 
 export function useVoice(options: UseVoiceOptions = {}) {
-  const { onTranscript, onError, onWakePhrase, keywords, environmentEndpointing, preferredDeviceId, shouldIgnoreTranscript } = options;
+  const { onTranscript, onError, onWakePhrase, keywords, environmentEndpointing, preferredDeviceId, shouldIgnoreTranscript, commandContextKey } = options;
 
   // Store callbacks in refs to avoid stale closures in WebSocket handlers
   const onTranscriptRef = useRef(onTranscript);
@@ -60,6 +63,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
   const onWakePhraseRef = useRef(onWakePhrase);
   const keywordsRef = useRef<string[]>(keywords || []);
   const preferredDeviceIdRef = useRef<string | undefined>(preferredDeviceId);
+  const commandContextKeyRef = useRef(commandContextKey);
 
   // Keep refs updated when callbacks change
   onTranscriptRef.current = onTranscript;
@@ -68,6 +72,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
   onWakePhraseRef.current = onWakePhrase;
   keywordsRef.current = keywords || [];
   preferredDeviceIdRef.current = preferredDeviceId;
+  commandContextKeyRef.current = commandContextKey;
 
   const [status, setStatusState] = useState<VoiceStatus>('idle');
   const [lastInput, setLastInput] = useState('');
@@ -119,7 +124,11 @@ export function useVoice(options: UseVoiceOptions = {}) {
   const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);  // Silence timer fallback (matches original PWA)
   // Queued command: stores the latest command spoken during 'thinking'/'speaking'
   // Fired automatically when resumeListening() completes successfully
-  const pendingCommandRef = useRef<string | null>(null);
+  const pendingCommandRef = useRef<{
+    text: string;
+    queuedAt: number;
+    contextKey: string | undefined;
+  } | null>(null);
   // Branch 3: true while the app is awaiting a top/bottom answer at a machine hand-off. The
   // parent (StockerApp) sets it from voiceHandoffPolicy.shouldRunDirectionDetection. When set, a
   // direction command spoken during a transient 'thinking' window dispatches instead of being
@@ -524,7 +533,11 @@ export function useVoice(options: UseVoiceOptions = {}) {
       });
       if (handoff === 'queue') {
         console.log('[Voice] Command queued during', currentStatus + ':', text);
-        pendingCommandRef.current = text; // Keep only the latest
+        pendingCommandRef.current = {
+          text,
+          queuedAt: Date.now(),
+          contextKey: commandContextKeyRef.current,
+        }; // Keep only the latest, bound to the state where it was heard.
         return;
       }
       if (handoff === 'ignore') {
@@ -1466,10 +1479,16 @@ export function useVoice(options: UseVoiceOptions = {}) {
       if (pendingCommandRef.current) {
         const queued = pendingCommandRef.current;
         pendingCommandRef.current = null;
-        if (!shouldIgnoreTranscriptRef.current?.(queued)) {
-          console.log('[Voice] Firing queued command after resume:', queued);
+        const isFresh = Date.now() - queued.queuedAt <= PENDING_COMMAND_MAX_AGE_MS;
+        const isSameContext = queued.contextKey === commandContextKeyRef.current;
+        if (isFresh && isSameContext && !shouldIgnoreTranscriptRef.current?.(queued.text)) {
+          console.log('[Voice] Firing queued command after resume:', queued.text);
           playCommandChime(); // Acknowledge the queued command
-          setTimeout(() => onTranscriptRef.current?.(queued, true), 0);
+          setTimeout(() => onTranscriptRef.current?.(queued.text, true), 0);
+        } else {
+          emitDiagnostic('queued-command-discarded', {
+            reason: !isFresh ? 'expired' : 'context-changed',
+          });
         }
       }
     } else if (!isConnectedRef.current) {
