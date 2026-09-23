@@ -635,50 +635,66 @@ const UploadRoutes = () => {
 
       {/* Assign Modal */}
       <Dialog open={assignModalOpen} onOpenChange={setAssignModalOpen}>
-        <DialogContent className="bg-dashboard-bg border-dashboard-border">
+        <DialogContent className="w-[calc(100%-2rem)] border-slate-600 bg-[#161b22] text-white shadow-2xl shadow-black/70 sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle className="text-dashboard-text">
+            <DialogTitle className="text-white">
               Assign Route: {selectedRoute?.route_name}
             </DialogTitle>
+            <p className="text-sm text-slate-300">
+              Select every team member who should be able to pick this route.
+            </p>
           </DialogHeader>
           <div className="space-y-4 py-4">
             {teamMembers.length === 0 ? (
-              <p className="text-dashboard-text-secondary text-center py-4">
+              <p className="py-4 text-center text-slate-300">
                 No team members found
               </p>
             ) : (
-              teamMembers.map((member) => (
-                <div key={member.id} className="flex items-center space-x-3">
-                  <Checkbox
-                    id={member.id}
-                    checked={selectedMembers.includes(member.user_id)}
-                    onCheckedChange={() => toggleMember(member.user_id)}
-                  />
-                  <label
-                    htmlFor={member.id}
-                    className="flex-1 text-sm font-medium text-dashboard-text cursor-pointer"
+              teamMembers.map((member) => {
+                const isSelected = selectedMembers.includes(member.user_id);
+
+                return (
+                  <div
+                    key={member.id}
+                    className={cn(
+                      "flex items-center space-x-3 rounded-lg border p-3 transition-colors",
+                      isSelected
+                        ? "border-emerald-400 bg-[#10251f]"
+                        : "border-slate-600 bg-[#0d1117] hover:bg-slate-800",
+                    )}
                   >
-                    {member.profiles?.first_name} {member.profiles?.last_name}
-                    <span className="text-dashboard-text-secondary ml-2">
-                      ({member.profiles?.email})
-                    </span>
-                  </label>
-                </div>
-              ))
+                    <Checkbox
+                      id={member.id}
+                      checked={isSelected}
+                      onCheckedChange={() => toggleMember(member.user_id)}
+                      className="border-slate-300 bg-white text-slate-950 data-[state=checked]:border-emerald-400 data-[state=checked]:bg-emerald-400 data-[state=checked]:text-slate-950"
+                    />
+                    <label
+                      htmlFor={member.id}
+                      className="flex-1 cursor-pointer text-sm font-semibold text-white"
+                    >
+                      {member.profiles?.first_name} {member.profiles?.last_name}
+                      <span className="ml-2 font-normal text-slate-300">
+                        ({member.profiles?.email})
+                      </span>
+                    </label>
+                  </div>
+                );
+              })
             )}
           </div>
           <DialogFooter>
             <Button
               variant="outline"
               onClick={() => setAssignModalOpen(false)}
-              className="border-dashboard-border text-dashboard-text"
+              className="border-slate-500 bg-transparent text-white hover:bg-slate-700 hover:text-white"
             >
               Cancel
             </Button>
             <Button
               onClick={saveAssignments}
               disabled={saveAssignmentsMutation.isPending}
-              className="bg-primary hover:bg-primary-hover"
+              className="bg-primary text-primary-foreground hover:bg-primary-hover"
             >
               {saveAssignmentsMutation.isPending ? "Saving..." : "Save Assignments"}
             </Button>
