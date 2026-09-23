@@ -205,7 +205,7 @@ const WEBHOOK_MAP: Record<string, string> = USE_PYTHON ? {
   'get_routes_for_date': '/get-routes',
   'set_route_sequence': '/set-route-sequence',
   'get_next_item': '/get-next-item',
-  'get_current_status': 'https://wvtkuposrlvadyeixlke.supabase.co/functions/v1/get-current-status-optimized',
+  'get_current_status': '/get-current-status',
   'update_session_state': '/update-session',
   'start_machine': '/start-machine',
   'skip_current_machine': '/skip-machine',
