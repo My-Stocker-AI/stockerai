@@ -21,6 +21,22 @@ SUPPORTED_VENDORS = {
 _SUPABASE_STORAGE_BASE = "https://wvtkuposrlvadyeixlke.supabase.co/storage/v1/object/public/route-pdfs"
 
 
+def _ensure_route_assignment(db, route_id: str, driver_id: str, assigned_by: str) -> None:
+    """Persist the upload's selected driver before reporting success.
+
+    Assignment is part of the upload result, not a best-effort browser follow-up. The
+    unique route/user key makes a retry converge on the same assignment.
+    """
+    db.table("route_assignments").upsert(
+        {
+            "route_id": route_id,
+            "user_id": driver_id,
+            "assigned_by": assigned_by,
+        },
+        on_conflict="route_id,user_id",
+    ).execute()
+
+
 def _capture_pending(db, pdf_bytes: bytes, user_id: str, vendor, filename: str, reason: str) -> dict:
     """Capture-and-wait: save an unparseable upload, log who sent it + which system,
     alert Russ, and return a warm 'we'll email you' payload for the operator.
@@ -282,8 +298,18 @@ async def upload_pdf(
         "total_items": total_items,
     }).eq("id", route_id).execute()
 
+    try:
+        _ensure_route_assignment(db, route_id, user_id, caller.user_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Route uploaded, but its driver assignment could not be confirmed. Please retry the assignment from Routes.",
+        ) from exc
+
     warnings = parsed.get("warnings") or []
     response = {
+        "route_id": route_id,
+        "assignment_confirmed": True,
         "route": route_name,
         "machines": total_machines,
         "items": total_items,
