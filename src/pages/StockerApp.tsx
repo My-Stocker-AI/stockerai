@@ -7,6 +7,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useVoice } from '@/hooks/useVoice';
 import { shouldRunDirectionDetection } from '@/hooks/voiceHandoffPolicy';
 import { resolveFailureSpeech, classifyFailure, type FailureKind } from '@/hooks/voiceFailureSpeech';
+import { isConnectionError, pickingConnectionMessage } from '@/utils/userFacingErrors';
 import { resolveTranscriptGate, gateReason } from '@/hooks/transcriptGate';
 import { resolveUnknownReply } from '@/utils/commandGuess';
 import { isBareNumber } from '@/utils/spokenNumber';
@@ -1117,10 +1118,7 @@ export default function StockerApp() {
       }
     } catch (err: any) {
       const errorMsg = err.message || 'Something went wrong';
-      const isNetworkError = errorMsg.includes('timeout') ||
-                            errorMsg.includes('network') ||
-                            errorMsg.includes('fetch') ||
-                            errorMsg.includes('Failed to fetch');
+      const isNetworkError = isConnectionError(errorMsg);
       const isRateLimited = errorMsg.includes('429') || errorMsg.includes('rate limit');
 
       // DETAILED ERROR LOGGING for troubleshooting
@@ -1180,7 +1178,7 @@ export default function StockerApp() {
       if (isRateLimited) {
         userFriendlyError = 'Service is busy. Please wait a moment and say that again.';
       } else if (isNetworkError) {
-        userFriendlyError = 'Connection lost. Check your internet and try again.';
+        userFriendlyError = pickingConnectionMessage;
       } else {
         // Show detailed error in development, friendly message in production
         userFriendlyError = `Error: ${errorMsg}. Triple-tap for details.`;

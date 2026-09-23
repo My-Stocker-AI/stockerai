@@ -85,8 +85,8 @@ const commandCategories = [
     bgColor: "bg-purple-500/10",
     borderColor: "border-purple-500/20",
     commands: [
-      { phrase: '"Go back" / "Undo"', description: "Return to the previous item" },
-      { phrase: '"Oops" / "Wrong" / "Mistake"', description: "Undo last confirmation" },
+      { phrase: '"Go back" / "Undo"', description: "Move the on-screen picker to the previous item" },
+      { phrase: '"Oops" / "Wrong" / "Mistake"', description: "Move back so you can check the previous pick" },
       { phrase: '"Back to skipped"', description: "Return to a skipped machine" },
       { phrase: '"Previous" / "Back one"', description: "Go back one item" },
     ]
@@ -98,9 +98,9 @@ const commandCategories = [
     bgColor: "bg-red-500/10",
     borderColor: "border-red-500/20",
     commands: [
-      { phrase: '"Pause" / "Stop listening"', description: "Pause voice recognition" },
-      { phrase: '"Mute" / "Mute mic"', description: "Mute the microphone" },
-      { phrase: 'Say "OK Stocker"', description: "Wake phrase to resume listening" },
+      { phrase: '"Pause" / "Stop listening"', description: "Pause commands while still listening for the wake phrase" },
+      { phrase: '"Mute" / "Mute mic"', description: "Turn microphone sending off; tap Unmute to return" },
+      { phrase: 'Say "OK Stocker"', description: "Resume from Pause (Mute requires a tap)" },
     ]
   },
   {
@@ -111,7 +111,7 @@ const commandCategories = [
     borderColor: "border-cyan-500/20",
     commands: [
       { phrase: '"What\'s in the machine?"', description: "Check current inventory level" },
-      { phrase: '"How many left?"', description: "Get remaining items count" },
+      { phrase: '"How many left?"', description: "Hear the current machine's inventory information" },
       { phrase: '"What machine is this?"', description: "Hear current machine name" },
       { phrase: '"How many machines left?"', description: "Check remaining machines" },
     ]
@@ -245,8 +245,8 @@ const Guide = () => {
                   <li className="flex items-start gap-3">
                     <CheckCircle2 className="h-5 w-5 text-green-500 mt-0.5 shrink-0" />
                     <div>
-                      <strong className="text-foreground">Keep the screen ON while working</strong>
-                      <p className="text-sm text-muted-foreground mt-1">Screen sleep can interrupt voice recognition. Disable auto-lock in your phone settings.</p>
+                      <strong className="text-foreground">Keep Stocker in the foreground while picking</strong>
+                      <p className="text-sm text-muted-foreground mt-1">Stocker requests a screen wake lock, but phone settings can still interrupt it. If the screen locks, reopen Stocker and use Continue.</p>
                     </div>
                   </li>
                   <li className="flex items-start gap-3">
@@ -259,8 +259,8 @@ const Guide = () => {
                   <li className="flex items-start gap-3">
                     <CheckCircle2 className="h-5 w-5 text-green-500 mt-0.5 shrink-0" />
                     <div>
-                      <strong className="text-foreground">Delete old routes before re-uploading</strong>
-                      <p className="text-sm text-muted-foreground mt-1">You cannot upload the same route + date twice. Delete the old one first from Dashboard → My Routes.</p>
+                      <strong className="text-foreground">Check the route before replacing it</strong>
+                      <p className="text-sm text-muted-foreground mt-1">Uploading the same driver, route name, and date replaces that route. Do not replace a route while someone is picking it.</p>
                     </div>
                   </li>
                   <li className="flex items-start gap-3">
@@ -274,7 +274,7 @@ const Guide = () => {
                     <CheckCircle2 className="h-5 w-5 text-green-500 mt-0.5 shrink-0" />
                     <div>
                       <strong className="text-foreground">Say "skip machine" clearly for skipping</strong>
-                      <p className="text-sm text-muted-foreground mt-1">Stocker will ask for confirmation before actually skipping.</p>
+                      <p className="text-sm text-muted-foreground mt-1">A clear skip command can move immediately. Check the machine name on screen before speaking it.</p>
                     </div>
                   </li>
                 </ul>
@@ -306,8 +306,8 @@ const Guide = () => {
                   <li className="flex items-start gap-3">
                     <XCircle className="h-5 w-5 text-red-500 mt-0.5 shrink-0" />
                     <div>
-                      <strong className="text-foreground">Don't upload duplicate routes</strong>
-                      <p className="text-sm text-muted-foreground mt-1">Uploading "North Route" for Dec 30 when it already exists will fail. Delete first!</p>
+                      <strong className="text-foreground">Don't replace a route being picked</strong>
+                      <p className="text-sm text-muted-foreground mt-1">A matching upload replaces the existing route and its work. Wait until active picking is finished.</p>
                     </div>
                   </li>
                   <li className="flex items-start gap-3">
@@ -321,7 +321,7 @@ const Guide = () => {
                     <XCircle className="h-5 w-5 text-red-500 mt-0.5 shrink-0" />
                     <div>
                       <strong className="text-foreground">Don't use old bookmarks or cached sites</strong>
-                      <p className="text-sm text-muted-foreground mt-1">Always go to my-stocker-ai.com fresh. Clear cache if things look wrong.</p>
+                      <p className="text-sm text-muted-foreground mt-1">Use stocker-ai.com. Refresh or reopen the installed app after an update.</p>
                     </div>
                   </li>
                   <li className="flex items-start gap-3">
@@ -352,10 +352,10 @@ const Guide = () => {
                 <div className="flex items-start gap-3">
                   <AlertTriangle className="h-5 w-5 text-yellow-500 mt-0.5 shrink-0" />
                   <div>
-                    <strong className="text-foreground">Important: One route per date!</strong>
+                    <strong className="text-foreground">Matching uploads replace the existing route</strong>
                     <p className="text-sm text-muted-foreground mt-1">
-                      You cannot upload "North Route" for December 30th if it already exists.
-                      You must delete the existing route first before uploading a new version.
+                      A report with the same assigned driver, route name, and delivery date replaces
+                      the earlier copy. Never do this while that route is being picked.
                     </p>
                   </div>
                 </div>
@@ -371,7 +371,7 @@ const Guide = () => {
                     </li>
                     <li className="flex items-start gap-3">
                       <span className="w-6 h-6 rounded-full bg-primary/10 text-primary text-sm font-bold flex items-center justify-center shrink-0">2</span>
-                      <span>Select your POS Data PDF file</span>
+                      <span>Select the vending system, driver, delivery date, and PDF report</span>
                     </li>
                     <li className="flex items-start gap-3">
                       <span className="w-6 h-6 rounded-full bg-primary/10 text-primary text-sm font-bold flex items-center justify-center shrink-0">3</span>
@@ -389,19 +389,19 @@ const Guide = () => {
                   <ol className="space-y-3 text-muted-foreground">
                     <li className="flex items-start gap-3">
                       <span className="w-6 h-6 rounded-full bg-red-500/10 text-red-500 text-sm font-bold flex items-center justify-center shrink-0">1</span>
-                      <span>Go to Dashboard → My Routes</span>
+                      <span>Confirm nobody is actively picking the existing route</span>
                     </li>
                     <li className="flex items-start gap-3">
                       <span className="w-6 h-6 rounded-full bg-red-500/10 text-red-500 text-sm font-bold flex items-center justify-center shrink-0">2</span>
-                      <span>Find the route you want to replace</span>
+                      <span>Go to Dashboard → Upload Routes</span>
                     </li>
                     <li className="flex items-start gap-3">
                       <span className="w-6 h-6 rounded-full bg-red-500/10 text-red-500 text-sm font-bold flex items-center justify-center shrink-0">3</span>
-                      <span>Click the trash icon to DELETE it</span>
+                      <span>Choose the same driver, route date, and vending system</span>
                     </li>
                     <li className="flex items-start gap-3">
                       <span className="w-6 h-6 rounded-full bg-primary/10 text-primary text-sm font-bold flex items-center justify-center shrink-0">4</span>
-                      <span>Now upload the new version</span>
+                      <span>Upload the corrected report and verify it in My Routes</span>
                     </li>
                   </ol>
                 </div>
@@ -426,8 +426,8 @@ const Guide = () => {
                   "Can't find your route" when I know I uploaded it
                 </h4>
                 <div className="ml-7 space-y-2 text-muted-foreground">
-                  <p><strong>Cause:</strong> You're asking for a different date than the route is scheduled for.</p>
-                  <p><strong>Fix:</strong> Say "What routes do I have for [exact date]?" using the date in your PDF. Check My Routes in the dashboard to see what dates your routes are assigned to.</p>
+                  <p><strong>Possible causes:</strong> The route has a different scheduled date, is assigned to another driver, the account session is stale, or loading failed.</p>
+                  <p><strong>Fix:</strong> Check My Routes, including Earlier Scheduled Routes. Refresh once. An administrator can confirm the assigned driver; if a load error appears, follow its connection instructions.</p>
                 </div>
               </div>
 
@@ -435,11 +435,10 @@ const Guide = () => {
               <div className="bg-card border border-border rounded-xl p-6">
                 <h4 className="font-semibold text-foreground mb-2 flex items-center gap-2">
                   <AlertTriangle className="h-5 w-5 text-yellow-500" />
-                  Upload fails with "already exists" error
+                  A route upload fails
                 </h4>
                 <div className="ml-7 space-y-2 text-muted-foreground">
-                  <p><strong>Cause:</strong> A route with the same name and date already exists in your account.</p>
-                  <p><strong>Fix:</strong> Go to Dashboard → My Routes → Delete the existing route → Try uploading again.</p>
+                  <p><strong>Fix:</strong> Read the red message. Check your connection, sign in again if the session expired, and confirm the vending system and PDF. A failed upload says whether the route was added; do not repeatedly submit while the first upload is still processing.</p>
                 </div>
               </div>
 
@@ -450,8 +449,8 @@ const Guide = () => {
                   Stocker says "skip machine" when I said "next"
                 </h4>
                 <div className="ml-7 space-y-2 text-muted-foreground">
-                  <p><strong>Cause:</strong> Garbled audio from rushing, multiple voices, or background noise.</p>
-                  <p><strong>Fix:</strong> Speak clearly and at normal speed. Use ONE person per device. Stocker now asks for confirmation before skipping - just say "no" if it misheard you.</p>
+                  <p><strong>Possible causes:</strong> Garbled audio, another voice, or background noise.</p>
+                  <p><strong>Fix:</strong> Check the current machine on screen and use the touch controls if needed. A clear skip command may act immediately, so do not rely on a confirmation question.</p>
                 </div>
               </div>
 
@@ -474,8 +473,8 @@ const Guide = () => {
                   Stocker stops listening after a while
                 </h4>
                 <div className="ml-7 space-y-2 text-muted-foreground">
-                  <p><strong>Cause:</strong> Screen went to sleep, killing the voice recognition.</p>
-                  <p><strong>Fix:</strong> Keep screen on. On iPhone: Settings → Display & Brightness → Auto-Lock → Never. On Android: Settings → Display → Screen timeout → 30 minutes or Never.</p>
+                  <p><strong>Possible causes:</strong> The app was backgrounded, the network dropped, microphone permission changed, or a Bluetooth microphone disconnected.</p>
+                  <p><strong>Fix:</strong> Bring Stocker to the foreground. Wait while it says it is reconnecting. If it says “tap to reconnect,” tap that message. Reinsert Bluetooth earbuds, or switch to the phone microphone, and allow microphone access if prompted.</p>
                 </div>
               </div>
 
@@ -486,8 +485,8 @@ const Guide = () => {
                   "No internet connection" error
                 </h4>
                 <div className="ml-7 space-y-2 text-muted-foreground">
-                  <p><strong>Cause:</strong> WiFi dropped or mobile data is off.</p>
-                  <p><strong>Fix:</strong> Check your WiFi/data connection. Stocker requires internet - it doesn't work offline.</p>
+                  <p><strong>Possible cause:</strong> WiFi or mobile data dropped, or the service could not be reached.</p>
+                  <p><strong>Fix:</strong> Restore internet and wait for the reconnect message. If voice stops retrying, tap “Voice paused — tap to reconnect.” Confirm the item still shown before repeating a command.</p>
                 </div>
               </div>
 
@@ -498,13 +497,13 @@ const Guide = () => {
                   Stocker doesn't hear me when using AirPods / Bluetooth headphones
                 </h4>
                 <div className="ml-7 space-y-2 text-muted-foreground">
-                  <p><strong>Cause:</strong> Browser is using phone mic instead of AirPods mic.</p>
+                  <p><strong>Possible cause:</strong> The browser lost or changed its microphone when the headset disconnected.</p>
                   <p><strong>Fix (iPhone):</strong></p>
                   <ol className="list-decimal ml-4 space-y-1 text-sm">
                     <li>Swipe down from top-right corner to open Control Center</li>
-                    <li>Long-press the audio/volume panel</li>
-                    <li>Tap the AirPlay icon and select AirPods for input</li>
-                    <li>Or try: Settings → Safari → Microphone → Allow for my-stocker-ai.com</li>
+                    <li>Reconnect the AirPods, return to Stocker, and wait for microphone recovery</li>
+                    <li>If Stocker asks, tap to reconnect and allow microphone access</li>
+                    <li>AirPlay selects playback output; it does not guarantee the browser's microphone input</li>
                   </ol>
                   <p><strong>Fix (Android):</strong></p>
                   <ol className="list-decimal ml-4 space-y-1 text-sm">
@@ -527,7 +526,7 @@ const Guide = () => {
                 </div>
                 <div>
                   <h2 className="text-2xl font-bold">iPhone Complete Setup Guide</h2>
-                  <p className="text-gray-400">Follow these steps EXACTLY for best results</p>
+                  <p className="text-gray-400">Menu names can vary by iPhone and iOS version</p>
                 </div>
               </div>
 
@@ -535,12 +534,12 @@ const Guide = () => {
               <div className="bg-white/10 rounded-xl p-5 mb-4">
                 <h4 className="font-bold text-lg mb-3 flex items-center gap-2">
                   <span className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-sm font-bold">1</span>
-                  Use Safari (NOT Chrome)
+                  Open Stocker in Safari or the installed web app
                 </h4>
                 <p className="text-gray-300 mb-3">Safari works better with voice on iPhone. Chrome has issues.</p>
                 <div className="bg-black/30 rounded-lg p-3">
                   <p className="text-sm text-gray-400">✅ Open Safari (the blue compass icon)</p>
-                  <p className="text-sm text-gray-400">✅ Type: <strong className="text-white">my-stocker-ai.com</strong></p>
+                  <p className="text-sm text-gray-400">✅ Type: <strong className="text-white">stocker-ai.com</strong></p>
                   <p className="text-sm text-red-400">❌ Do NOT use a saved bookmark to an old site</p>
                 </div>
               </div>
@@ -549,9 +548,9 @@ const Guide = () => {
               <div className="bg-white/10 rounded-xl p-5 mb-4">
                 <h4 className="font-bold text-lg mb-3 flex items-center gap-2">
                   <span className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-sm font-bold">2</span>
-                  Turn OFF Auto-Lock (CRITICAL!)
+                  Keep Stocker Available While Picking
                 </h4>
-                <p className="text-gray-300 mb-3">If your screen turns off, voice stops working!</p>
+                <p className="text-gray-300 mb-3">Stocker requests a wake lock, but iOS can still suspend a browser. Reopen Stocker and continue if that happens.</p>
                 <div className="bg-black/30 rounded-lg p-3 space-y-1">
                   <p className="text-sm text-gray-300"><strong>1.</strong> Go to <strong className="text-white">Settings</strong> (gear icon on home screen)</p>
                   <p className="text-sm text-gray-300"><strong>2.</strong> Tap <strong className="text-white">Display & Brightness</strong></p>
@@ -569,7 +568,7 @@ const Guide = () => {
                 </h4>
                 <p className="text-gray-300 mb-3">When asked, say YES to microphone permission.</p>
                 <div className="bg-black/30 rounded-lg p-3 space-y-1">
-                  <p className="text-sm text-gray-300">When you see "my-stocker-ai.com wants to use your microphone"</p>
+                  <p className="text-sm text-gray-300">When you see "stocker-ai.com wants to use your microphone"</p>
                   <p className="text-sm text-green-400"><strong>→ Tap "Allow"</strong></p>
                   <p className="text-sm text-gray-400 pt-2">If you accidentally tapped "Don't Allow":</p>
                   <p className="text-sm text-gray-300">Settings → Safari → scroll down → Microphone → Allow</p>
@@ -598,7 +597,7 @@ const Guide = () => {
                   Turn Volume UP
                 </h4>
                 <div className="bg-black/30 rounded-lg p-3">
-                  <p className="text-sm text-gray-300">Press the volume up button on the left side of your phone until it's at max.</p>
+                  <p className="text-sm text-gray-300">Set media volume to a comfortable level where instructions are easy to hear.</p>
                 </div>
               </div>
 
@@ -611,10 +610,10 @@ const Guide = () => {
                 <p className="text-gray-300 mb-3">Bluetooth mics can be tricky. Follow these steps:</p>
                 <div className="bg-black/30 rounded-lg p-3 space-y-2">
                   <p className="text-sm text-gray-300"><strong>1.</strong> Connect your AirPods/headphones BEFORE opening the Voice App</p>
-                  <p className="text-sm text-gray-300"><strong>2.</strong> Swipe down from <strong className="text-white">top-right corner</strong> to open Control Center</p>
-                  <p className="text-sm text-gray-300"><strong>3.</strong> Long-press the <strong className="text-white">audio/volume panel</strong></p>
-                  <p className="text-sm text-gray-300"><strong>4.</strong> Tap the <strong className="text-white">AirPlay icon</strong> (triangle with circles)</p>
-                  <p className="text-sm text-gray-300"><strong>5.</strong> Make sure your AirPods are selected for <strong className="text-green-400">BOTH input AND output</strong></p>
+                  <p className="text-sm text-gray-300"><strong>2.</strong> Start Stocker and confirm it can hear a short test phrase before beginning the route</p>
+                  <p className="text-sm text-gray-300"><strong>3.</strong> If you remove and reinsert the earbuds, return to Stocker and wait for recovery</p>
+                  <p className="text-sm text-gray-300"><strong>4.</strong> If prompted, tap to reconnect voice</p>
+                  <p className="text-sm text-gray-300"><strong>5.</strong> AirPlay controls playback; browser microphone routing varies by iPhone and iOS version</p>
                   <p className="text-sm text-yellow-400 pt-2">⚠️ If Stocker can't hear you with AirPods, try using the phone's built-in mic instead - it's more reliable!</p>
                 </div>
               </div>
@@ -630,7 +629,7 @@ const Guide = () => {
                   <p className="text-sm text-gray-300"><strong>2.</strong> Scroll down, tap <strong className="text-white">Safari</strong></p>
                   <p className="text-sm text-gray-300"><strong>3.</strong> Tap <strong className="text-white">Clear History and Website Data</strong></p>
                   <p className="text-sm text-gray-300"><strong>4.</strong> Tap <strong className="text-white">Clear History and Data</strong> to confirm</p>
-                  <p className="text-sm text-gray-300"><strong>5.</strong> Go back to Safari, type <strong className="text-white">my-stocker-ai.com</strong> again</p>
+                  <p className="text-sm text-gray-300"><strong>5.</strong> Go back to Safari, type <strong className="text-white">stocker-ai.com</strong> again</p>
                 </div>
               </div>
             </div>
@@ -645,7 +644,7 @@ const Guide = () => {
                 </div>
                 <div>
                   <h2 className="text-2xl font-bold">Android Complete Setup Guide</h2>
-                  <p className="text-green-300">Follow these steps EXACTLY for best results</p>
+                  <p className="text-green-300">Menu names can vary by phone and Android version</p>
                 </div>
               </div>
 
@@ -658,8 +657,8 @@ const Guide = () => {
                 <p className="text-green-200 mb-3">Chrome works best on Android for voice recognition.</p>
                 <div className="bg-black/30 rounded-lg p-3">
                   <p className="text-sm text-gray-300">✅ Open Chrome (the colorful circle icon)</p>
-                  <p className="text-sm text-gray-300">✅ Type: <strong className="text-white">my-stocker-ai.com</strong></p>
-                  <p className="text-sm text-red-400">❌ Do NOT use Samsung Internet or other browsers</p>
+                  <p className="text-sm text-gray-300">✅ Type: <strong className="text-white">stocker-ai.com</strong></p>
+                  <p className="text-sm text-gray-400">If another browser has microphone trouble, retry in Chrome or the installed web app.</p>
                 </div>
               </div>
 
@@ -667,9 +666,9 @@ const Guide = () => {
               <div className="bg-white/10 rounded-xl p-5 mb-4">
                 <h4 className="font-bold text-lg mb-3 flex items-center gap-2">
                   <span className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-sm font-bold">2</span>
-                  Turn OFF Screen Timeout (CRITICAL!)
+                  Keep Stocker Available While Picking
                 </h4>
-                <p className="text-green-200 mb-3">If your screen turns off, voice stops working!</p>
+                <p className="text-green-200 mb-3">Stocker requests a wake lock, but Android can still suspend a backgrounded browser. Reopen Stocker and continue if that happens.</p>
                 <div className="bg-black/30 rounded-lg p-3 space-y-1">
                   <p className="text-sm text-gray-300"><strong>1.</strong> Go to <strong className="text-white">Settings</strong> (gear icon)</p>
                   <p className="text-sm text-gray-300"><strong>2.</strong> Tap <strong className="text-white">Display</strong></p>
@@ -688,7 +687,7 @@ const Guide = () => {
                 </h4>
                 <p className="text-green-200 mb-3">When asked, tap ALLOW for microphone.</p>
                 <div className="bg-black/30 rounded-lg p-3 space-y-1">
-                  <p className="text-sm text-gray-300">When you see "Allow my-stocker-ai.com to use your microphone?"</p>
+                  <p className="text-sm text-gray-300">When you see "Allow stocker-ai.com to use your microphone?"</p>
                   <p className="text-sm text-green-400"><strong>→ Tap "Allow"</strong></p>
                   <p className="text-sm text-gray-400 pt-2">If you accidentally tapped "Block":</p>
                   <p className="text-sm text-gray-300">Tap the lock icon in the address bar → Site settings → Microphone → Allow</p>
@@ -702,7 +701,7 @@ const Guide = () => {
                   Check Volume & Do Not Disturb
                 </h4>
                 <div className="bg-black/30 rounded-lg p-3 space-y-2">
-                  <p className="text-sm text-gray-300"><strong>Volume:</strong> Press volume up button until at max</p>
+                  <p className="text-sm text-gray-300"><strong>Volume:</strong> Set media volume to a comfortable, clearly audible level</p>
                   <p className="text-sm text-gray-300"><strong>Do Not Disturb:</strong> Make sure it's OFF</p>
                   <p className="text-sm text-gray-400">→ Swipe down from top of screen</p>
                   <p className="text-sm text-gray-400">→ Look for "Do Not Disturb" or moon icon</p>
@@ -755,7 +754,7 @@ const Guide = () => {
                   <p className="text-sm text-gray-300"><strong>5.</strong> Tap <strong className="text-white">Clear browsing data</strong></p>
                   <p className="text-sm text-gray-300"><strong>6.</strong> Check <strong className="text-white">Cached images and files</strong></p>
                   <p className="text-sm text-gray-300"><strong>7.</strong> Tap <strong className="text-white">Clear data</strong></p>
-                  <p className="text-sm text-gray-300"><strong>8.</strong> Go back, type <strong className="text-white">my-stocker-ai.com</strong> again</p>
+                  <p className="text-sm text-gray-300"><strong>8.</strong> Go back, type <strong className="text-white">stocker-ai.com</strong> again</p>
                 </div>
               </div>
             </div>
@@ -778,7 +777,7 @@ const Guide = () => {
                 <h4 className="font-semibold text-foreground mb-3">Required Setup</h4>
                 <ul className="space-y-2 text-sm text-muted-foreground">
                   <li>✅ Use <strong>Chrome</strong> or <strong>Edge</strong> browser (NOT Firefox)</li>
-                  <li>✅ Go to <strong>my-stocker-ai.com</strong></li>
+                  <li>✅ Go to <strong>stocker-ai.com</strong></li>
                   <li>✅ Click <strong>Allow</strong> when asked for microphone access</li>
                   <li>✅ Make sure speakers or headphones are working</li>
                   <li>✅ Disable screen saver or set to 30+ minutes</li>

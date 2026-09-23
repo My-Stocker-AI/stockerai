@@ -1,13 +1,12 @@
 import { useState } from "react";
 import { format, startOfDay } from "date-fns";
-import { Route, Play, ChevronDown, ChevronUp, Loader2, Trash2, FileText } from "lucide-react";
+import { Route, Play, Loader2, Trash2, FileText, AlertCircle } from "lucide-react";
 import { Link } from "react-router-dom";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
@@ -42,7 +41,6 @@ interface RouteMachine {
 
 const MyRoutes = () => {
   const { user, userRole } = useAuth();
-  const [pastRoutesOpen, setPastRoutesOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [routeToDelete, setRouteToDelete] = useState<RouteData | null>(null);
   const queryClient = useQueryClient();
@@ -52,7 +50,7 @@ const MyRoutes = () => {
   const canViewAllRoutes = userRole?.can_view_all_routes || isPrimaryAdmin;
 
   // Fetch routes based on role
-  const { data: routes = [], isLoading } = useQuery({
+  const { data: routes = [], isLoading, isError, error: routesError } = useQuery({
     queryKey: ['my-routes', userRole?.account_id, user?.id, canViewAllRoutes],
     queryFn: async () => {
       if (!user) return [];
@@ -260,7 +258,7 @@ const MyRoutes = () => {
     return deliveryDate.getTime() > today.getTime();
   });
   
-  const pastRoutes = routes.filter(r => {
+  const earlierRoutes = routes.filter(r => {
     const deliveryDate = parseDeliveryDate(r.delivery_date);
     return deliveryDate.getTime() < today.getTime();
   });
@@ -348,6 +346,17 @@ const MyRoutes = () => {
       breadcrumbs={[{ label: "Dashboard", href: "/dashboard" }, { label: "My Routes" }]}
     >
       <div className="space-y-8">
+        {isError && (
+          <Card className="border-destructive/50 bg-destructive/10">
+            <CardContent className="flex items-start gap-3 p-4 text-destructive">
+              <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
+              <div>
+                <p className="font-medium">Routes could not be loaded</p>
+                <p className="text-sm">Check your connection and refresh. {routesError instanceof Error ? routesError.message : ''}</p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
         {/* Today's Routes - Highlighted */}
         {todayRoutes.length > 0 && (
           <div className="space-y-4">
@@ -391,25 +400,15 @@ const MyRoutes = () => {
           </div>
         )}
 
-        {/* Past/Completed Routes - Collapsible */}
-        {pastRoutes.length > 0 && (
-          <Collapsible open={pastRoutesOpen} onOpenChange={setPastRoutesOpen}>
-            <CollapsibleTrigger asChild>
-              <Button
-                variant="ghost"
-                className="w-full justify-between text-dashboard-text-secondary hover:text-dashboard-text hover:bg-dashboard-card"
-              >
-                <span>Past Routes ({pastRoutes.length})</span>
-                {pastRoutesOpen ? (
-                  <ChevronUp className="h-4 w-4" />
-                ) : (
-                  <ChevronDown className="h-4 w-4" />
-                )}
-              </Button>
-            </CollapsibleTrigger>
-            <CollapsibleContent className="space-y-4 pt-4">
+        {/* A scheduled date never hides work. Routes may be picked after midnight or late. */}
+        {earlierRoutes.length > 0 && (
+          <div className="space-y-4">
+            <div>
+              <h2 className="text-xl font-semibold text-dashboard-text">Earlier Scheduled Routes</h2>
+              <p className="text-sm text-dashboard-text-secondary">Still available to start or continue.</p>
+            </div>
               {Object.entries(
-                pastRoutes.reduce((acc, route) => {
+                earlierRoutes.reduce((acc, route) => {
                   const date = route.delivery_date;
                   if (!acc[date]) acc[date] = [];
                   acc[date].push(route);
@@ -427,12 +426,11 @@ const MyRoutes = () => {
                   </div>
                 </div>
               ))}
-            </CollapsibleContent>
-          </Collapsible>
+          </div>
         )}
 
         {/* Empty State */}
-        {routes.length === 0 && (
+        {!isError && routes.length === 0 && (
           <Card className="bg-dashboard-card border-dashboard-border">
             <CardContent className="py-16 text-center">
               <Route className="h-12 w-12 mx-auto text-dashboard-text-secondary mb-4" />
