@@ -41,9 +41,13 @@ atomicity. Those remain separate remediation work.
 5. Verify health, unauthenticated refusal, an authenticated company route list, one
    versioned picking context/transition, and a cross-company negative case using disposable
    accounts. Reopen mobile clients before route acceptance.
-6. After the new API is verified, publish a separate grant-only migration that revokes the
-   three superseded teammate-array picking signatures from `service_role`. Confirm no old
-   API release or external service still calls them first.
+6. After the new API is verified, apply only
+   `supabase/migrations/20260926000000_revoke_superseded_picking_signatures.sql`. It revokes
+   the three teammate-array signatures from `service_role`; the tenant-resolving wrappers
+   continue to call them as `SECURITY DEFINER` implementation details. Before applying it,
+   confirm the exact API release is live and repository/deployed callers no longer submit
+   `p_team_user_ids`. Afterward, verify the old signatures deny `service_role`, the new
+   signatures still allow it, and API health remains green.
 
 If the API rollout fails after the database migration, roll the application back to the
 previous API commit. The additive schema and trigger remain compatible with that API.
