@@ -21,7 +21,7 @@ def test_identity_and_account_membership_come_from_verified_caller():
     assert rpc.call_args.args[0] == 'advance_picking'
     sent = rpc.call_args.args[1]
     assert sent['p_user_id'] == caller.user_id
-    assert sent['p_team_user_ids'] == caller.team_user_ids
+    assert 'p_team_user_ids' not in sent
     assert sent['p_session_id'] == str(req.session_id)
 
 

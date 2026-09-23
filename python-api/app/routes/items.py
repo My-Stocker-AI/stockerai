@@ -87,13 +87,13 @@ def _picking_rpc(name, params):
 @router.post('/picking-context')
 def picking_context(req: PickingContextRequest, caller: Caller = AuthCaller):
     return _picking_rpc('picking_context', {'p_user_id': caller.user_id,
-        'p_team_user_ids': caller.team_user_ids, 'p_session_id': str(req.session_id)})
+        'p_session_id': str(req.session_id)})
 
 
 @router.post('/picking-transition')
 def picking_transition(req: PickingTransitionRequest, caller: Caller = AuthCaller):
     row = _picking_rpc('transition_picking', {
-        'p_user_id': caller.user_id, 'p_team_user_ids': caller.team_user_ids,
+        'p_user_id': caller.user_id,
         'p_session_id': str(req.session_id), 'p_operation_id': str(req.operation_id),
         'p_revision': str(req.expected_revision), 'p_machine_id': str(req.expected_machine_id),
         'p_action': req.action, 'p_count': req.count, 'p_direction': req.direction,
@@ -128,7 +128,6 @@ def advance_item(req: AdvanceItemRequest, caller: Caller = AuthCaller):
     try:
         row = rpc('advance_picking', {
             'p_user_id': caller.user_id,
-            'p_team_user_ids': caller.team_user_ids,
             'p_session_id': str(req.session_id),
             'p_operation_id': str(req.operation_id),
             'p_machine_id': str(req.expected_machine_id),
@@ -577,7 +576,7 @@ def resume_state(req: ResumeStateRequest, caller: Caller = AuthCaller):
     # Capture the revision before loading the remaining snapshot. A concurrent
     # writer during the following reads makes the next transition conflict.
     guard = _picking_rpc('picking_context', {'p_user_id': caller.user_id,
-        'p_team_user_ids': caller.team_user_ids, 'p_session_id': s['id']})
+        'p_session_id': s['id']})
     if guard['status'] != 'stocking':
         return {'has_session': False}
     s.update(current_route_id=guard['route_id'], current_machine_id=guard['current_machine_id'],

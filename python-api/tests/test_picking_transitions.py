@@ -194,6 +194,8 @@ def test_reset_refuses_another_active_driver_and_team_nonowner(client,route):
                               'password':secrets.token_urlsafe(32),'email_confirm':True})
     try:
         rid=db.table('sessions').select('current_route_id').eq('id',sid).execute().data[0]['current_route_id']
+        account_id=db.table('routes').select('account_id').eq('id',rid).execute().data[0]['account_id']
+        db.table('account_users').insert({'account_id':account_id,'user_id':teammate,'role':'driver'}).execute()
         other_session=db.table('sessions').insert({'user_id':teammate,'session_key':f'stocking_{rid}',
             'status':'stocking','current_route_id':rid,'current_machine_id':mids[0],'pick_direction':'forward'}).execute().data[0]['id']
         body=request(client,route,'reset')
@@ -203,7 +205,8 @@ def test_reset_refuses_another_active_driver_and_team_nonowner(client,route):
         # A teammate may pick the route, but may not reset the owner's work.
         forged=PickingTransitionRequest(**{**body,'session_id':other_session,'operation_id':str(uuid4())})
         with pytest.raises(HTTPException) as error:
-            picking_transition(forged,Caller(user_id=teammate,account_id='team',team_user_ids=[teammate,FIXTURES.user_id]))
+            picking_transition(forged,Caller(user_id=teammate,account_id=account_id,
+                team_user_ids=[teammate,FIXTURES.user_id]))
         assert error.value.status_code==403
         assert state(route)==before
     finally:

@@ -143,6 +143,7 @@ async def upload_pdf(
     existing_routes = (
         db.table("routes")
         .select("id")
+        .eq("account_id", caller.account_id)
         .eq("user_id", user_id)
         .eq("route_name", route_name)
         .eq("delivery_date", date)
@@ -195,6 +196,7 @@ async def upload_pdf(
         db.table("routes")
         .insert({
             "user_id": user_id,
+            "account_id": caller.account_id,
             "route_name": route_name,
             "delivery_date": date,
             "pdf_url": pdf_url,

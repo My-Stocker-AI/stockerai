@@ -134,7 +134,8 @@ class FakeDB:
 
 def test_a_route_in_another_account_and_a_route_that_does_not_exist_are_indistinguishable():
     missing = FakeDB([])
-    other_account = FakeDB([{"id": "r1", "route_name": "South", "user_id": OUTSIDER}])
+    other_account = FakeDB([{"id": "r1", "route_name": "South", "user_id": OUTSIDER,
+                             "account_id": "acct-2"}])
 
     errors = []
     for db in (missing, other_account):
@@ -147,19 +148,21 @@ def test_a_route_in_another_account_and_a_route_that_does_not_exist_are_indistin
 
 
 def test_a_route_inside_the_account_comes_back():
-    db = FakeDB([{"id": "r1", "route_name": "North", "user_id": TEAMMATE}])
+    db = FakeDB([{"id": "r1", "route_name": "North", "user_id": TEAMMATE,
+                  "account_id": CALLER.account_id}])
     assert assert_route_in_account(db, "r1", CALLER)["route_name"] == "North"
 
 
 def test_a_machine_whose_route_belongs_elsewhere_is_refused():
-    db = FakeDB([{"id": "m1", "machine_name": "M", "routes": {"user_id": OUTSIDER}}])
+    db = FakeDB([{"id": "m1", "machine_name": "M", "routes": {"account_id": "acct-2"}}])
     with pytest.raises(HTTPException) as caught:
         assert_machine_in_account(db, "m1", CALLER, "id, machine_name")
     assert (caught.value.status_code, caught.value.detail) == (403, FORBIDDEN_MESSAGE)
 
 
 def test_a_machine_inside_the_account_comes_back_without_its_parent_route_attached():
-    db = FakeDB([{"id": "m1", "machine_name": "M", "routes": {"user_id": RUSS}}])
+    db = FakeDB([{"id": "m1", "machine_name": "M",
+                  "routes": {"account_id": CALLER.account_id}}])
     machine = assert_machine_in_account(db, "m1", CALLER, "id, machine_name")
     assert machine["machine_name"] == "M"
     # The parent is stripped so it cannot leak into a response the driver sees.
