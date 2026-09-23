@@ -4,7 +4,7 @@
 # Usage: ./fetch_n8n_executions.sh
 
 N8N_URL="https://visionairy.app.n8n.cloud/api/v1"
-N8N_API_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxY2YwYmRlNS01MmUzLTRjNGMtOGViOS02MDk5ZjU3ZmZlODgiLCJpc3MiOiJuOG4iLCJhdWQiOiJwdWJsaWMtYXBpIiwiaWF0IjoxNzYxNzY1NzA5fQ.jOVw0fU-TXTRtBV4XrFXzq_Vu1Oz4mhIKkda3WwjjOg"
+: "${N8N_API_KEY:?Set N8N_API_KEY in the environment before running}"
 
 echo "Fetching recent executions from n8n..."
 echo "======================================"
@@ -36,4 +36,4 @@ cat /tmp/n8n_recent_executions.json | jq -r '.data[] | "\(.id) | \(.workflowData
 
 echo ""
 echo "To get detailed execution data, run:"
-echo "  curl -X GET '${N8N_URL}/executions/{execution_id}' -H 'X-N8N-API-KEY: ${N8N_API_KEY}' | jq '.'"
+echo '  curl -X GET "${N8N_URL}/executions/{execution_id}" -H "X-N8N-API-KEY: ${N8N_API_KEY}" | jq .'
