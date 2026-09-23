@@ -45,6 +45,14 @@ It is not complete tenant isolation, credential revocation or a role/capability 
 GitHub does not deploy Edge Functions or apply these migrations. Never blanket-push the
 historical migrations. Keep frontend and API publication separate to avoid a race.
 
+If the Supabase CLI is not authenticated, the dashboard code editor is an alternative.
+Run `python scripts/render-legacy-edge-release.py` to produce deterministic single-file
+entries under ignored `.test-runtime/edge-release/`. The script inlines the exact tested
+shared handler into each entry point and prints its SHA-256. Paste the appropriate full
+file into that function's dashboard editor, verify content/hash before Deploy updates,
+and verify the deployed source afterward. Do not paste credentials or hand-edit the
+generated handler. This generation step itself does not deploy anything.
+
 ## Recovery and acceptance limits
 
 Keep the additive account resolver in place if reverting the API. Prefer forward repair
