@@ -101,7 +101,6 @@ export function resolveHandoffCommand(args: {
   // Spec: .xf/specs/2026-07-30-voice-sibling-fixes-xffi.md
   if (
     status === 'listening' ||
-    status === 'idle' ||
     status === 'speaking' ||
     status === 'thinking'
   ) {
@@ -118,7 +117,7 @@ export function resolveHandoffCommand(args: {
   //
   // 'error' is not his choice — the app fell into it. His word is HELD and flushed by the
   // watchdog on recovery, because dropping it means he spoke and nothing happened, ever.
-  if (status === 'paused' || status === 'muted') return 'ignore';
+  if (status === 'idle' || status === 'paused' || status === 'muted') return 'ignore';
   return 'queue';
 }
 

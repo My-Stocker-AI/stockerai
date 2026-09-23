@@ -6,6 +6,7 @@ import { isBareNumber } from '@/utils/spokenNumber';
 
 const chime = vi.fn();
 const cancelSpeech = vi.fn();
+const synthSpeak = vi.fn();
 const captureSources = vi.fn();
 class FakeTrack extends EventTarget {
   readyState = 'live'; muted = false;
@@ -27,11 +28,12 @@ class FakeAudioContext {
 class FakeSocket {
   static OPEN = 1;
   static latest: FakeSocket;
+  static created = 0;
   readyState = 1;
   onopen?: () => void;
   onmessage?: (event: { data: string }) => void;
   send = vi.fn(); close = vi.fn();
-  constructor() { FakeSocket.latest = this; queueMicrotask(() => this.onopen?.()); }
+  constructor() { FakeSocket.latest = this; FakeSocket.created++; queueMicrotask(() => this.onopen?.()); }
   transcript(text: string, final = true) {
     this.onmessage?.({ data: JSON.stringify({
       type: 'Results', is_final: true, speech_final: final,
@@ -47,12 +49,17 @@ beforeEach(() => {
   vi.stubGlobal('AudioWorkletNode', class { port = workletPort = { onmessage: null }; connect() {} disconnect() {} });
   vi.stubGlobal('Audio', class { play = vi.fn(async () => {}); pause = vi.fn(); });
   vi.stubGlobal('WebSocket', FakeSocket);
-  vi.stubGlobal('speechSynthesis', { cancel: cancelSpeech, speaking: false });
+  vi.stubGlobal('SpeechSynthesisUtterance', class {
+    rate = 1; onstart?: () => void; onend?: () => void; onerror?: () => void;
+    constructor(public text: string) {}
+  });
+  vi.stubGlobal('speechSynthesis', { cancel: cancelSpeech, speak: synthSpeak, speaking: false });
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
     if (!url.endsWith('/token')) throw new Error('Unexpected network call');
     return { ok: true, json: async () => ({ token: 'fake-token', expires_in: 600 }) };
   }));
   initialTrack = new FakeTrack();
+  FakeSocket.created = 0;
   Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: Object.assign(new EventTarget(), {
     getUserMedia: vi.fn(async () => streamFor(initialTrack.readyState === 'live' ? initialTrack : new FakeTrack())),
   }) });
@@ -73,6 +80,17 @@ async function start() {
 }
 
 describe('earbud microphone recovery', () => {
+  it('does not report listening when the microphone capture context stays suspended', async () => {
+    class SuspendedAudioContext extends FakeAudioContext {
+      state = 'suspended';
+      resume = vi.fn(async () => {});
+    }
+    vi.stubGlobal('AudioContext', SuspendedAudioContext);
+    const hook = renderHook(() => useVoice({}));
+    await act(async () => { expect(await hook.result.current.startListening()).toBe(false); });
+    expect(hook.result.current.getStatus()).toBe('error');
+  });
+
   it('manual retry restores PCM delivery even when the speech socket never disconnected', async () => {
     const { result } = await start();
     const socket = FakeSocket.latest;
@@ -153,6 +171,27 @@ describe('earbud microphone recovery', () => {
       });
       expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledTimes(2);
     } finally { visibility.mockRestore(); }
+  });
+
+  it('rebuilds microphone capture when a mobile page is restored from cache', async () => {
+    const { result } = await start();
+    const socket = FakeSocket.latest;
+    const pagehide = new Event('pagehide');
+    const pageshow = new Event('pageshow');
+    Object.defineProperty(pagehide, 'persisted', { value: true });
+    Object.defineProperty(pageshow, 'persisted', { value: true });
+    await act(async () => {
+      window.dispatchEvent(pagehide);
+      window.dispatchEvent(pageshow);
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledTimes(2);
+    expect(FakeSocket.latest).toBe(socket);
+    socket.send.mockClear();
+    const pcm = new ArrayBuffer(16);
+    workletPort.onmessage?.({ data: pcm });
+    expect(socket.send).toHaveBeenCalledExactlyOnceWith(pcm);
+    expect(result.current.getStatus()).toBe('listening');
   });
 
   it('coalesces repeated device events into one pending microphone request', async () => {
@@ -239,6 +278,60 @@ describe('earbud microphone recovery', () => {
 });
 
 describe('real microphone transcript dispatch with fake browser devices', () => {
+  it('ignores a final transcript that arrives after Stop', async () => {
+    const { result, heard } = await start();
+    const socket = FakeSocket.latest;
+    await act(async () => { result.current.stopListening(); });
+    await act(async () => { socket.transcript('next'); });
+    expect(heard).not.toHaveBeenCalled();
+    expect(result.current.getStatus()).toBe('idle');
+  });
+
+  it('awaits the existing connection attempt instead of reporting a second start as ready', async () => {
+    let resolveToken!: (value: { ok: boolean; json: () => Promise<{ token: string; expires_in: number }> }) => void;
+    vi.mocked(fetch).mockImplementation(() => new Promise(resolve => { resolveToken = resolve; }));
+    const hook = renderHook(() => useVoice({}));
+    let first!: Promise<boolean>;
+    let second!: Promise<boolean>;
+    let secondSettled = false;
+    await act(async () => {
+      first = hook.result.current.startListening();
+      second = hook.result.current.startListening();
+      void second.finally(() => { secondSettled = true; });
+      await Promise.resolve();
+    });
+    expect(secondSettled).toBe(false);
+    await act(async () => {
+      resolveToken({ ok: true, json: async () => ({ token: 'fake-token', expires_in: 600 }) });
+      expect(await first).toBe(true);
+      expect(await second).toBe(true);
+    });
+    expect(FakeSocket.created).toBe(1);
+  });
+
+  it('does not let an interrupted announcement replay fallback speech or overwrite newer state', async () => {
+    const { result } = await start();
+    let rejectTts!: (reason: Error) => void;
+    vi.mocked(fetch).mockImplementation((url: string) => {
+      if (url.endsWith('/token')) return Promise.resolve({ ok: true, json: async () => ({ token: 'fake-token', expires_in: 600 }) } as Response);
+      return new Promise((_, reject) => { rejectTts = reject; });
+    });
+    let announcement!: Promise<void>;
+    await act(async () => {
+      announcement = result.current.speak('Proceed to the next machine.');
+      await Promise.resolve();
+    });
+    expect(result.current.getStatus()).toBe('speaking');
+    await act(async () => {
+      result.current.stopAudio({ keepSpeakingAfter: true });
+      result.current.setStatus('thinking');
+      rejectTts(new Error('cancelled request'));
+      await announcement;
+    });
+    expect(synthSpeak).not.toHaveBeenCalled();
+    expect(result.current.getStatus()).toBe('thinking');
+  });
+
   it('rechecks queued numeric input when picking begins before dispatch', async () => {
     const { result, rerender, heard } = await start();
     rerender({ picking: false });

@@ -22,7 +22,7 @@ const DEEPGRAM_TOKEN_URL = 'https://stocker-deepgram-stt.russ-731.workers.dev/to
 // Build marker — bump alongside package.json "version" and sw.js SW_VERSION on each deploy.
 // Emitted to the diagnostic pipe on startListening so Davy's Render logs show EXACTLY which
 // build his phone is running (kills the "tested stale code" trap).
-const BUILD_VERSION = 'v0.2.1-watchdog';
+const BUILD_VERSION = 'v0.2.1-voice-state';
 
 // Wake phrases including common mishearings (from original PWA).
 // Moved to src/utils/wakePhrases.ts 2026-07-30 so the command matcher reads the SAME list —
@@ -136,6 +136,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
   // own reconnect → stacked loops pile up sockets → Deepgram refuses them all (the 1006
   // storm that never recovers, proven in the 2026-06-30 device logs).
   const isConnectingRef = useRef(false);
+  const connectionAttemptRef = useRef<Promise<void> | null>(null);
   const microphoneGenerationRef = useRef(0);
   const microphoneRecoveryRef = useRef<Promise<void> | null>(null);
   const microphoneRequestRef = useRef<Promise<MediaStream> | null>(null);
@@ -220,6 +221,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
   //
   // Called at the moment audio actually starts, on both playback paths.
   const markSpeechStarted = useCallback((spokenText: string, generation: number) => {
+    if (speechGenerationRef.current !== generation) return;
     if (speechPreparationRef.current?.generation === generation) {
       speechPreparationRef.current = null;
     }
@@ -504,8 +506,13 @@ export function useVoice(options: UseVoiceOptions = {}) {
       return;
     }
 
-    // Only process if in valid state (matches original PWA state check).
-    if (currentStatus !== 'listening' && currentStatus !== 'idle' && currentStatus !== 'speaking') {
+    // Echoes must be rejected BEFORE a busy-state transcript can enter the deferred queue.
+    // Otherwise the app can queue its own last prompt during 'thinking' and execute it later.
+    if (isEcho(text)) return;
+
+    // Only process while voice is active. A late final transcript can arrive after Stop while
+    // the socket is closing; idle must never dispatch a picking command.
+    if (currentStatus !== 'listening' && currentStatus !== 'speaking') {
       // Branch 3: don't strand a direction command at a machine hand-off. When the app is awaiting
       // a top/bottom answer, dispatch it immediately instead of queuing — a queued command only
       // fires on a LATER resumeListening, which is exactly the "said bottom, nothing happened,
@@ -526,11 +533,6 @@ export function useVoice(options: UseVoiceOptions = {}) {
       }
       // handoff === 'dispatch': awaiting-direction command — fall through to dispatch below.
       console.log('[Voice] Awaiting-direction command dispatched during', currentStatus + ':', text);
-    }
-
-    // Filter echo/noise (matches original PWA)
-    if (isEcho(text)) {
-      return;
     }
 
     // If TTS is playing, interrupt it immediately — driver spoke a command
@@ -646,26 +648,37 @@ export function useVoice(options: UseVoiceOptions = {}) {
     emitDiagnostic('capture-state', 'stopped');
   }, []);
 
-  const startPcmCapture = useCallback(async () => {
+  const startPcmCapture = useCallback(async (): Promise<boolean> => {
     if (!audioStreamRef.current) {
       console.error('[Voice] No audio stream available for PCM capture');
-      return;
+      onErrorRef.current?.('Microphone is not ready — tap to reconnect.');
+      return false;
     }
     // Idempotent: on a reconnect the capture graph is already up — just make sure we're
     // sending again. We deliberately do NOT rebuild the AudioContext on reconnect, because
     // a new context created off a user gesture (a mid-route drop) can come up suspended.
     if (captureNodeRef.current) {
+      const ctx = captureCtxRef.current;
+      if (!ctx) return false;
+      if (ctx.state === 'suspended') {
+        try { await ctx.resume(); } catch (e) { /* handled by state check below */ }
+      }
+      if (ctx.state !== 'running') {
+        onErrorRef.current?.('Tap screen to resume voice');
+        return false;
+      }
       // GRID-004: this path runs on every reconnect. It used to re-arm the microphone
       // unconditionally, switching it back on while the screen still read paused or muted —
       // the driver believes he silenced it and has not. Ask the policy instead.
       micSendingRef.current = shouldMicSend(statusRef.current);
-      return;
+      return true;
     }
     try {
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
       const ctx: AudioContext = new AudioContextClass();
       captureCtxRef.current = ctx;
       if (ctx.state === 'suspended') { try { await ctx.resume(); } catch (e) { /* best effort */ } }
+      if (ctx.state !== 'running') throw new Error('Microphone audio is suspended');
       await ctx.audioWorklet.addModule('/pcm-capture-processor.js');
       const source = ctx.createMediaStreamSource(audioStreamRef.current);
       const node = new AudioWorkletNode(ctx, 'pcm-capture-processor');
@@ -687,23 +700,22 @@ export function useVoice(options: UseVoiceOptions = {}) {
       isRecordingRef.current = micSendingRef.current;
       emitDiagnostic('capture-state', 'recording');
       console.log('[Voice] PCM capture started (16kHz linear16 via AudioWorklet)');
+      return true;
     } catch (e: any) {
       console.error('[Voice] Failed to start PCM capture:', e);
       emitDiagnostic('error', 'PCM capture setup failed: ' + String(e));
       onErrorRef.current?.(e?.message || 'Failed to start recording');
+      stopPcmCapture();
+      return false;
     }
-  }, []);
+  }, [stopPcmCapture]);
 
-  // Holding and resuming just gate the send — the mic + worklet stay live (no re-acquire).
+  // Holding normally just gates the send. Resume still passes through startPcmCapture so a
+  // mobile browser that suspended or discarded its capture context cannot look healthy while
+  // sending no audio.
   // The old pauseCapture() was removed 2026-08-06: it hard-killed the send for BOTH paused and
   // muted, which is precisely what made the wake phrase unhearable (GRID-003). applyCaptureHold
   // below replaces it and asks the state what the microphone should be doing.
-  const resumeCapture = useCallback(() => {
-    micSendingRef.current = true;
-    isRecordingRef.current = true;
-    emitDiagnostic('capture-state', 'recording');
-  }, []);
-
   // GRID-003 — the pause/mute split. Pause and mute both used to call pauseCapture(), which
   // killed the audio in both. That made the wake-phrase branch in processAccumulatedTranscript
   // dead code: the app listens for its own name while held and never received anything to hear
@@ -720,16 +732,18 @@ export function useVoice(options: UseVoiceOptions = {}) {
   const connectDeepgram = useCallback(async () => {
     if (socketRef.current?.readyState === WebSocket.OPEN) {
       isConnectedRef.current = true;
+      if (!(await startPcmCapture())) throw new Error('Microphone capture is not running');
       return;
     }
     // Single-flight: if an attempt is already running, do NOT start a second one. This is the
     // fix for the stacked-reconnect 1006 storm — let the in-flight attempt finish; its
     // onclose will schedule the next retry on the backoff if it fails.
-    if (isConnectingRef.current) {
+    if (connectionAttemptRef.current) {
       console.warn('[Voice] connectDeepgram skipped — an attempt is already in flight');
-      return;
+      return connectionAttemptRef.current;
     }
-    isConnectingRef.current = true;
+    const attempt = (async () => {
+      isConnectingRef.current = true;
 
     // Close any lingering previous socket BEFORE opening a new one so dead/closing sockets
     // don't accumulate against Deepgram's connection limit. Detach its handlers first so the
@@ -814,6 +828,8 @@ export function useVoice(options: UseVoiceOptions = {}) {
     return new Promise<void>((resolve, reject) => {
       const socket = new WebSocket(wsUrl, ['token', token]);
       socketRef.current = socket;
+      let opened = false;
+      let suppressReconnect = false;
 
       const timeout = setTimeout(() => {
         if (!isConnectedRef.current) {
@@ -823,7 +839,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
         }
       }, 10000);
 
-      socket.onopen = () => {
+      socket.onopen = async () => {
         clearTimeout(timeout);
         isConnectingRef.current = false;
         isConnectedRef.current = true;
@@ -831,7 +847,15 @@ export function useVoice(options: UseVoiceOptions = {}) {
         reconnectAttemptsRef.current = 0; // Reset reconnection counter on successful connect
         emitDiagnostic('deepgram-connected', true);
         startKeepAlive();
-        startPcmCapture();
+        if (!(await startPcmCapture())) {
+          isConnectedRef.current = false;
+          setIsDeepgramConnected(false);
+          suppressReconnect = true;
+          try { socket.close(); } catch (e) { /* best effort */ }
+          reject(new Error('Microphone capture is not running'));
+          return;
+        }
+        opened = true;
 
         // NO proactive token refresh. The temporary token only authenticates the
         // initial WebSocket handshake — once this connection is open, it stays open
@@ -854,8 +878,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
         } catch (e) {}
       };
 
-      socket.onerror = (event) => {
-        clearTimeout(timeout);
+      socket.onerror = () => {
         isConnectingRef.current = false;
         emitDiagnostic('error', 'Deepgram WebSocket error');
         // Plain-English, reassuring — the driver sees what's happening instead of a
@@ -888,6 +911,8 @@ export function useVoice(options: UseVoiceOptions = {}) {
           reconnectAttempt: reconnectAttemptsRef.current
         });
         stopKeepAlive();
+        if (!opened) reject(new Error(`Deepgram closed before voice was ready (${event.code})`));
+        if (suppressReconnect) return;
 
         // PRIORITY 1.2: Enhanced reconnection logic with exponential backoff
         const currentStatus = statusRef.current;
@@ -966,6 +991,13 @@ export function useVoice(options: UseVoiceOptions = {}) {
         }
       };
     });
+    })();
+    connectionAttemptRef.current = attempt;
+    try {
+      await attempt;
+    } finally {
+      if (connectionAttemptRef.current === attempt) connectionAttemptRef.current = null;
+    }
   }, [ensureToken, startKeepAlive, stopKeepAlive, startPcmCapture, handleDeepgramMessage, setStatus]); // Using ref for onError
 
   const requestAudioStream = useCallback(async (): Promise<MediaStream> => {
@@ -1426,7 +1458,10 @@ export function useVoice(options: UseVoiceOptions = {}) {
       // on afterwards: the screen said listening, the app heard nothing, and the only way out
       // was Stop and Continue.
       setStatus('listening');
-      if (!captureNodeRef.current) { await startPcmCapture(); } else { resumeCapture(); }
+      if (!(await startPcmCapture())) {
+        setStatus('error');
+        return;
+      }
       // Fire any command that was spoken during processing/TTS
       if (pendingCommandRef.current) {
         const queued = pendingCommandRef.current;
@@ -1444,7 +1479,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
         onErrorRef.current?.(e?.message || 'Voice reconnect failed — tap to retry');
       }
     }
-  }, [startPcmCapture, resumeCapture, startListening, setStatus, playCommandChime]);
+  }, [startPcmCapture, startListening, setStatus, playCommandChime]);
 
   // ── Freeze watchdog (branch 5, strictly additive) ───────────────────────────────────────────
   // Davy's 2026-07-12 route died when the app got stuck non-listening after a TTS barge-in: it
@@ -1534,13 +1569,16 @@ export function useVoice(options: UseVoiceOptions = {}) {
       // brought the microphone up OFF, and nothing turned it back on. This is the exact path
       // that froze Davy after mute → unmute on 2026-08-06.
       setStatus('listening');
-      if (!captureNodeRef.current) { await startPcmCapture(); } else { resumeCapture(); }
+      if (!(await startPcmCapture())) {
+        setStatus('error');
+        return;
+      }
     } else {
       // Socket dead — full reconnect (sets its own status).
       startListening();
       return;
     }
-  }, [setStatus, startListening, startPcmCapture, resumeCapture]);
+  }, [setStatus, startListening, startPcmCapture]);
 
   const stopAudio = useCallback((opts?: { keepSpeakingAfter?: boolean }) => {
     // One switch was doing two different jobs, and that is what silenced the app mid-route for
@@ -1563,8 +1601,16 @@ export function useVoice(options: UseVoiceOptions = {}) {
       stoppedRef.current = true;
     }
 
-    // Clear the speak queue to prevent queued TTS from starting
-    speakQueueRef.current = [];
+    // Invalidate the current announcement before stopping its player. Its asynchronous catch /
+    // finally handlers must not replay fallback speech or overwrite the newer command state.
+    speechGenerationRef.current++;
+    speechPreparationRef.current = null;
+
+    // Cancel queued announcements and invalidate the old lock owner. A stale speak() may still
+    // unwind after the player is stopped, but it can no longer release a newer owner's lock.
+    const queued = speakQueueRef.current.splice(0);
+    queued.forEach(resolve => resolve(null));
+    speakLockOwnerRef.current++;
     speakLockRef.current = false;
 
     if (audioRef.current) {
@@ -1593,7 +1639,9 @@ export function useVoice(options: UseVoiceOptions = {}) {
       // Timeout: Chrome onend is unreliable and can hang indefinitely
       const timeout = setTimeout(() => {
         console.warn('[Voice] speakBrowser timeout (15s) — forcing resolve');
-        try { window.speechSynthesis.cancel(); } catch (e) {}
+        if (speechGenerationRef.current === generation) {
+          try { window.speechSynthesis.cancel(); } catch (e) {}
+        }
         resolve();
       }, 15000);
 
@@ -1615,34 +1663,40 @@ export function useVoice(options: UseVoiceOptions = {}) {
 
   // Mutex for speak function (matches original PWA lock/unlock pattern)
   const speakLockRef = useRef(false);
-  const speakQueueRef = useRef<(() => void)[]>([]);
+  const speakLockOwnerRef = useRef(0);
+  const speakQueueRef = useRef<((owner: number | null) => void)[]>([]);
 
-  const acquireSpeakLock = useCallback((): Promise<void> => {
+  const acquireSpeakLock = useCallback((): Promise<number | null> => {
     return new Promise(resolve => {
       if (!speakLockRef.current) {
         speakLockRef.current = true;
-        resolve();
+        resolve(++speakLockOwnerRef.current);
       } else {
         // Timeout: prevent deadlock if current speak() hangs
+        const waiter = (owner: number | null) => {
+          clearTimeout(timeout);
+          resolve(owner);
+        };
         const timeout = setTimeout(() => {
           console.warn('[Voice] acquireSpeakLock timeout (20s) — force-releasing lock');
+          const index = speakQueueRef.current.indexOf(waiter);
+          if (index >= 0) speakQueueRef.current.splice(index, 1);
+          const staleWaiters = speakQueueRef.current.splice(0);
+          staleWaiters.forEach(cancel => cancel(null));
           speakLockRef.current = true; // Take the lock for ourselves
-          speakQueueRef.current = []; // Clear stale queue
-          resolve();
+          resolve(++speakLockOwnerRef.current);
         }, 20000);
 
-        speakQueueRef.current.push(() => {
-          clearTimeout(timeout);
-          resolve();
-        });
+        speakQueueRef.current.push(waiter);
       }
     });
   }, []);
 
-  const releaseSpeakLock = useCallback(() => {
+  const releaseSpeakLock = useCallback((owner: number) => {
+    if (speakLockOwnerRef.current !== owner) return;
     if (speakQueueRef.current.length > 0) {
       const next = speakQueueRef.current.shift();
-      next?.();
+      next?.(++speakLockOwnerRef.current);
     } else {
       speakLockRef.current = false;
     }
@@ -1666,12 +1720,13 @@ export function useVoice(options: UseVoiceOptions = {}) {
     }
 
     // 1. Acquire lock - only one speak at a time (matches original PWA)
-    await acquireSpeakLock();
+    const speakLockOwner = await acquireSpeakLock();
+    if (speakLockOwner === null) return;
 
     // Check again after acquiring lock - user might have closed while waiting
     if (stoppedRef.current) {
       console.log('[Voice] Speak cancelled after lock - audio was stopped');
-      releaseSpeakLock();
+      releaseSpeakLock(speakLockOwner);
       return;
     }
 
@@ -1762,13 +1817,15 @@ export function useVoice(options: UseVoiceOptions = {}) {
             signal: AbortSignal.timeout(15000)
           });
 
+          if (speechGenerationRef.current !== speechGeneration) return;
+
           if (!response.ok) {
             emitDiagnostic('error', 'TTS fetch failed: ' + response.status);
             throw new Error('TTS failed');
           }
 
           // Check if stopped while fetching - don't play if user already exited
-          if (stoppedRef.current) {
+          if (stoppedRef.current || speechGenerationRef.current !== speechGeneration) {
             console.log('[Voice] Audio stopped before playback - user exited');
             return;
           }
@@ -1777,7 +1834,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
         }
 
         // Check again after blob conversion
-        if (stoppedRef.current) {
+        if (stoppedRef.current || speechGenerationRef.current !== speechGeneration) {
           console.log('[Voice] Audio stopped before playback - user exited');
           return;
         }
@@ -1806,7 +1863,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
           audioRef.current = audio as any;
 
           await new Promise<void>((resolve, reject) => {
-            if (stoppedRef.current) {
+            if (stoppedRef.current || speechGenerationRef.current !== speechGeneration) {
               URL.revokeObjectURL(audioUrl);
               resolve();
               return;
@@ -1814,13 +1871,13 @@ export function useVoice(options: UseVoiceOptions = {}) {
 
             audio.onended = () => {
               URL.revokeObjectURL(audioUrl);
-              audioRef.current = null;
+              if (audioRef.current === audio) audioRef.current = null;
               resolve();
             };
 
             audio.onerror = (err) => {
               URL.revokeObjectURL(audioUrl);
-              audioRef.current = null;
+              if (audioRef.current === audio) audioRef.current = null;
               reject(err);
             };
 
@@ -1836,7 +1893,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
                 .catch(err => {
                   console.error('[Voice] HTMLAudioElement playback failed:', err);
                   URL.revokeObjectURL(audioUrl);
-                  audioRef.current = null;
+                  if (audioRef.current === audio) audioRef.current = null;
                   reject(err);
                 });
             }
@@ -1867,19 +1924,19 @@ export function useVoice(options: UseVoiceOptions = {}) {
           }
 
           await new Promise<void>((resolve, reject) => {
-            if (stoppedRef.current) {
+            if (stoppedRef.current || speechGenerationRef.current !== speechGeneration) {
               resolve();
               return;
             }
 
             audioBlob.arrayBuffer().then(arrayBuffer => {
-              if (stoppedRef.current) {
+              if (stoppedRef.current || speechGenerationRef.current !== speechGeneration) {
                 resolve();
                 return;
               }
 
               audioContext.decodeAudioData(arrayBuffer).then(audioBuffer => {
-                if (stoppedRef.current) {
+                if (stoppedRef.current || speechGenerationRef.current !== speechGeneration) {
                   resolve();
                   return;
                 }
@@ -1899,7 +1956,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
                 audioRef.current = source as any;
 
                 source.onended = () => {
-                  audioRef.current = null;
+                  if (audioRef.current === source) audioRef.current = null;
                   resolve();
                 };
 
@@ -1910,7 +1967,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
                   console.log('[Voice] Web Audio API playback started');
                 } catch (err: any) {
                   console.error('[Voice] Web Audio playback failed:', err);
-                  audioRef.current = null;
+                  if (audioRef.current === source) audioRef.current = null;
                   reject(err);
                 }
               }).catch(err => {
@@ -1936,7 +1993,10 @@ export function useVoice(options: UseVoiceOptions = {}) {
         //
         // The backup voice still fires for real failures (a decode error, a dead audio path),
         // because there he genuinely has not heard the item and silence would be worse.
-        if (shouldSpeakFallback({ stoppedOnPurpose: stoppedRef.current })) {
+        if (
+          speechGenerationRef.current === speechGeneration &&
+          shouldSpeakFallback({ stoppedOnPurpose: stoppedRef.current })
+        ) {
           // Use processed text so pronunciation corrections apply
           await speakBrowser(processed, speechGeneration);
         } else {
@@ -1944,6 +2004,10 @@ export function useVoice(options: UseVoiceOptions = {}) {
           emitDiagnostic('tts-stop-not-failure', processed);
         }
       }
+
+      // A driver command, Stop, or a newer announcement invalidates this asynchronous call.
+      // Its cleanup must not change the state established by the newer interaction.
+      if (speechGenerationRef.current !== speechGeneration) return;
 
       // 7. Done speaking - transition back to listening (matches original PWA)
       lastSpeakEndTimeRef.current = Date.now(); // closes the echo window (see echoFilter.ts)
@@ -1961,23 +2025,24 @@ export function useVoice(options: UseVoiceOptions = {}) {
     } catch (outerError) {
       console.error('[Voice] Speak failed:', outerError);
     } finally {
-      if (speechPreparationRef.current?.generation === speechGeneration) {
+      const isCurrentSpeech = speechGenerationRef.current === speechGeneration;
+      if (isCurrentSpeech && speechPreparationRef.current?.generation === speechGeneration) {
         speechPreparationRef.current = null;
       }
       // CRITICAL: Always reset from 'speaking' state to prevent permanent voice lockout
       // If status is still 'speaking' here, something threw before setStatus('listening')
-      if (!stoppedRef.current && statusRef.current === 'speaking') {
+      if (isCurrentSpeech && !stoppedRef.current && statusRef.current === 'speaking') {
         console.warn('[Voice] Resetting stuck speaking state in finally block');
         setStatus('listening');
         try { await resumeListening(); } catch (e) { /* best effort */ }
       }
       // Guarantee the echo window closes even if playback threw on the way out. Left open,
       // it would silently swallow anything he says that echoes the last thing spoken.
-      if (lastSpeakEndTimeRef.current === null) {
+      if (isCurrentSpeech && lastSpeakEndTimeRef.current === null) {
         lastSpeakEndTimeRef.current = Date.now();
       }
       // Always release lock (matches original PWA unlock in finally)
-      releaseSpeakLock();
+      releaseSpeakLock(speakLockOwner);
     }
   }, [acquireSpeakLock, releaseSpeakLock, stopAudio, pauseListening, resumeListening, speakBrowser, playReadyBeep, setStatus, markSpeechStarted]);
 
@@ -2095,6 +2160,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
   // CRITICAL: Stop all audio immediately when user leaves/closes page
   // This prevents the horrible UX of audio continuing after window close
   useEffect(() => {
+    let resumeAfterPageShow = false;
     // Stop everything - used for all cleanup scenarios
     const stopEverything = () => {
       console.log('[Voice] Stopping all audio and listening');
@@ -2151,8 +2217,22 @@ export function useVoice(options: UseVoiceOptions = {}) {
     // };
 
     // Handle page navigation (pagehide is more reliable than beforeunload on mobile)
-    const handlePageHide = () => {
+    const handlePageHide = (event: PageTransitionEvent) => {
+      resumeAfterPageShow = event.persisted && shouldReconnectRef.current;
       stopEverything();
+    };
+
+    // A page restored from the mobile back/forward cache keeps its React tree and often keeps
+    // the WebSocket object, but pagehide above deliberately tore down the microphone graph.
+    // Rebuild the complete voice path instead of trusting the still-open socket indicator.
+    const handlePageShow = (event: PageTransitionEvent) => {
+      if (!event.persisted || !resumeAfterPageShow || !shouldReconnectRef.current) return;
+      resumeAfterPageShow = false;
+      emitDiagnostic('voice-resume', 'pageshow-persisted');
+      const restart = startListeningRef.current?.();
+      void restart?.catch(error => {
+        emitDiagnostic('error', 'Voice restore failed: ' + String(error));
+      });
     };
 
     // Screen lock / app background handling — the CALM version.
@@ -2212,12 +2292,14 @@ export function useVoice(options: UseVoiceOptions = {}) {
     // Add event listeners
     window.addEventListener('beforeunload', handleBeforeUnload);
     window.addEventListener('pagehide', handlePageHide);
+    window.addEventListener('pageshow', handlePageShow);
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     // Cleanup on unmount
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
       window.removeEventListener('pagehide', handlePageHide);
+      window.removeEventListener('pageshow', handlePageShow);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       // Clear reconnection timeout
       if (reconnectTimeoutRef.current) {

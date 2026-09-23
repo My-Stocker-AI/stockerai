@@ -9,7 +9,7 @@ import { shouldRunDirectionDetection } from '@/hooks/voiceHandoffPolicy';
 import { resolveFailureSpeech, classifyFailure, type FailureKind } from '@/hooks/voiceFailureSpeech';
 import { isConnectionError, pickingConnectionMessage } from '@/utils/userFacingErrors';
 import { resolveTranscriptGate, gateReason } from '@/hooks/transcriptGate';
-import { resolveUnknownReply } from '@/utils/commandGuess';
+import { CONFIRM_PROMPT, resolveUnknownReply } from '@/utils/commandGuess';
 import { isBareNumber } from '@/utils/spokenNumber';
 import { resolveLocalIntent } from '@/utils/localCommandIntent';
 import { useStockerAI } from '@/hooks/useStockerAI';
@@ -487,6 +487,24 @@ export default function StockerApp() {
         confidence: commandMatch.confidence,
         parameters: commandMatch.parameters
       });
+
+      // The recognizer marks lower-confidence fuzzy matches for confirmation. Honor that
+      // contract before any route-changing tool call; otherwise a near word can move inventory
+      // even though the matcher explicitly said it was unsure.
+      if (
+        commandMatch.command !== PickingCommand.UNKNOWN &&
+        commandMatch.confidence >= 0.7 &&
+        commandMatch.requiresConfirmation
+      ) {
+        const prompt = CONFIRM_PROMPT[commandMatch.command];
+        if (prompt) {
+          pendingGuessRef.current = commandMatch.command;
+          setAiResponse(prompt);
+          await v.speak(prompt);
+          processingRef.current = false;
+          return;
+        }
+      }
 
       if (commandMatch.command !== PickingCommand.UNKNOWN && commandMatch.confidence >= 0.7) {
         // CRITICAL FIX: State machine enforcement - check for pending machine transition

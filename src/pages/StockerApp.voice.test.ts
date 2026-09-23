@@ -158,6 +158,16 @@ describe('actual StockerApp transcript dispatch with mocked services', () => {
     expect(mocks.speak).toHaveBeenLastCalledWith('Okay.');
   });
 
+  it('confirms a lower-confidence fuzzy action before changing route progress', async () => {
+    render(React.createElement(StockerApp));
+    await say('nexxt');
+    expect(mocks.execute).not.toHaveBeenCalled();
+    expect(mocks.speak).toHaveBeenLastCalledWith('Next item?');
+    await say('yes');
+    expect(mocks.execute).toHaveBeenCalledOnce();
+    expect(mocks.execute.mock.calls[0][0][0].function.name).toBe('get_next_item');
+  });
+
   it('passes numeric input through when choosing a route or date', async () => {
     mocks.state = { ...mocks.state, routeName: null, currentMachineId: null, currentItem: null, machines: [] };
     render(React.createElement(StockerApp));

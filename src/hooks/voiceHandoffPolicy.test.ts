@@ -83,10 +83,14 @@ describe('BRANCH 3 — the fix: a direction command at the hand-off is never los
     expect(resolveHandoffCommand({ status: 'thinking', isDirectionCommand: true })).toBe('dispatch');
   });
 
-  it('direction command during speaking/listening/idle also dispatches', () => {
-    for (const status of ['speaking', 'listening', 'idle'] as VoiceStatus[]) {
+  it('direction command during speaking/listening also dispatches', () => {
+    for (const status of ['speaking', 'listening'] as VoiceStatus[]) {
       expect(resolveHandoffCommand({ status, isDirectionCommand: true })).toBe('dispatch');
     }
+  });
+
+  it('ignores a late command after voice has stopped', () => {
+    expect(resolveHandoffCommand({ status: 'idle', isDirectionCommand: true })).toBe('ignore');
   });
 
   it('REVISED 2026-07-30 — held only when the app broke, discarded when the driver chose to stop', () => {
@@ -175,7 +179,7 @@ describe('BRANCH 5 — watchdog: recover a real freeze, never interrupt legit pr
  *   2. The queue has exactly one writer (useVoice.ts line 475), reached only when
  *      resolveHandoffCommand returns 'queue'.
  *   3. After the 2026-07-30 sibling round, 'queue' is returned for ONE state — 'error'.
- *      (paused/muted → ignore; listening/idle/speaking/thinking → dispatch.)
+ *      (idle/paused/muted → ignore; listening/speaking/thinking → dispatch.)
  *   4. To queue anything in 'error', a transcript must arrive while in 'error'. But 'error'
  *      means the connection is down, so no transcript can arrive.
  *
@@ -364,7 +368,7 @@ describe('SIBLING — a picking command spoken mid-think must not be silently pa
   it('never leaves a picking command parked longer than the driver would tolerate', () => {
     // The parked path is only acceptable when the app is deliberately held (paused/muted).
     // Any live-ish state must resolve the utterance now, not on a later resumeListening.
-    const liveish: VoiceStatus[] = ['listening', 'idle', 'speaking', 'thinking'];
+    const liveish: VoiceStatus[] = ['listening', 'speaking', 'thinking'];
     for (const status of liveish) {
       expect(resolveHandoffCommand({ status, isDirectionCommand: false })).toBe('dispatch');
     }
