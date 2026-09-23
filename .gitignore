@@ -26,7 +26,7 @@ dist-ssr
 MEMORY.md
 
 # Credentials — never commit; secrets live in the deploy platform's env vars.
-# (These were committed historically — rotation + untracking is a separate coordinated step.)
+# Historical exposures still require coordinated revocation; ignore rules do not revoke keys.
 .env
 .env.*
 !.env.example

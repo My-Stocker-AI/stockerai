@@ -60,18 +60,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # BLOCKING — fails if a credentials file gets committed. .env and .mcp.json
-      # must never be tracked; secrets belong in the deploy platform's env vars.
-      # Report-only for now: known credential files are already tracked and key
-      # rotation is deliberately deferred. This surfaces the state on every push
-      # without failing the build. Flip the `exit 1` back on after the keys are
-      # rotated + the files untracked, so NEW secret commits are then blocked.
-      - name: Warn on committed secrets
-        run: |
-          tracked=$(git ls-files | grep -E '(^|/)\.env$|(^|/)\.mcp\.json$|KEY.*\.js$' || true)
-          if [ -n "$tracked" ]; then
-            echo "::warning::Credential files tracked in git (rotation deferred):"
-            echo "$tracked"
-          else
-            echo "No credential files tracked. ✓"
-          fi
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Test credential publication guard
+        run: python -m unittest discover -s scripts -p test_check_secrets.py
+      - name: Block credential publication
+        run: python scripts/check-secrets.py
