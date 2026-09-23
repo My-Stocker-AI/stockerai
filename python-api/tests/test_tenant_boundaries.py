@@ -239,3 +239,16 @@ def test_new_tenant_picking_functions_are_service_only(signature, args):
     assert subprocess.check_output(command + ['-Atc',
         f"SELECT has_function_privilege('service_role','public.{signature}','EXECUTE')"],
         text=True).strip() == 't'
+
+
+@pytest.mark.parametrize('signature', [
+    'picking_context(uuid,uuid[],uuid)',
+    'advance_picking(uuid,uuid[],uuid,uuid,uuid,integer,integer,text)',
+    'transition_picking(uuid,uuid[],uuid,uuid,uuid,uuid,text,integer,text,jsonb)',
+])
+def test_superseded_authority_array_signatures_are_not_service_callable(signature):
+    command = ['docker', 'exec', 'supabase_db_stockerai-disposable', 'psql', '-U', 'postgres',
+               '-d', 'postgres', '-Atc']
+    assert subprocess.check_output(command + [
+        f"SELECT has_function_privilege('service_role','public.{signature}','EXECUTE')"
+    ], text=True).strip() == 'f'
