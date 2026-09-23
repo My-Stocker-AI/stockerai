@@ -549,6 +549,15 @@ export type Database = {
       }
     }
     Functions: {
+      admin_update_account_access: {
+        Args: {
+          p_account_id: string
+          p_driver_count: number
+          p_is_complimentary: boolean
+          p_subscription_status: string
+        }
+        Returns: Database["public"]["Tables"]["accounts"]["Row"]
+      }
       can_view_all_routes: { Args: { _user_id: string }; Returns: boolean }
       generate_demo_discount_code: { Args: never; Returns: string }
       get_next_item: {

@@ -2,6 +2,7 @@ import { useState, useEffect, createContext, useContext, ReactNode } from 'react
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 
 interface UserRole {
   role: 'primary_admin' | 'driver';
@@ -22,7 +23,7 @@ interface AuthContextType {
   userProfile: UserProfile | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
-  signUp: (email: string, password: string, firstName: string, lastName: string, driverCount?: number) => Promise<{ error: Error | null }>;
+  signUp: (email: string, password: string, firstName: string, lastName: string, driverCount?: number) => Promise<{ error: Error | null; requiresEmailConfirmation: boolean }>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<{ error: Error | null }>;
 }
@@ -35,6 +36,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [userRole, setUserRole] = useState<UserRole | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
 
   const fetchUserRole = async (userId: string) => {
     const { data, error } = await supabase
@@ -130,57 +132,21 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         data: {
           first_name: firstName,
           last_name: lastName,
+          driver_count: driverCount,
+          stocker_account_signup: true,
         }
       }
     });
 
     if (error) {
-      return { error: error as Error };
+      return { error: error as Error, requiresEmailConfirmation: false };
     }
 
-    // After successful signup, create account and account_user
-    if (data.user) {
-      // Update profiles with first/last name
-      await supabase
-        .from('profiles')
-        .update({ 
-          first_name: firstName, 
-          last_name: lastName 
-        })
-        .eq('id', data.user.id);
-
-      // Create account
-      const { data: accountData, error: accountError } = await supabase
-        .from('accounts')
-        .insert({
-          name: `${firstName}'s Company`,
-          driver_count: driverCount,
-        })
-        .select()
-        .single();
-
-      if (accountError) {
-        console.error('Error creating account:', accountError);
-        return { error: new Error('Failed to create account') };
-      }
-
-      // Create account_user as primary_admin
-      const { error: roleError } = await supabase
-        .from('account_users')
-        .insert({
-          account_id: accountData.id,
-          user_id: data.user.id,
-          role: 'primary_admin',
-          can_view_all_routes: true,
-        });
-
-      if (roleError) {
-        console.error('Error creating account user:', roleError);
-        return { error: new Error('Failed to set up user role') };
-      }
+    if (!data.user) {
+      return { error: new Error('Account creation did not return a user'), requiresEmailConfirmation: false };
     }
 
-    return { error: null };
+    return { error: null, requiresEmailConfirmation: !data.session };
   };
 
   const signOut = async () => {
@@ -189,6 +155,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setSession(null);
     setUserRole(null);
     setUserProfile(null);
+    queryClient.clear();
   };
 
   const resetPassword = async (email: string) => {

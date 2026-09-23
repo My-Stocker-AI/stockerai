@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,6 +9,7 @@ import { toast } from "sonner";
 
 const Login = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { signIn, resetPassword, user, loading: authLoading } = useAuth();
   
   const [email, setEmail] = useState("");
@@ -108,6 +109,14 @@ const Login = () => {
               <div className="mb-4 p-3 bg-destructive/10 border border-destructive/20 rounded-lg flex items-start gap-2">
                 <AlertCircle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
                 <p className="text-sm text-destructive">{error}</p>
+              </div>
+            )}
+
+            {searchParams.get('signup') === 'check-email' && !error && (
+              <div className="mb-4 p-3 bg-primary/10 border border-primary/20 rounded-lg">
+                <p className="text-sm text-foreground">
+                  Your account is ready. Check your email to confirm it, then sign in.
+                </p>
               </div>
             )}
 
