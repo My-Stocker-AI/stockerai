@@ -129,7 +129,15 @@ function containsMishearing(lower: string, mishearings: string[]): boolean {
 const NEVER_A_DIRECTION = ['stop'];
 
 export function detectDirection(transcript: string): 'top' | 'bottom' | null {
-  const lower = transcript.toLowerCase().trim();
+  const lower = transcript.toLowerCase().replace(/[.,!?;:]/g, ' ').trim().replace(/\s+/g, ' ');
+  const directionWords = lower.split(' ');
+  const topWords = new Set(['top', 'beginning', 'first']);
+  const bottomWords = new Set(['bottom', 'end', 'last', 'reverse']);
+  // Conflicting explicit directions need clarification, even when a known
+  // multiword phrase is present. Repetition alone is one direction, not actions.
+  if (directionWords.some(word => topWords.has(word)) && directionWords.some(word => bottomWords.has(word))) return null;
+  if (directionWords.length > 1 && directionWords.every(word => topWords.has(word))) return 'top';
+  if (directionWords.length > 1 && directionWords.every(word => bottomWords.has(word))) return 'bottom';
 
   if (NEVER_A_DIRECTION.includes(lower)) {
     return null;

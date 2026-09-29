@@ -1,6 +1,8 @@
 import { useCallback, useRef } from 'react';
 import { authFetch } from '@/lib/authFetch';
 import { toolFailureMessage } from '@/utils/toolFailure';
+import type { CurrentItem } from '@/hooks/useStockerSession';
+import { pickingQuestionPrompt, pickingQuestionFallback, type ConversationContext } from '@/utils/pickingConversation';
 
 const PYTHON_API_BASE = 'https://stockerai-api.onrender.com/api';
 const N8N_BASE_URL = 'https://visionairy.app.n8n.cloud/webhook';
@@ -247,16 +249,8 @@ export function useStockerAI() {
     console.log('[useStockerAI] sessionIdRef.current now:', sessionIdRef.current);
   }, []);
 
-  const buildSystemPrompt = useCallback((userName: string, currentItem: any, routeContext?: {
-    availableRoutes: string[],
-    date: string,
-    currentRouteName?: string,
-    totalMachines?: number,
-    currentMachineIndex?: number,
-    completedItemsCount?: number,
-    totalItems?: number,
-    machines?: any[]
-  }) => {
+  const buildSystemPrompt = useCallback((userName: string, currentItem: CurrentItem | null, routeContext?: ConversationContext) => {
+    if (routeContext?.currentRouteName) return pickingQuestionPrompt(userName, currentItem, routeContext);
     // Use local date, not UTC (toISOString gives UTC which can be wrong timezone)
     const now = new Date();
     const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -269,8 +263,8 @@ export function useStockerAI() {
       if (currentItem.inventory_current !== undefined && currentItem.inventory_parlevel !== undefined) {
         itemContext += `\nInventory: ${currentItem.inventory_current} of ${currentItem.inventory_parlevel} (only mention if user asks)`;
       }
-      if (currentItem.machine_name) {
-        itemContext += `\nMachine: ${currentItem.machine_name}`;
+      if (currentItem.machineName) {
+        itemContext += `\nMachine: ${currentItem.machineName}`;
       }
       if (currentItem.item_index !== undefined && currentItem.items_remaining !== undefined) {
         itemContext += `\nItem position: item_index=${currentItem.item_index}, items_remaining=${currentItem.items_remaining}`;
@@ -739,16 +733,7 @@ Current session ID: ${sessionIdRef.current}
 Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${routeSelectionContext}`;
   }, []);
 
-  const sendToAI = useCallback(async (messages: any[], userName: string, currentItem: any, routeContext?: {
-    availableRoutes: string[],
-    date: string,
-    currentRouteName?: string,
-    totalMachines?: number,
-    currentMachineIndex?: number,
-    completedItemsCount?: number,
-    totalItems?: number,
-    machines?: any[]
-  }) => {
+  const sendToAI = useCallback(async (messages: any[], userName: string, currentItem: CurrentItem | null, routeContext?: ConversationContext) => {
     // Check online status (from original PWA)
     if (!navigator.onLine) {
       throw new Error('No internet connection');
@@ -761,15 +746,20 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
       routeName: routeContext?.currentRouteName
     });
 
+    const pickingQuestion = !!routeContext?.currentRouteName;
+    // Old setup/tool replies can describe a different machine. Each picking
+    // question starts from its exact state snapshot and the latest user input.
+    const requestMessages = pickingQuestion
+      ? messages.filter(message => message.role === 'user').slice(-1).map(message => ({ role: 'user', content: message.content }))
+      : messages;
     // PRIORITY 1.3 & 1.4: Use retry logic with rate limit detection
     const response = await fetchWithRetry(`${N8N_BASE}/openai-chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: 'gpt-4o-mini',
-        messages: [{ role: 'system', content: buildSystemPrompt(userName, currentItem, routeContext) }, ...messages],
-        tools: TOOLS,
-        tool_choice: 'auto'
+        messages: [{ role: 'system', content: buildSystemPrompt(userName, currentItem, routeContext) }, ...requestMessages],
+        ...(pickingQuestion ? {} : { tools: TOOLS, tool_choice: 'auto' })
       })
     });
 
@@ -796,7 +786,13 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
       toolNames: data.choices?.[0]?.message?.tool_calls?.map((tc: any) => tc.function.name)
     });
 
-    return data.choices[0].message;
+    const message = data.choices?.[0]?.message;
+    if (pickingQuestion) {
+      // Enforce the information-only boundary even if a provider returns an
+      // unexpected tool call; discard any associated claim of an action too.
+      return { content: message?.tool_calls?.length || !message?.content ? pickingQuestionFallback : message.content };
+    }
+    return message;
   }, [buildSystemPrompt]);
 
   const executeToolCalls = useCallback(async (

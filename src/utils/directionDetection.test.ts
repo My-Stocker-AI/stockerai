@@ -1,6 +1,17 @@
 import { describe, it, expect } from 'vitest';
 import { detectDirection } from './phoneticCorrection';
 
+describe('repeated direction answers', () => {
+  it.each([['Bottom. Bottom. Bottom.', 'bottom'], ['top, top!', 'top'],
+    ['beginning beginning', 'top'], ['end end end', 'bottom']])('%s resolves once', (input, direction) => {
+    expect(detectDirection(input)).toBe(direction);
+  });
+  it.each(['top bottom', 'from the top or from the bottom', 'bottom top bottom',
+    'stop stop', 'pop pop', 'bottom shelf bottom', 'not bottom bottom'])('%s remains unclear', input => {
+    expect(detectDirection(input)).toBeNull();
+  });
+});
+
 /**
  * Proof, not a claim.
  *

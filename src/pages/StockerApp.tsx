@@ -12,6 +12,7 @@ import { resolveTranscriptGate, gateReason } from '@/hooks/transcriptGate';
 import { CONFIRM_PROMPT, resolveUnknownReply } from '@/utils/commandGuess';
 import { isBareNumber } from '@/utils/spokenNumber';
 import { resolveLocalIntent } from '@/utils/localCommandIntent';
+import { pickingContextKey, pickingQuestionFallback } from '@/utils/pickingConversation';
 import { useStockerAI } from '@/hooks/useStockerAI';
 import { useStockerSession } from '@/hooks/useStockerSession';
 import { useSessionPersistence } from '@/hooks/useSessionPersistence';
@@ -227,6 +228,11 @@ export default function StockerApp() {
   const userId = user?.id || null;
 
   const { routeState, sessionId, messages, messagesRef, updateFromTool, addMessage, reset, setRouteState, setMessages, setSessionId, generateNewSessionId } = useStockerSession(userId);
+  const questionContextKey = pickingContextKey(sessionId, routeState);
+  const questionContextRef = useRef(questionContextKey);
+  questionContextRef.current = questionContextKey;
+  const questionLifetimeRef = useRef(0);
+  useEffect(() => () => { questionLifetimeRef.current += 1; }, []);
   const { setSession, sendToAI, executeToolCalls, getRoutes } = useStockerAI();
   const sessionPersistence = useSessionPersistence();
   const keywordLearning = useKeywordLearning();
@@ -973,13 +979,8 @@ export default function StockerApp() {
         //              change nothing, are not time-critical, and get phrased a hundred ways.
         //              They are exactly what semantic understanding is for.
         //
-        // The AI call below already receives the whole picture — every machine, which were
-        // skipped, where he is, his counts — so it can answer these with no new keywords at all.
-        // It was simply never reached once a route was open.
-        //
-        // If the AI is unreachable its own error path speaks the fallback, which is the same
-        // thing he used to get here anyway. So this can only improve on the dead end.
-        console.log('[CommandRecognizer] → nothing leans; handing to the AI (it holds full route state)');
+        // Questions receive a fresh picking snapshot and cannot invoke route tools.
+        console.log('[CommandRecognizer] → handing question to AI with current picking state');
       }
     }
 
@@ -989,6 +990,8 @@ export default function StockerApp() {
 
     processingRef.current = true;
     v.setThinking();
+    const questionTarget = pickingContextKey(sessionId, routeState);
+    const questionLifetime = questionLifetimeRef.current;
 
     try {
       // Use corrected transcript (with phonetic fixes) for AI
@@ -1009,6 +1012,10 @@ export default function StockerApp() {
         currentRouteName: routeState.routeName,
         totalMachines: routeState.totalMachines,
         currentMachineIndex: routeState.currentMachineIndex,
+        currentMachineId: routeState.currentMachineId,
+        currentMachineName: routeState.currentMachineName,
+        pendingMachineTransition: routeState.pendingMachineTransition,
+        completed: routeState.completed,
         completedItemsCount: routeState.completedItems.length,
         totalItems: routeState.machines.reduce((sum, m) => sum + (m.totalItems || 0), 0),
         machines: routeState.machines, // For skipped machine tracking
@@ -1016,6 +1023,15 @@ export default function StockerApp() {
       } : undefined);
 
       let response = await sendToAI(allMessages, userName, routeState.currentItem, routeContext);
+      if (routeState.routeName) {
+        if (questionLifetimeRef.current !== questionLifetime) return;
+        if (questionContextRef.current !== questionTarget) {
+          v.resumeListening();
+          return;
+        }
+        // Defence at the dispatch boundary as well as in the AI hook.
+        if (response.tool_calls?.length) response = { content: pickingQuestionFallback };
+      }
       let fastPathVoiceText: string | null = null; // Track voice text separately from display text
 
       // CRITICAL: Loop while there are tool_calls (matches original PWA behavior)
@@ -1135,6 +1151,16 @@ export default function StockerApp() {
         await keywordLearning.trackKeywords(transcript, true);
       }
     } catch (err: any) {
+      if (routeState.routeName) {
+        if (questionLifetimeRef.current !== questionLifetime) return;
+        if (questionContextRef.current === questionTarget) {
+          setAiResponse(pickingQuestionFallback);
+          await v.speak(pickingQuestionFallback);
+        } else {
+          v.resumeListening();
+        }
+        return; // An information request must never clear a handoff or replay a command.
+      }
       const errorMsg = err.message || 'Something went wrong';
       const isNetworkError = isConnectionError(errorMsg);
       const isRateLimited = errorMsg.includes('429') || errorMsg.includes('rate limit');
@@ -1208,7 +1234,7 @@ export default function StockerApp() {
     } finally {
       processingRef.current = false;
     }
-  }, [userName, routeState, addMessage, sendToAI, executeToolCalls, updateFromTool, undoLastItem, retryCount, messagesRef, showRouteSelection, availableRoutes, selectRoute, shouldIgnoreTranscript]);
+  }, [userName, sessionId, routeState, addMessage, sendToAI, executeToolCalls, updateFromTool, undoLastItem, retryCount, messagesRef, showRouteSelection, availableRoutes, selectRoute, shouldIgnoreTranscript]);
 
   const handleWakePhrase = useCallback(async (command: string | null) => {
     const v = voiceRef.current;

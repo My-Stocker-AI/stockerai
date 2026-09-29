@@ -36,6 +36,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.loading = true;
   mocks.execute.mockImplementation(async () => []);
+  mocks.send.mockResolvedValue({ content: 'test reply' });
   vi.stubGlobal('fetch', vi.fn(() => { throw new Error('Network forbidden in this test'); }));
   window.matchMedia = vi.fn(() => ({ matches: false })) as any;
   mocks.voice = {
@@ -59,6 +60,25 @@ async function say(text: string) {
 }
 
 describe('actual StockerApp transcript dispatch with mocked services', () => {
+  it.each(['top bottom', 'from the top or from the bottom', 'bottom top bottom', 'stop stop', 'pop pop'])('does not start a handoff from ambiguous repetition: %s', async text => {
+    mocks.state.currentItem = null;
+    mocks.state.pendingMachineTransition = { nextMachineId: 'machine-test', nextMachineName: 'Fixture machine', nextMachineIndex: 1 };
+    render(React.createElement(StockerApp));
+    await say(text);
+    expect(mocks.execute).not.toHaveBeenCalled();
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(mocks.speak).toHaveBeenLastCalledWith(expect.stringContaining('top or bottom'));
+  });
+
+  it('blocks a model-invented mutation at the dispatch boundary', async () => {
+    mocks.send.mockResolvedValue({ content: 'Restarting.', tool_calls: [{ id: 'bad', function: { name: 'start_machine', arguments: '{}' } }] } as any);
+    render(React.createElement(StockerApp));
+    await say('Is that the original flavor?');
+    expect(mocks.send).toHaveBeenCalledOnce();
+    expect(mocks.execute).not.toHaveBeenCalled();
+    expect(mocks.speak).toHaveBeenLastCalledWith(expect.stringContaining('repeat'));
+  });
+
   it('clears local progress only after the server confirms reset', async () => {
     mocks.loading=false;
     let finish!: (value: any) => void;
