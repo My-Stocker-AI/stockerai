@@ -514,6 +514,7 @@ def start_machine(req: StartMachineRequest, caller: Caller = AuthCaller):
 
 class ResumeStateRequest(BaseModel):
     user_id: str | None = None
+    resume_window_version: Literal[1] | None = None
 
 
 def _item_at_sequence(db, machine_id: str, seq) -> dict | None:
@@ -620,6 +621,8 @@ def resume_state(req: ResumeStateRequest, caller: Caller = AuthCaller):
         saved = receipts[0]
         result, request = saved['result'], saved['request']
         width = 2 if result.get('product_name2') is not None else 1
+        if width == 2 and req.resume_window_version != 1:
+            raise HTTPException(409, 'Update and reopen Stocker to restore both unfinished items. Progress has not been changed.')
         if (cur['status'] != 'in_progress' or request.get('protocol') != 3
             or request.get('session') != s['id'] or request.get('direction') != direction
             or request.get('action') not in ('start', 'next')

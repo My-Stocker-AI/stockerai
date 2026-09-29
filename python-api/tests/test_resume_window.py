@@ -59,10 +59,10 @@ def fixture(direction='forward', width=2, presented=4, total=5, requested=2):
     return db, guard, window
 
 
-def load(db, guard, final=None):
+def load(db, guard, final=None, version=1):
     with patch('app.routes.items.get_client', return_value=db), patch('app.routes.items._picking_rpc',
             side_effect=[guard, guard if final is None else final]) as rpc:
-        value = resume_state(ResumeStateRequest(user_id='forged'), Caller('caller', 'account', ['caller']))
+        value = resume_state(ResumeStateRequest(user_id='forged', resume_window_version=version), Caller('caller', 'account', ['caller']))
     assert all(call.args[0] == 'picking_context' for call in rpc.call_args_list)
     assert rpc.call_args.args[1]['p_user_id'] == 'caller'
     return value
@@ -113,3 +113,14 @@ def test_unstarted_machine_has_no_confirmed_items_and_requests_direction():
     snap = load(db, guard)
     assert snap['current_item'] is snap['current_item2'] is None
     assert snap['confirmed_items'] == 0 and snap['awaiting_direction']
+
+
+def test_old_client_cannot_silently_drop_half_of_restored_pair():
+    db, guard, _ = fixture()
+    before = deepcopy(db.rows)
+    with pytest.raises(HTTPException) as error: load(db, guard, version=None)
+    assert error.value.status_code == 409
+    assert 'Update and reopen' in error.value.detail
+    assert db.rows == before
+    db, guard, _ = fixture(width=1, presented=3, requested=1)
+    assert load(db, guard, version=None)['current_item2'] is None

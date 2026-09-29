@@ -53,13 +53,16 @@ it.each([[false, 'forward'], [false, 'reverse'], [true, 'forward'], [true, 'reve
     const transitions: any[] = [];
     f.fetch.mockImplementation(async (url: string, options: RequestInit) => {
       const body = JSON.parse(options.body as string);
-      if (url.endsWith('/resume-state')) return response({ has_session: true, resume_window_version: 1, session_id: 'saved-session', picking_revision: 'saved-revision',
+      if (url.endsWith('/resume-state')) {
+        expect(body.resume_window_version).toBe(1);
+        return response({ has_session: true, resume_window_version: 1, session_id: '10000000-0000-4000-8000-000000000001', picking_revision: 'saved-revision',
         route: { id: 'route-fixture', route_name: 'Fixture', route_date: '2099-01-01', total_machines: 2 },
         current_machine: { id: 'm1', name: 'Machine One', total_items: 2, completed_items: 2 },
         current_machine_index: 1, current_item: item(order[0]), current_item2: item(order[1]),
         completed_list: [], confirmed_items: 0, items_remaining: 0, pick_direction: direction,
         machines: [{ id: 'm1', name: 'Machine One', totalItems: 2, completedItems: 2, status: 'in_progress' },
           { id: 'm2', name: 'Machine Two', totalItems: 1, completedItems: 0, status: 'pending' }] });
+      }
       if (url.endsWith('/openai-chat')) return response({ choices: [{ message: { content: 'Both items are still to pick.' } }] });
       expect(url).toMatch(/\/picking-transition$/);
       transitions.push(body);
@@ -76,7 +79,7 @@ it.each([[false, 'forward'], [false, 'reverse'], [true, 'forward'], [true, 'reve
     expect(transitions).toHaveLength(0);
     await say('okay');
     expect(transitions).toHaveLength(1);
-    expect(transitions[0]).toMatchObject({ session_id: 'saved-session', expected_revision: 'saved-revision',
+    expect(transitions[0]).toMatchObject({ session_id: '10000000-0000-4000-8000-000000000001', expected_revision: 'saved-revision',
       expected_machine_id: 'm1', action: 'next', count: two ? 2 : 1,
       expected_state: { completed_items: 2, status: 'in_progress', direction } });
     expect(state().completedItems.map((it: any) => it.product)).toEqual(order);

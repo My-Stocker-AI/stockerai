@@ -31,7 +31,7 @@ def test_recover_every_window_and_finish_two_machines(client, route, direction, 
             # Treat the reply as lost to the browser. The only recovery input is
             # authenticated identity, with no local cache or pick-mode preference.
             persisted = state(route)
-            resumed = client.post('/api/resume-state', json={})
+            resumed = client.post('/api/resume-state', json={'resume_window_version': 1})
             assert resumed.status_code == 200, resumed.text
             snap = resumed.json()
             assert state(route) == persisted
@@ -50,7 +50,7 @@ def test_recover_every_window_and_finish_two_machines(client, route, direction, 
             assert snap['picking_revision'] == response['picking_revision']
             assert snap['current_machine']['id'] == machine_id
             assert snap['pick_direction'] == direction
-            assert client.post('/api/resume-state', json={}).json() == snap
+            assert client.post('/api/resume-state', json={'resume_window_version': 1}).json() == snap
             # Replay the lost operation: same receipt, no extra increment.
             assert call(client, body).json() == response
             assert state(route) == persisted
@@ -71,5 +71,5 @@ def test_untracked_write_invalidates_recovery_instead_of_guessing_pair(client, r
     # Legacy/simultaneous writer changes revision, even with identical counts.
     db.table('machines').update({'completed_items': 2}).eq('id', mids[0]).execute()
     before = state(route)
-    assert client.post('/api/resume-state', json={}).status_code == 409
+    assert client.post('/api/resume-state', json={'resume_window_version': 1}).status_code == 409
     assert state(route) == before

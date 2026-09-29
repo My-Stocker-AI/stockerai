@@ -1552,7 +1552,7 @@ export default function StockerApp() {
             const resp = await authFetch('https://stockerai-api.onrender.com/api/resume-state', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ user_id: userId }),
+              body: JSON.stringify({ user_id: userId, resume_window_version: 1 }),
             });
             const snap = await resp.json();
             if (!resp.ok || !snap?.has_session || snap.resume_window_version !== 1 || snap.route?.id !== routeIdFromUrl || !snap.current_machine?.id || !snap.session_id) {

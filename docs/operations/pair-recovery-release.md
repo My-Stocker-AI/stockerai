@@ -16,19 +16,21 @@ snapshot check. Recovery and retries do not confirm items or advance progress.
 The screen restores both items regardless of the current pick-mode preference,
 announces the confirmed prefix, and restores the direction prompt between
 machines. It rejects older snapshot contracts instead of silently dropping the
-second item. A changed preference applies only to the next requested window.
+second item. The request also declares `resume_window_version: 1`; the server
+refuses a pair response to older clients that would ignore the second item.
+One-item recovery remains compatible with an older client when its saved receipt
+is valid. A changed preference applies only to the next requested window.
 
 ## Release and rollback
 
 No database migration is required; receipts are already saved atomically by the
 deployed versioned transitions. Do not delete or rewrite receipts or driver data.
-Following explicit release approval, deploy the API first and verify its exact
-commit and health, then deploy the frontend and verify `v0.2.3-pair-recovery` /
-`stocker-ai-v12-pair-recovery`. Existing workflows deploy both services on a merged
-change; use separate API/frontend release commits or an explicitly staged release
-if API-first ordering is required. The new screen fails safely if it reaches an
-old API during rollout. Close/reopen clients before controlled acceptance: old
-clients ignore the added second-item field.
+Following explicit release approval, verify both the API's exact commit/health
+and the frontend markers `v0.2.3-pair-recovery` / `stocker-ai-v12-pair-recovery`.
+Existing workflows deploy both services on a merged change. During mixed-version
+rollout the new screen refuses an old API's incomplete snapshot; the new API
+refuses pair recovery to an old screen. Close/reopen clients before controlled
+acceptance. Do not treat either service's successful rollout alone as completion.
 
 Rollback the frontend before rolling back the API. The old implementation cannot
 be relied on for server-only pair recovery. Retain receipts and route state.
