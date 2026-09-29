@@ -1555,7 +1555,7 @@ export default function StockerApp() {
               body: JSON.stringify({ user_id: userId }),
             });
             const snap = await resp.json();
-            if (!resp.ok || !snap?.has_session || snap.route?.id !== routeIdFromUrl || !snap.current_machine?.id || !snap.session_id) {
+            if (!resp.ok || !snap?.has_session || snap.resume_window_version !== 1 || snap.route?.id !== routeIdFromUrl || !snap.current_machine?.id || !snap.session_id) {
               throw new Error('Saved route could not be verified for this request');
             }
             if (snap?.has_session) {
@@ -1574,6 +1574,7 @@ export default function StockerApp() {
                 machineName: cm.name,
               } : null;
               const ci = mapItem(snap.current_item);
+              const ci2 = mapItem(snap.current_item2);
               setRouteState({
                 routeId: snap.route.id,
                 routeName: snap.route.route_name,
@@ -1585,11 +1586,14 @@ export default function StockerApp() {
                 currentMachineTotalItems: cm.total_items || 0,
                 currentMachineItemsRemaining: snap.items_remaining || 0,
                 currentItem: ci,
-                currentItem2: null,
+                currentItem2: ci2,
                 completedItems: (snap.completed_list || []).map(mapItem),
                 machines: snap.machines || [],
                 completed: false,
-                pendingMachineTransition: null,
+                pendingMachineTransition: snap.awaiting_direction ? {
+                  nextMachineId: cm.id, nextMachineName: cm.name,
+                  nextMachineIndex: snap.current_machine_index || 1,
+                } : null,
                 pickDirection: snap.pick_direction || null,
                 pickingRevision: snap.picking_revision,
               });
@@ -1598,9 +1602,13 @@ export default function StockerApp() {
                 setSession(snap.session_id, userId);
               }
               await voice.startListening();
+              const confirmedCount = snap.confirmed_items ?? (snap.completed_list || []).length;
+              const describe = (it: any) => `${it.quantity} ${it.product}, ${it.slot_spoken || it.slot}`;
               const msg = ci
-                ? `Welcome back ${userName}! Resuming ${cm.name}, ${cm.completed_items} of ${cm.total_items} done. Current item: ${ci.quantity} ${ci.product}, ${ci.slot_spoken || ci.slot}. Say next to continue.`
-                : `Welcome back ${userName}! Resuming ${snap.route.route_name}. Say next to continue.`;
+                ? `Welcome back ${userName}! Resuming ${cm.name}, ${confirmedCount} of ${cm.total_items} confirmed. Still to pick: ${describe(ci)}${ci2 ? `, and ${describe(ci2)}` : ''}. Say next when finished.`
+                : snap.awaiting_direction
+                  ? `Welcome back ${userName}! Resuming ${cm.name}. Top or bottom?`
+                  : `Welcome back ${userName}! Resuming ${snap.route.route_name}. Say next to continue.`;
               setAiResponse(msg);
               addMessage({ role: 'assistant', content: msg });
               setInitialized(true);

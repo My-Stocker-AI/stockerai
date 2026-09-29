@@ -552,12 +552,9 @@ def resume_state(req: ResumeStateRequest, caller: Caller = AuthCaller):
     'Next' continues via the normal RPC. Resume never re-runs the start-route /
     top-or-bottom flow, so the saved direction + position carry through unchanged.
 
-    Position model (matches get_next_item_and_increment exactly):
-      - completed_items counts every item already revealed (incl. the one on screen).
-      - On-screen ("current") item = the LAST revealed:
-          forward -> sequence = completed_items
-          reverse -> sequence = total_items - completed_items + 1
-      - The done-list is the (completed_items - 1) items revealed before it, in pick order.
+    completed_items is a presented count, not a confirmed count. The atomic
+    transition receipt identifies the actual unfinished window (one or two items).
+    Never infer that window from the user's current preference or count parity.
     """
     db = get_client()
 
@@ -602,31 +599,66 @@ def resume_state(req: ResumeStateRequest, caller: Caller = AuthCaller):
     if not machines:
         return {"has_session": False}
 
-    cur_mid = s.get("current_machine_id") or machines[0]["id"]
-    cur = next((m for m in machines if m["id"] == cur_mid), machines[0])
+    cur_mid = s.get("current_machine_id")
+    cur = next((m for m in machines if m["id"] == cur_mid), None)
+    if cur is None:
+        raise HTTPException(409, 'Saved machine could not be verified. Progress has not been changed.')
     direction = s.get("pick_direction") or "forward"
     completed = cur.get("completed_items") or 0
     total = cur.get("total_items") or 0
 
     current_item = None
+    current_item2 = None
     done_list = []
+    confirmed = 0
     if completed > 0:
-        if direction == "forward":
-            cur_seq = completed
-            done_seqs = list(range(1, completed))                      # 1 .. completed-1
-        else:  # reverse
-            cur_seq = total - completed + 1
-            done_seqs = list(range(total, total - completed + 1, -1))  # total .. cur_seq+1
-        current_item = _item_at_sequence(db, cur_mid, cur_seq)
+        receipts = (db.table('picking_operations').select('request, result')
+            .eq('user_id', caller.user_id).eq('session_id', s['id'])
+            .eq('result->>picking_revision', guard['picking_revision']).limit(2).execute().data or [])
+        if len(receipts) != 1:
+            raise HTTPException(409, 'Exact unfinished items are unavailable. Progress has not been changed.')
+        saved = receipts[0]
+        result, request = saved['result'], saved['request']
+        width = 2 if result.get('product_name2') is not None else 1
+        if (cur['status'] != 'in_progress' or request.get('protocol') != 3
+            or request.get('session') != s['id'] or request.get('direction') != direction
+            or request.get('action') not in ('start', 'next')
+            or request.get('count') not in (1, 2) or width > request['count']
+            or result.get('action') not in ('item_ready', 'next_item')
+            or result.get('machine_id') != cur_mid or result.get('session_id') != s['id']
+            or result.get('picking_revision') != guard['picking_revision']
+            or result.get('new_completed_items') != completed or result.get('total_items') != total
+            or result.get('items_remaining') != total - completed
+            or not width <= completed <= total or result.get('product_name') is None):
+            raise HTTPException(409, 'Saved item window could not be verified. Progress has not been changed.')
+        # Use the saved response itself: null/duplicate slots and changed preferences
+        # must not collapse or enlarge the unconfirmed pair.
+        def receipt_item(suffix=''):
+            name = result['product_name' + suffix]
+            return format_item_for_response(name, result['quantity' + suffix],
+                result.get('slot' + suffix), None, result.get('inventory_current' + suffix),
+                result.get('inventory_parlevel' + suffix), parse_product(name))
+        current_item = receipt_item()
+        current_item2 = receipt_item('2') if width == 2 else None
+        confirmed = completed - width
+        done_seqs = range(1, confirmed + 1) if direction == 'forward' else range(total, total - confirmed, -1)
         for sq in done_seqs:
             it = _item_at_sequence(db, cur_mid, sq)
-            if it:
-                done_list.append(it)
+            if it is None:
+                raise HTTPException(409, 'Saved items are incomplete. Progress has not been changed.')
+            done_list.append(it)
+
+    # Separate HTTP reads are not one snapshot. Reject any intervening write;
+    # a write after this check is still caught by the next transition's revision.
+    final_guard = _picking_rpc('picking_context', {'p_user_id': caller.user_id, 'p_session_id': s['id']})
+    if final_guard != guard:
+        raise HTTPException(409, 'Picking state changed while loading. Retry loading saved progress.')
 
     machine_index = next((i + 1 for i, m in enumerate(machines) if m["id"] == cur_mid), 1)
 
     return {
         "has_session": True,
+        "resume_window_version": 1,
         "picking_revision": guard['picking_revision'],
         "session_id": s["id"],
         "route": {
@@ -648,6 +680,9 @@ def resume_state(req: ResumeStateRequest, caller: Caller = AuthCaller):
         "current_machine_index": machine_index,
         "pick_direction": direction,
         "current_item": current_item,
+        "current_item2": current_item2,
+        "confirmed_items": confirmed,
+        "awaiting_direction": completed == 0,
         "completed_list": done_list,
         "items_remaining": max(0, total - completed),
     }
