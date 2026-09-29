@@ -104,7 +104,7 @@ export function useSessionPersistence() {
       });
     } catch (e) {
       console.error('[Session] Local load error:', e);
-      return null;
+      throw e; // Unreadable storage is not evidence that no saved route exists.
     }
   }, [openDB]);
 

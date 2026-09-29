@@ -96,6 +96,36 @@ function isThinnedEchoOf(heard: string, spoken: string): boolean {
   return false;
 }
 
+// Only the name in a standalone greeting can use approximate matching. Never
+// apply it to products, quantities, instructions or a greeting plus a command.
+function nearbyGreetingName(heard: string, spoken: string): boolean {
+  if (heard === spoken) return true;
+  if (Math.min(heard.length, spoken.length) < 4 || heard.slice(0, 2) !== spoken.slice(0, 2)) return false;
+  if (Math.abs(heard.length - spoken.length) > 2) return false;
+  let row = Array.from({ length: spoken.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= heard.length; i++) {
+    const next = [i];
+    for (let j = 1; j <= spoken.length; j++) {
+      next[j] = Math.min(next[j - 1] + 1, row[j] + 1, row[j - 1] + (heard[i - 1] === spoken[j - 1] ? 0 : 1));
+    }
+    row = next;
+  }
+  return row[spoken.length] <= 2;
+}
+
+function isGreetingEcho(heard: string, spoken: string): boolean {
+  const fragment = wordsOf(heard.replace(/’/g, "'")).join(' ');
+  const firstClause = wordsOf(spoken.split(/[.!?;:]/)[0]).join(' ');
+  const greeting = /^(hi|hello|welcome back) ([a-z]+)$/;
+  const target = greeting.exec(fragment);
+  const source = greeting.exec(firstClause);
+  if (target && source && target[1] === source[1] && nearbyGreetingName(target[2], source[2])) return true;
+  // A known self-introduction has no picking meaning. Restrict this to the app
+  // actually identifying itself, not any sentence containing its name.
+  const identity = /^(?:i'm|i am) ([a-z]+)$/.exec(fragment);
+  return !!identity && /\b(?:i'm|i am) stocker\b/i.test(spoken.replace(/’/g, "'")) && nearbyGreetingName(identity[1], 'stocker');
+}
+
 export function resolveEcho(input: EchoInput): EchoVerdict {
   const heard = input.heard.toLowerCase().trim();
 
@@ -110,6 +140,8 @@ export function resolveEcho(input: EchoInput): EchoVerdict {
   const stillSpeaking = input.msSinceSpeechEnded === null;
   const tail = input.tailMs ?? ECHO_TAIL_MS;
   const echoWindowOpen = stillSpeaking || input.msSinceSpeechEnded! <= tail;
+
+  if (echoWindowOpen && isGreetingEcho(heard, input.lastSpoken)) return 'echo-content';
 
   if (echoWindowOpen && input.lastSpoken.length > 0 && heard.length > MIN_CONTENT_ECHO_LEN) {
     const spoken = input.lastSpoken.toLowerCase();

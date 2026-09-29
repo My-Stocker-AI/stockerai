@@ -41,21 +41,14 @@ interface RouteOption {
 }
 
 // Route verification - check if route still exists (from original PWA)
-async function verifyRouteExists(userId: string, routeName: string, routeDate: string): Promise<boolean> {
-  try {
-    const { data, error } = await supabase
-      .from('routes')
-      .select('id')
-      .eq('user_id', userId)
-      .eq('route_name', routeName)
-      .eq('delivery_date', routeDate)
-      .single();
-
-    return !error && !!data;
-  } catch (e) {
-    console.log('[Stocker] Route verification error:', e);
-    return false;
-  }
+async function verifyRouteExists(routeId: string | null, routeName: string, routeDate: string): Promise<boolean> {
+  // RLS enforces visibility, including assigned teammate routes. Ownership is
+  // not the same as permission to resume. A failed read is not a deleted route.
+  let query = supabase.from('routes').select('id');
+  query = routeId ? query.eq('id', routeId) : query.eq('route_name', routeName).eq('delivery_date', routeDate);
+  const { data, error } = await query.single();
+  if (error) throw new Error('Could not verify the saved route');
+  return !!data;
 }
 
 // Conversation sanitization (from original PWA)
@@ -190,6 +183,7 @@ export default function StockerApp() {
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [savedSession, setSavedSession] = useState<any>(null);
+  const [resumeLoadFailed, setResumeLoadFailed] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
   const [micPermission, setMicPermission] = useState<'prompt' | 'granted' | 'denied' | 'checking'>('checking');
   const [audioUnlocked, setAudioUnlocked] = useState(false);
@@ -1561,6 +1555,9 @@ export default function StockerApp() {
               body: JSON.stringify({ user_id: userId }),
             });
             const snap = await resp.json();
+            if (!resp.ok || !snap?.has_session || snap.route?.id !== routeIdFromUrl || !snap.current_machine?.id || !snap.session_id) {
+              throw new Error('Saved route could not be verified for this request');
+            }
             if (snap?.has_session) {
               const cm = snap.current_machine;
               // Stamp every resumed item with the current machine's name — the progress
@@ -1611,21 +1608,24 @@ export default function StockerApp() {
               return;
             }
           } catch (e) {
-            console.error('[Resume] snapshot fetch failed — falling back to start flow', e);
+            console.error('[Resume] Could not verify saved state; preserving progress', e);
+            setResumeLoadFailed(true);
+            setInitialized(true);
+            return; // A failed explicit resume must never fall through to route start.
           }
         }
 
-        // Check if saved session matches this route (accidental refresh scenario)
+        // Preserve matching saved work on refresh AND ordinary reopening.
         const savedForCheck = await sessionPersistence.load(userId);
-        const isResumeRefresh = isRefresh &&
+        const hasMatchingSavedRoute =
           savedForCheck &&
           sessionPersistence.isValidSession(savedForCheck) &&
           savedForCheck.userId === userId &&
           savedForCheck.routeId === routeIdFromUrl;
 
-        if (isResumeRefresh) {
-          // Accidental refresh with matching saved session — fall through to resume code below
-          console.log('[Stocker] Refresh detected with matching saved session — resuming');
+        if (hasMatchingSavedRoute) {
+          // The existing resume flow will auto-resume refreshes or offer Continue on reopening.
+          console.log('[Stocker] Matching saved route found — preserving it for resume');
         } else {
           // NEW route from MyRoutes (or different route) — start this route directly
           console.log('[Stocker] Route ID from URL (NEW navigation):', routeIdFromUrl);
@@ -1698,7 +1698,7 @@ export default function StockerApp() {
 
       if (sessionPersistence.isValidSession(saved) && saved?.userId === userId) {
         // Verify route still exists before resuming
-        const routeExists = await verifyRouteExists(userId, saved.routeName, saved.routeDate);
+        const routeExists = await verifyRouteExists(saved.routeId, saved.routeName, saved.routeDate);
         console.log('[Stocker] Route verification:', { routeName: saved.routeName, exists: routeExists });
 
         if (routeExists) {
@@ -1797,10 +1797,9 @@ export default function StockerApp() {
             setShowResumeDialog(true);
           }
         } else {
-          // Route was deleted - clear stale session silently
-          console.log('[Stocker] Route no longer exists, clearing stale session');
-          await sessionPersistence.clear(userId);
-          startFresh();
+          // Missing visibility is not permission to erase the only local copy.
+          setResumeLoadFailed(true);
+          setInitialized(true);
         }
       } else {
         console.log('[Stocker] No valid session found, starting fresh');
@@ -1812,6 +1811,7 @@ export default function StockerApp() {
       checkSavedSession().catch((err) => {
         console.error('[Stocker] Init failed:', err);
         initStartedRef.current = false;
+        setResumeLoadFailed(true);
         // Show fallback so user isn't stuck on "Waiting for command..."
         setAiResponse('Something went wrong starting up. Please refresh the page.');
         setInitialized(true);
@@ -2300,6 +2300,22 @@ export default function StockerApp() {
         >
           Skip (voice won't work)
         </button>
+      </div>
+    );
+  }
+
+  if (resumeLoadFailed) {
+    return (
+      <div className="min-h-screen bg-[#0d1117] text-white flex flex-col items-center justify-center gap-5 p-6">
+        <h1 className="text-2xl font-semibold">Saved route could not be loaded</h1>
+        <p className="max-w-md text-center text-gray-300">We couldn't verify your saved position. Check your connection and try again, or return to your routes.</p>
+        <Button onClick={() => {
+          initStartedRef.current = false;
+          setUrlRouteProcessed(false);
+          setResumeLoadFailed(false);
+          setInitialized(false);
+        }}>Retry loading saved route</Button>
+        <Button variant="outline" onClick={() => navigate('/dashboard')}>Back to routes</Button>
       </div>
     );
   }
