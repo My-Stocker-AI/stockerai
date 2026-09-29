@@ -279,6 +279,30 @@ describe('earbud microphone recovery', () => {
 });
 
 describe('real microphone transcript dispatch with fake browser devices', () => {
+  it('drops a distorted greeting before interruption or chime, but still accepts next', async () => {
+    const { result, heard } = await start();
+    let announcement!: Promise<void>;
+    await act(async () => {
+      announcement = result.current.speak('Hi Tester! Starting Fixture route.');
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(synthSpeak).toHaveBeenCalledOnce();
+    const utterance = synthSpeak.mock.calls[0][0];
+    await act(async () => {
+      utterance.onstart();
+      await vi.advanceTimersByTimeAsync(900);
+    });
+    chime.mockClear(); cancelSpeech.mockClear();
+    await act(async () => { FakeSocket.latest.transcript('Hi Testar'); });
+    expect(heard).not.toHaveBeenCalled();
+    expect(chime).not.toHaveBeenCalled();
+    expect(cancelSpeech).not.toHaveBeenCalled();
+    await act(async () => { FakeSocket.latest.transcript('next'); });
+    expect(heard).toHaveBeenCalledExactlyOnceWith('next', true);
+    expect(chime).toHaveBeenCalledOnce();
+    await act(async () => { utterance.onend(); await announcement; });
+  });
+
   it('ignores a final transcript that arrives after Stop', async () => {
     const { result, heard } = await start();
     const socket = FakeSocket.latest;

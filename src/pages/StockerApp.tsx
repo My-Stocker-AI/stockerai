@@ -12,6 +12,7 @@ import { resolveTranscriptGate, gateReason } from '@/hooks/transcriptGate';
 import { CONFIRM_PROMPT, resolveUnknownReply } from '@/utils/commandGuess';
 import { isBareNumber } from '@/utils/spokenNumber';
 import { resolveLocalIntent } from '@/utils/localCommandIntent';
+import { pickingContextKey, pickingQuestionFallback } from '@/utils/pickingConversation';
 import { useStockerAI } from '@/hooks/useStockerAI';
 import { useStockerSession } from '@/hooks/useStockerSession';
 import { useSessionPersistence } from '@/hooks/useSessionPersistence';
@@ -40,21 +41,14 @@ interface RouteOption {
 }
 
 // Route verification - check if route still exists (from original PWA)
-async function verifyRouteExists(userId: string, routeName: string, routeDate: string): Promise<boolean> {
-  try {
-    const { data, error } = await supabase
-      .from('routes')
-      .select('id')
-      .eq('user_id', userId)
-      .eq('route_name', routeName)
-      .eq('delivery_date', routeDate)
-      .single();
-
-    return !error && !!data;
-  } catch (e) {
-    console.log('[Stocker] Route verification error:', e);
-    return false;
-  }
+async function verifyRouteExists(routeId: string | null, routeName: string, routeDate: string): Promise<boolean> {
+  // RLS enforces visibility, including assigned teammate routes. Ownership is
+  // not the same as permission to resume. A failed read is not a deleted route.
+  let query = supabase.from('routes').select('id');
+  query = routeId ? query.eq('id', routeId) : query.eq('route_name', routeName).eq('delivery_date', routeDate);
+  const { data, error } = await query.single();
+  if (error) throw new Error('Could not verify the saved route');
+  return !!data;
 }
 
 // Conversation sanitization (from original PWA)
@@ -189,6 +183,7 @@ export default function StockerApp() {
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [savedSession, setSavedSession] = useState<any>(null);
+  const [resumeLoadFailed, setResumeLoadFailed] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
   const [micPermission, setMicPermission] = useState<'prompt' | 'granted' | 'denied' | 'checking'>('checking');
   const [audioUnlocked, setAudioUnlocked] = useState(false);
@@ -227,6 +222,11 @@ export default function StockerApp() {
   const userId = user?.id || null;
 
   const { routeState, sessionId, messages, messagesRef, updateFromTool, addMessage, reset, setRouteState, setMessages, setSessionId, generateNewSessionId } = useStockerSession(userId);
+  const questionContextKey = pickingContextKey(sessionId, routeState);
+  const questionContextRef = useRef(questionContextKey);
+  questionContextRef.current = questionContextKey;
+  const questionLifetimeRef = useRef(0);
+  useEffect(() => () => { questionLifetimeRef.current += 1; }, []);
   const { setSession, sendToAI, executeToolCalls, getRoutes } = useStockerAI();
   const sessionPersistence = useSessionPersistence();
   const keywordLearning = useKeywordLearning();
@@ -973,13 +973,8 @@ export default function StockerApp() {
         //              change nothing, are not time-critical, and get phrased a hundred ways.
         //              They are exactly what semantic understanding is for.
         //
-        // The AI call below already receives the whole picture — every machine, which were
-        // skipped, where he is, his counts — so it can answer these with no new keywords at all.
-        // It was simply never reached once a route was open.
-        //
-        // If the AI is unreachable its own error path speaks the fallback, which is the same
-        // thing he used to get here anyway. So this can only improve on the dead end.
-        console.log('[CommandRecognizer] → nothing leans; handing to the AI (it holds full route state)');
+        // Questions receive a fresh picking snapshot and cannot invoke route tools.
+        console.log('[CommandRecognizer] → handing question to AI with current picking state');
       }
     }
 
@@ -989,6 +984,8 @@ export default function StockerApp() {
 
     processingRef.current = true;
     v.setThinking();
+    const questionTarget = pickingContextKey(sessionId, routeState);
+    const questionLifetime = questionLifetimeRef.current;
 
     try {
       // Use corrected transcript (with phonetic fixes) for AI
@@ -1009,6 +1006,10 @@ export default function StockerApp() {
         currentRouteName: routeState.routeName,
         totalMachines: routeState.totalMachines,
         currentMachineIndex: routeState.currentMachineIndex,
+        currentMachineId: routeState.currentMachineId,
+        currentMachineName: routeState.currentMachineName,
+        pendingMachineTransition: routeState.pendingMachineTransition,
+        completed: routeState.completed,
         completedItemsCount: routeState.completedItems.length,
         totalItems: routeState.machines.reduce((sum, m) => sum + (m.totalItems || 0), 0),
         machines: routeState.machines, // For skipped machine tracking
@@ -1016,6 +1017,15 @@ export default function StockerApp() {
       } : undefined);
 
       let response = await sendToAI(allMessages, userName, routeState.currentItem, routeContext);
+      if (routeState.routeName) {
+        if (questionLifetimeRef.current !== questionLifetime) return;
+        if (questionContextRef.current !== questionTarget) {
+          v.resumeListening();
+          return;
+        }
+        // Defence at the dispatch boundary as well as in the AI hook.
+        if (response.tool_calls?.length) response = { content: pickingQuestionFallback };
+      }
       let fastPathVoiceText: string | null = null; // Track voice text separately from display text
 
       // CRITICAL: Loop while there are tool_calls (matches original PWA behavior)
@@ -1135,6 +1145,16 @@ export default function StockerApp() {
         await keywordLearning.trackKeywords(transcript, true);
       }
     } catch (err: any) {
+      if (routeState.routeName) {
+        if (questionLifetimeRef.current !== questionLifetime) return;
+        if (questionContextRef.current === questionTarget) {
+          setAiResponse(pickingQuestionFallback);
+          await v.speak(pickingQuestionFallback);
+        } else {
+          v.resumeListening();
+        }
+        return; // An information request must never clear a handoff or replay a command.
+      }
       const errorMsg = err.message || 'Something went wrong';
       const isNetworkError = isConnectionError(errorMsg);
       const isRateLimited = errorMsg.includes('429') || errorMsg.includes('rate limit');
@@ -1208,7 +1228,7 @@ export default function StockerApp() {
     } finally {
       processingRef.current = false;
     }
-  }, [userName, routeState, addMessage, sendToAI, executeToolCalls, updateFromTool, undoLastItem, retryCount, messagesRef, showRouteSelection, availableRoutes, selectRoute, shouldIgnoreTranscript]);
+  }, [userName, sessionId, routeState, addMessage, sendToAI, executeToolCalls, updateFromTool, undoLastItem, retryCount, messagesRef, showRouteSelection, availableRoutes, selectRoute, shouldIgnoreTranscript]);
 
   const handleWakePhrase = useCallback(async (command: string | null) => {
     const v = voiceRef.current;
@@ -1535,6 +1555,9 @@ export default function StockerApp() {
               body: JSON.stringify({ user_id: userId }),
             });
             const snap = await resp.json();
+            if (!resp.ok || !snap?.has_session || snap.route?.id !== routeIdFromUrl || !snap.current_machine?.id || !snap.session_id) {
+              throw new Error('Saved route could not be verified for this request');
+            }
             if (snap?.has_session) {
               const cm = snap.current_machine;
               // Stamp every resumed item with the current machine's name — the progress
@@ -1585,21 +1608,24 @@ export default function StockerApp() {
               return;
             }
           } catch (e) {
-            console.error('[Resume] snapshot fetch failed — falling back to start flow', e);
+            console.error('[Resume] Could not verify saved state; preserving progress', e);
+            setResumeLoadFailed(true);
+            setInitialized(true);
+            return; // A failed explicit resume must never fall through to route start.
           }
         }
 
-        // Check if saved session matches this route (accidental refresh scenario)
+        // Preserve matching saved work on refresh AND ordinary reopening.
         const savedForCheck = await sessionPersistence.load(userId);
-        const isResumeRefresh = isRefresh &&
+        const hasMatchingSavedRoute =
           savedForCheck &&
           sessionPersistence.isValidSession(savedForCheck) &&
           savedForCheck.userId === userId &&
           savedForCheck.routeId === routeIdFromUrl;
 
-        if (isResumeRefresh) {
-          // Accidental refresh with matching saved session — fall through to resume code below
-          console.log('[Stocker] Refresh detected with matching saved session — resuming');
+        if (hasMatchingSavedRoute) {
+          // The existing resume flow will auto-resume refreshes or offer Continue on reopening.
+          console.log('[Stocker] Matching saved route found — preserving it for resume');
         } else {
           // NEW route from MyRoutes (or different route) — start this route directly
           console.log('[Stocker] Route ID from URL (NEW navigation):', routeIdFromUrl);
@@ -1672,7 +1698,7 @@ export default function StockerApp() {
 
       if (sessionPersistence.isValidSession(saved) && saved?.userId === userId) {
         // Verify route still exists before resuming
-        const routeExists = await verifyRouteExists(userId, saved.routeName, saved.routeDate);
+        const routeExists = await verifyRouteExists(saved.routeId, saved.routeName, saved.routeDate);
         console.log('[Stocker] Route verification:', { routeName: saved.routeName, exists: routeExists });
 
         if (routeExists) {
@@ -1771,10 +1797,9 @@ export default function StockerApp() {
             setShowResumeDialog(true);
           }
         } else {
-          // Route was deleted - clear stale session silently
-          console.log('[Stocker] Route no longer exists, clearing stale session');
-          await sessionPersistence.clear(userId);
-          startFresh();
+          // Missing visibility is not permission to erase the only local copy.
+          setResumeLoadFailed(true);
+          setInitialized(true);
         }
       } else {
         console.log('[Stocker] No valid session found, starting fresh');
@@ -1786,6 +1811,7 @@ export default function StockerApp() {
       checkSavedSession().catch((err) => {
         console.error('[Stocker] Init failed:', err);
         initStartedRef.current = false;
+        setResumeLoadFailed(true);
         // Show fallback so user isn't stuck on "Waiting for command..."
         setAiResponse('Something went wrong starting up. Please refresh the page.');
         setInitialized(true);
@@ -2274,6 +2300,22 @@ export default function StockerApp() {
         >
           Skip (voice won't work)
         </button>
+      </div>
+    );
+  }
+
+  if (resumeLoadFailed) {
+    return (
+      <div className="min-h-screen bg-[#0d1117] text-white flex flex-col items-center justify-center gap-5 p-6">
+        <h1 className="text-2xl font-semibold">Saved route could not be loaded</h1>
+        <p className="max-w-md text-center text-gray-300">We couldn't verify your saved position. Check your connection and try again, or return to your routes.</p>
+        <Button onClick={() => {
+          initStartedRef.current = false;
+          setUrlRouteProcessed(false);
+          setResumeLoadFailed(false);
+          setInitialized(false);
+        }}>Retry loading saved route</Button>
+        <Button variant="outline" onClick={() => navigate('/dashboard')}>Back to routes</Button>
       </div>
     );
   }
