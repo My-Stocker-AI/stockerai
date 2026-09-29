@@ -28,7 +28,7 @@ vi.mock('@/integrations/supabase/client', () => ({ supabase: { from: mocks.from 
 vi.mock('@/lib/authFetch', () => ({ authFetch: mocks.fetch }));
 import StockerApp from './StockerApp';
 
-const snapshot = () => ({ has_session: true, session_id: 'server-session', picking_revision: 'revision-1',
+const snapshot = () => ({ has_session: true, resume_window_version: 1, session_id: 'server-session', picking_revision: 'revision-1',
   route: { id: 'route-fixture', route_name: 'Fixture route', route_date: '2099-01-01', total_machines: 2 },
   current_machine: { id: 'second', name: 'Second fixture', completed_items: 5, total_items: 10 },
   current_machine_index: 2, current_item: { product_name: 'Fixture snack', quantity: 2, slot: 'A5' },
@@ -60,10 +60,11 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-it.each(['http', 'network', 'missing', 'wrong-route'])('failed explicit resume (%s) never starts or clears a route', async failure => {
+it.each(['http', 'network', 'missing', 'wrong-route', 'old-server'])('failed explicit resume (%s) never starts or clears a route', async failure => {
   if (failure === 'http') mocks.fetch.mockResolvedValue(new Response('{}', { status: 503 }));
   if (failure === 'network') mocks.fetch.mockRejectedValue(new Error('Fixture network failure'));
   if (failure === 'missing') mocks.fetch.mockResolvedValue(new Response(JSON.stringify({ has_session: false })));
+  if (failure === 'old-server') mocks.fetch.mockResolvedValue(new Response(JSON.stringify({ ...snapshot(), resume_window_version: undefined })));
   if (failure === 'wrong-route') mocks.fetch.mockResolvedValue(new Response(JSON.stringify({ ...snapshot(), route: { ...snapshot().route, id: 'other-route' } })));
   const view = render(React.createElement(StockerApp));
   await waitFor(() => expect(view.getByRole('button', { name: 'Retry loading saved route' })).toBeTruthy());
@@ -82,6 +83,36 @@ it('retry reloads the saved snapshot without starting a new route', async () => 
   await waitFor(() => expect(mocks.setState).toHaveBeenCalledWith(expect.objectContaining({ currentMachineId: 'second', pickDirection: 'reverse' })));
   expect(mocks.clear).not.toHaveBeenCalled();
   expect(mocks.reset).not.toHaveBeenCalled();
+});
+
+it.each([false, true])('restores both unfinished items independently of current two-item preference (%s)', async two => {
+  localStorage.setItem('stocker-call-two-items', String(two));
+  const snap = { ...snapshot(), confirmed_items: 3,
+    current_item2: { product_name: 'Second unfinished snack', quantity: 4, slot: 'A6' },
+    completed_list: [{ product_name: 'Already finished', quantity: 1, slot: 'A1' }] };
+  mocks.fetch.mockResolvedValue(new Response(JSON.stringify(snap)));
+  render(React.createElement(StockerApp));
+  await waitFor(() => expect(mocks.setState).toHaveBeenCalledWith(expect.objectContaining({
+    currentItem: expect.objectContaining({ product: 'Fixture snack', machineName: 'Second fixture' }),
+    currentItem2: expect.objectContaining({ product: 'Second unfinished snack', quantity: 4, machineName: 'Second fixture' }),
+    completedItems: [expect.objectContaining({ product: 'Already finished' })],
+    pickingRevision: 'revision-1', pickDirection: 'reverse',
+  })));
+  expect(mocks.speak).toHaveBeenCalledWith(expect.stringContaining('3 of 10 confirmed'));
+  expect(mocks.speak).toHaveBeenCalledWith(expect.stringContaining('and 4 Second unfinished snack'));
+  expect(mocks.clear).not.toHaveBeenCalled();
+  expect(mocks.send).not.toHaveBeenCalled();
+});
+
+it('restores the direction prompt when interrupted between machines', async () => {
+  mocks.fetch.mockResolvedValue(new Response(JSON.stringify({ ...snapshot(), current_item: null,
+    current_item2: null, confirmed_items: 0, awaiting_direction: true })));
+  render(React.createElement(StockerApp));
+  await waitFor(() => expect(mocks.setState).toHaveBeenCalledWith(expect.objectContaining({
+    currentItem: null, currentItem2: null,
+    pendingMachineTransition: { nextMachineId: 'second', nextMachineName: 'Second fixture', nextMachineIndex: 2 },
+  })));
+  expect(mocks.speak).toHaveBeenCalledWith(expect.stringContaining('Top or bottom?'));
 });
 
 it('ordinary reopening with matching saved state offers resume instead of clearing it', async () => {
