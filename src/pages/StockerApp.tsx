@@ -14,8 +14,8 @@ import { isBareNumber } from '@/utils/spokenNumber';
 import { resolveLocalIntent } from '@/utils/localCommandIntent';
 import { pickingContextKey, pickingQuestionFallback } from '@/utils/pickingConversation';
 import { useStockerAI } from '@/hooks/useStockerAI';
-import { useStockerSession } from '@/hooks/useStockerSession';
-import { useSessionPersistence } from '@/hooks/useSessionPersistence';
+import { useStockerSession, type ConversationMessage, type CurrentItem, type MachineState } from '@/hooks/useStockerSession';
+import { useSessionPersistence, type SessionData } from '@/hooks/useSessionPersistence';
 import { useKeywordLearning } from '@/hooks/useKeywordLearning';
 import { pickKey } from '@/utils/restoreKey';
 import { supabase } from '@/integrations/supabase/client';
@@ -40,6 +40,60 @@ interface RouteOption {
   machine_names: string[];
 }
 
+interface StockerToolCall {
+  id: string;
+  type?: 'function';
+  function: { name: string; arguments: string };
+}
+
+interface PickingDisplayResult {
+  action?: string;
+  display_text?: string;
+  product_name?: string;
+  quantity?: number;
+  item2?: { product_name?: string; quantity?: number } | null;
+  spoken?: string;
+}
+
+interface ResumeItem {
+  product_name: string;
+  quantity: number;
+  slot: string;
+  slot_spoken?: string;
+  inventory_current?: number;
+  inventory_parlevel?: number;
+}
+
+interface ResumeSnapshot {
+  has_session?: boolean;
+  resume_window_version?: number;
+  session_id?: string;
+  picking_revision?: string;
+  route?: { id?: string; route_name?: string; route_date?: string; total_machines?: number };
+  current_machine?: { id?: string; name?: string; total_items?: number; completed_items?: number };
+  current_machine_index?: number;
+  current_item?: ResumeItem | null;
+  current_item2?: ResumeItem | null;
+  completed_list?: ResumeItem[];
+  confirmed_items?: number;
+  items_remaining?: number;
+  machines?: MachineState[];
+  awaiting_direction?: boolean;
+  pick_direction?: string | null;
+}
+
+type StockerWindow = Window & typeof globalThis & {
+  __routeStartDate?: string;
+  __testInjectTranscript?: (text: string) => void;
+};
+
+type StandaloneNavigator = Navigator & { standalone?: boolean };
+
+const errorDetails = (error: unknown) => ({
+  message: error instanceof Error ? error.message : String(error),
+  stack: error instanceof Error ? error.stack : undefined,
+});
+
 // Route verification - check if route still exists (from original PWA)
 async function verifyRouteExists(routeId: string | null, routeName: string, routeDate: string): Promise<boolean> {
   // RLS enforces visibility, including assigned teammate routes. Ownership is
@@ -52,10 +106,10 @@ async function verifyRouteExists(routeId: string | null, routeName: string, rout
 }
 
 // Conversation sanitization (from original PWA)
-function sanitizeConversationHistory(history: any[]): any[] {
+function sanitizeConversationHistory(history: ConversationMessage[]): ConversationMessage[] {
   if (!history || !Array.isArray(history)) return [];
 
-  const sanitized: any[] = [];
+  const sanitized: ConversationMessage[] = [];
   const pendingToolCallIds = new Set<string>();
 
   for (const msg of history) {
@@ -93,7 +147,7 @@ function sanitizeConversationHistory(history: any[]): any[] {
 
 // Trim conversation history to prevent memory growth (from original PWA)
 const MAX_MESSAGES = 30;
-function trimConversationHistory(history: any[]): any[] {
+function trimConversationHistory(history: ConversationMessage[]): ConversationMessage[] {
   if (!history || history.length <= MAX_MESSAGES) return history;
 
   const trimmed = [...history];
@@ -104,7 +158,7 @@ function trimConversationHistory(history: any[]): any[] {
       if (trimmed[i].role !== 'system') {
         // If it's an assistant with tool_calls, also remove the following tool messages
         if (trimmed[i].role === 'assistant' && trimmed[i].tool_calls) {
-          const toolCallIds = new Set(trimmed[i].tool_calls.map((tc: any) => tc.id));
+          const toolCallIds = new Set(trimmed[i].tool_calls.map(tc => tc.id));
           trimmed.splice(i, 1);
           // Remove corresponding tool messages
           for (let j = i; j < trimmed.length; ) {
@@ -167,8 +221,8 @@ export default function StockerApp() {
   const [aiResponse, setAiResponse] = useState('');
   const [lastItemPair, setLastItemPair] = useState<{
     spokenText: string;
-    item1?: any;
-    item2?: any;
+    item1?: unknown;
+    item2?: unknown;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [initialized, setInitialized] = useState(false);
@@ -182,7 +236,7 @@ export default function StockerApp() {
   const [showSettings, setShowSettings] = useState(false);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
-  const [savedSession, setSavedSession] = useState<any>(null);
+  const [savedSession, setSavedSession] = useState<SessionData | null>(null);
   const [resumeLoadFailed, setResumeLoadFailed] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
   const [micPermission, setMicPermission] = useState<'prompt' | 'granted' | 'denied' | 'checking'>('checking');
@@ -199,7 +253,9 @@ export default function StockerApp() {
   const initStartedRef = useRef(false); // Prevent double initialization
   const lastRouteIdRef = useRef<string | null>(null); // Track last processed route ID
   const MAX_RETRIES = 2;
-  const voiceRef = useRef<any>(null); // Ref to hold voice methods for callbacks
+  const voiceRef = useRef<ReturnType<typeof useVoice> | null>(null); // Ref to hold voice methods for callbacks
+  const startFreshRef = useRef<() => Promise<void>>(async () => {});
+  const triggerRouteStartRef = useRef<(routeName: string) => void>(() => {});
   // The command the app just asked about ("Next item?"). A yes on the next turn runs it.
   const pendingGuessRef = useRef<PickingCommand | null>(null);
 
@@ -216,7 +272,7 @@ export default function StockerApp() {
 
   // Detect iOS PWA mode (standalone) - getUserMedia() is broken in iOS PWA
   const isPWA = window.matchMedia('(display-mode: standalone)').matches ||
-                (window.navigator as any).standalone === true;
+                (window.navigator as StandaloneNavigator).standalone === true;
 
   const userName = userProfile?.first_name || 'there';
   const userId = user?.id || null;
@@ -229,7 +285,9 @@ export default function StockerApp() {
   useEffect(() => () => { questionLifetimeRef.current += 1; }, []);
   const { setSession, sendToAI, executeToolCalls, getRoutes } = useStockerAI();
   const sessionPersistence = useSessionPersistence();
-  const keywordLearning = useKeywordLearning();
+  const { trackKeywords, getUserKeywords } = useKeywordLearning();
+  const getUserKeywordsRef = useRef(getUserKeywords);
+  getUserKeywordsRef.current = getUserKeywords;
 
   // Save session state whenever route changes
   const saveSessionState = useCallback(async () => {
@@ -281,7 +339,7 @@ export default function StockerApp() {
     // DON'T hide route selection yet - wait for first item to load
     // Store the date if provided, so triggerRouteStart can use it
     if (dateForRoute) {
-      (window as any).__routeStartDate = dateForRoute;
+      (window as StockerWindow).__routeStartDate = dateForRoute;
     }
     // Don't announce here - the initial greeting already introduced the route
     // The triggerRouteStart effect will handle sending the command to the AI
@@ -334,8 +392,8 @@ export default function StockerApp() {
       v.mute();
       return;
     }
-    if ((lower === 'continue' || lower === 'resume' || lower === 'start listening') && voice.status === 'idle') {
-      voice.startListening();
+    if ((lower === 'continue' || lower === 'resume' || lower === 'start listening') && v.status === 'idle') {
+      v.startListening();
       setAiResponse('Resumed. Say "OK Stocker" for commands.');
       return;
     }
@@ -384,7 +442,7 @@ export default function StockerApp() {
       }
 
       // Track repeat as failure (user didn't understand)
-      await keywordLearning.trackKeywords(transcript, false);
+      await trackKeywords(transcript, false);
       processingRef.current = false;
       return;
     }
@@ -527,7 +585,7 @@ export default function StockerApp() {
 
         try {
           // Build OpenAI-format tool call for executeToolCalls
-          let toolCalls: any[] = [];
+          let toolCalls: StockerToolCall[] = [];
 
           switch (commandMatch.command) {
             case PickingCommand.NEXT_ITEM:
@@ -805,7 +863,7 @@ export default function StockerApp() {
           }
 
           // Helper: Build display-friendly text (correct spelling) from tool result
-          const buildDisplayText = (result: any): string => {
+          const buildDisplayText = (result: PickingDisplayResult): string => {
             // OPTION B: Use display_text field if available (new format)
             if (result.display_text) {
               console.log('[Display] Using display_text:', result.display_text);
@@ -875,7 +933,7 @@ export default function StockerApp() {
               setAiResponse(message);
               v.playErrorBeep();
               await v.speak(message);
-              await keywordLearning.trackKeywords(transcript, false);
+              await trackKeywords(transcript, false);
               processingRef.current = false;
               return;
             }
@@ -935,7 +993,7 @@ export default function StockerApp() {
                 console.log('[Voice] Using voice_text:', tr.result?.voice_text ? 'new format' : 'backwards compat', voiceText);
                 setAiResponse(buildDisplayText(tr.result)); // Display uses display_text
                 await v.speak(voiceText); // TTS uses voice_text (pronunciation-friendly)
-                await keywordLearning.trackKeywords(transcript, true); // Track as success
+                await trackKeywords(transcript, true); // Track as success
                 processingRef.current = false;
                 return;
               }
@@ -949,7 +1007,7 @@ export default function StockerApp() {
             processingRef.current = false;
             return;
           }
-        } catch (err: any) {
+        } catch (err: unknown) {
           console.error('[CommandRecognizer] Direct execution failed:', err);
           const errorMsg = "Something went wrong. Can you try again?";
           setAiResponse(errorMsg);
@@ -1109,7 +1167,7 @@ export default function StockerApp() {
           addMessage({ role: 'assistant', content: message });
           v.playErrorBeep();
           await v.speak(message);
-          await keywordLearning.trackKeywords(transcript, false);
+          await trackKeywords(transcript, false);
           return; // Never let the AI automatically reissue a failed mutation.
         }
         if (toolResults.length > 0 && toolResults.every(tr => tr.result?.ignored)) {
@@ -1118,7 +1176,7 @@ export default function StockerApp() {
         }
 
         // Helper: Build display-friendly text (correct spelling) from tool result
-        const buildDisplayText = (result: any): string => {
+        const buildDisplayText = (result: PickingDisplayResult): string => {
           // OPTION B: Use display_text field if available (new format)
           if (result.display_text) {
             console.log('[Display] Using display_text:', result.display_text);
@@ -1175,9 +1233,10 @@ export default function StockerApp() {
         console.log('[Voice] Speaking:', fastPathVoiceText ? 'voice_text' : 'content', textToSpeak);
         await v.speak(textToSpeak);
         // Track successful AI response (user was understood)
-        await keywordLearning.trackKeywords(transcript, true);
+        await trackKeywords(transcript, true);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const { message: errorMsg, stack: errorStack } = errorDetails(err);
       if (routeState.routeName) {
         if (questionLifetimeRef.current !== questionLifetime) return;
         if (questionContextRef.current === questionTarget) {
@@ -1188,7 +1247,6 @@ export default function StockerApp() {
         }
         return; // An information request must never clear a handoff or replay a command.
       }
-      const errorMsg = err.message || 'Something went wrong';
       const isNetworkError = isConnectionError(errorMsg);
       const isRateLimited = errorMsg.includes('429') || errorMsg.includes('rate limit');
 
@@ -1196,7 +1254,7 @@ export default function StockerApp() {
       console.error('[Stocker] Command failed:', {
         transcript,
         error: errorMsg,
-        errorStack: err.stack,
+        errorStack,
         isNetworkError,
         isRateLimited,
         retryCount,
@@ -1261,7 +1319,7 @@ export default function StockerApp() {
     } finally {
       processingRef.current = false;
     }
-  }, [userName, sessionId, routeState, addMessage, sendToAI, executeToolCalls, updateFromTool, retryCount, messagesRef, showRouteSelection, availableRoutes, selectRoute, shouldIgnoreTranscript]);
+  }, [userName, sessionId, routeState, addMessage, sendToAI, executeToolCalls, updateFromTool, retryCount, messagesRef, availableRoutes, shouldIgnoreTranscript, aiResponse, lastItemPair, routeSelectionDate, setRouteState, trackKeywords]);
 
   const handleWakePhrase = useCallback(async (command: string | null) => {
     const v = voiceRef.current;
@@ -1364,13 +1422,15 @@ export default function StockerApp() {
     keywords: [...routeKeywords, ...learnedKeywords],  // Dynamic route names + learned keywords
     environmentEndpointing: environment.endpointing  // Adaptive endpointing based on environment
   });
+  const stopVoiceListening = voice.stopListening;
+  const stopVoiceAudio = voice.stopAudio;
 
   // Expose transcript injection for Playwright E2E testing (no mic in headless)
   useEffect(() => {
-    (window as any).__testInjectTranscript = (text: string) => {
+    (window as StockerWindow).__testInjectTranscript = (text: string) => {
       handleTranscript(text, true);
     };
-    return () => { delete (window as any).__testInjectTranscript; };
+    return () => { delete (window as StockerWindow).__testInjectTranscript; };
   }, [handleTranscript]);
 
   // Handle environment auto-detection (requires microphone access)
@@ -1390,7 +1450,7 @@ export default function StockerApp() {
         }
       });
       await detectEnvironment(stream);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('[StockerApp] Environment detection failed:', error);
       setError('Microphone access required for environment detection');
     }
@@ -1439,13 +1499,13 @@ export default function StockerApp() {
       if (!userId) return;
 
       console.log('[StockerApp] Fetching learned keywords for user:', userId);
-      const keywords = await keywordLearning.getUserKeywords(0.60, 50);
+      const keywords = await getUserKeywordsRef.current(0.60, 50);
       setLearnedKeywords(keywords);
       console.log('[StockerApp] Loaded', keywords.length, 'learned keywords with confidence > 0.60');
     }
 
     fetchLearnedKeywords();
-  }, [userId]); // keywordLearning is a stable hook - don't include in deps
+  }, [userId]);
 
   // CRITICAL: Clean up voice session on unmount (navigation away from this page)
   // This prevents mic from staying open when user navigates to other pages
@@ -1482,10 +1542,10 @@ export default function StockerApp() {
   useEffect(() => {
     return () => {
       console.log('[StockerApp] Unmounting - stopping voice session');
-      voice.stopListening();
-      voice.stopAudio();
+      stopVoiceListening();
+      stopVoiceAudio();
     };
-  }, [voice.stopListening, voice.stopAudio]);
+  }, [stopVoiceAudio, stopVoiceListening]);
 
   useEffect(() => {
     if (sessionId && userId) setSession(sessionId, userId);
@@ -1587,7 +1647,7 @@ export default function StockerApp() {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ user_id: userId, resume_window_version: 1 }),
             });
-            const snap = await resp.json();
+            const snap = await resp.json() as ResumeSnapshot;
             if (!resp.ok || !snap?.has_session || snap.resume_window_version !== 1 || snap.route?.id !== routeIdFromUrl || !snap.current_machine?.id || !snap.session_id) {
               throw new Error('Saved route could not be verified for this request');
             }
@@ -1597,25 +1657,25 @@ export default function StockerApp() {
               // bar counts done items by machineName match (line ~2240). Without this,
               // all resumed done items read as "no machine" and the bar shows 0 of N
               // until you pick live items. All resume done-list items belong to cm.
-              const mapItem = (it: any): any => it ? {
+              const mapItem = (it: ResumeItem | null | undefined): CurrentItem | null => it ? {
                 product: it.product_name,
                 quantity: it.quantity,
                 slot: it.slot,
                 slot_spoken: it.slot_spoken,
                 inventory_current: it.inventory_current,
                 inventory_parlevel: it.inventory_parlevel,
-                machineName: cm.name,
+                machineName: cm.name || '',
               } : null;
               const ci = mapItem(snap.current_item);
               const ci2 = mapItem(snap.current_item2);
               setRouteState({
-                routeId: snap.route.id,
-                routeName: snap.route.route_name,
-                routeDate: snap.route.route_date,
+                routeId: snap.route.id || null,
+                routeName: snap.route.route_name || null,
+                routeDate: snap.route.route_date || null,
                 totalMachines: snap.route.total_machines || 0,
                 currentMachineIndex: snap.current_machine_index || 1,
-                currentMachineName: cm.name,
-                currentMachineId: cm.id,
+                currentMachineName: cm.name || null,
+                currentMachineId: cm.id || null,
                 currentMachineTotalItems: cm.total_items || 0,
                 currentMachineItemsRemaining: snap.items_remaining || 0,
                 currentItem: ci,
@@ -1636,7 +1696,7 @@ export default function StockerApp() {
               }
               await voice.startListening();
               const confirmedCount = snap.confirmed_items ?? (snap.completed_list || []).length;
-              const describe = (it: any) => `${it.quantity} ${it.product}, ${it.slot_spoken || it.slot}`;
+              const describe = (it: CurrentItem) => `${it.quantity} ${it.product}, ${it.slot_spoken || it.slot}`;
               const msg = ci
                 ? `Welcome back ${userName}! Resuming ${cm.name}, ${confirmedCount} of ${cm.total_items} confirmed. Still to pick: ${describe(ci)}${ci2 ? `, and ${describe(ci2)}` : ''}. Say next when finished.`
                 : snap.awaiting_direction
@@ -1713,8 +1773,8 @@ export default function StockerApp() {
               await voice.speak(greeting);
 
               // Trigger route start directly (can't rely on useEffect — showRouteSelection is false)
-              (window as any).__routeStartDate = route.delivery_date;
-              triggerRouteStart(route.route_name);
+              (window as StockerWindow).__routeStartDate = route.delivery_date;
+              triggerRouteStartRef.current(route.route_name);
               return;
             } else {
               console.log('[Stocker] Route not found:', routeIdFromUrl, routeError);
@@ -1844,7 +1904,7 @@ export default function StockerApp() {
         }
       } else {
         console.log('[Stocker] No valid session found, starting fresh');
-        startFresh();
+        void startFreshRef.current();
       }
     };
 
@@ -1858,7 +1918,7 @@ export default function StockerApp() {
         setInitialized(true);
       });
     }
-  }, [loading, user, userId, initialized, sessionPersistence, routeIdFromUrl, resumeFromUrl, urlRouteProcessed, voice, userName, addMessage, reset, generateNewSessionId, audioUnlocked]);
+  }, [loading, user, userId, initialized, sessionPersistence, routeIdFromUrl, resumeFromUrl, urlRouteProcessed, voice, userName, addMessage, reset, generateNewSessionId, audioUnlocked, isIOS, isSafari, setMessages, setRouteState, setSession, setSessionId]);
 
   const resumeSession = useCallback(async () => {
     if (!savedSession) return;
@@ -1936,19 +1996,20 @@ export default function StockerApp() {
         await voice.speak(`Welcome back to ${savedSession.routeName} route. Say next to continue.`);
       }
     }
-  }, [savedSession, setRouteState, setSessionId, generateNewSessionId, setMessages, voice]);
+  }, [savedSession, setRouteState, setSessionId, generateNewSessionId, setMessages, setSession, userId, voice]);
 
   // selectRoute is now defined above handleTranscript to avoid "used before declaration" error
   // Trigger the normal flow after route selection
   const triggerRouteStart = useCallback((routeName: string) => {
     setTimeout(() => {
-      const storedDate = (window as any).__routeStartDate;
+      const storedDate = (window as StockerWindow).__routeStartDate;
       const dateStr = storedDate ? ` for ${storedDate}` : '';
       handleTranscript(`start ${routeName} route${dateStr}`, true);
       // Clean up stored date
-      delete (window as any).__routeStartDate;
+      delete (window as StockerWindow).__routeStartDate;
     }, 500);
   }, [handleTranscript]);
+  triggerRouteStartRef.current = triggerRouteStart;
 
   // Effect to trigger route start after selection
   useEffect(() => {
@@ -2008,7 +2069,7 @@ export default function StockerApp() {
         setAvailableRoutes(data.routes);
         setRouteSelectionDate(routeDate);
 
-        const names = data.routes.map((r: any) => r.route_name);
+        const names = data.routes.map((r: RouteOption) => r.route_name);
 
         if (names.length === 1) {
           // SINGLE ROUTE: One smooth greeting that includes everything
@@ -2057,7 +2118,8 @@ export default function StockerApp() {
       addMessage({ role: 'assistant', content: greeting });
       await voice.speak(greeting);
     }
-  }, [userId, sessionPersistence, reset, generateNewSessionId, voice, getRoutes, userName, addMessage, selectRoute, audioUnlocked, isSafari, isIOS]);
+  }, [userId, sessionPersistence, reset, generateNewSessionId, setSession, voice, getRoutes, userName, addMessage, selectRoute]);
+  startFreshRef.current = startFresh;
 
   // Tap-to-advance (from original PWA)
   const handleItemCardClick = useCallback(() => {
@@ -2363,7 +2425,7 @@ export default function StockerApp() {
 
   // Resume dialog - SIMPLIFIED for 5-year-old proof UX
   if (showResumeDialog && savedSession) {
-    const completedCount = savedSession.machines?.filter((m: any) => m.status === 'completed').length || 0;
+    const completedCount = savedSession.machines?.filter(m => m.status === 'completed').length || 0;
     const progressPercent = Math.round((completedCount / savedSession.totalMachines) * 100);
     return (
       <div className="min-h-screen bg-[#0d1117] flex flex-col items-center justify-center p-6">

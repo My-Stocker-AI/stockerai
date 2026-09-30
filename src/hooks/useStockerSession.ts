@@ -17,6 +17,75 @@ export interface CurrentItem {
   item_index?: number;  // Current item's sequence position
 }
 
+export interface ConversationToolCall {
+  id: string;
+  function?: { name?: string; arguments?: string };
+}
+
+export interface ConversationMessage {
+  role: string;
+  content?: string;
+  tool_calls?: ConversationToolCall[];
+  tool_call_id?: string;
+  [key: string]: unknown;
+}
+
+interface WorkflowItemData {
+  product?: string;
+  product_name?: string;
+  product_parsed?: {
+    name?: string;
+    size?: string;
+  };
+  quantity?: number;
+  slot?: string;
+  slot_spoken?: string;
+  inventory_current?: number;
+  inventory_parlevel?: number;
+}
+
+interface WorkflowMachineData {
+  id: string;
+  name: string;
+  location: string;
+  sequence: number;
+  totalItems?: number;
+  completedItems?: number;
+  status?: MachineStatus;
+}
+
+interface WorkflowResult extends WorkflowItemData {
+  action?: string;
+  completed_items?: number;
+  date?: string;
+  direction?: string;
+  error?: unknown;
+  item1?: WorkflowItemData;
+  item2?: WorkflowItemData;
+  items_remaining?: number;
+  items_to_increment?: number;
+  machine_id?: string;
+  machine_index?: number;
+  machine_name?: string;
+  machines?: WorkflowMachineData[];
+  machines_count?: number;
+  new_completed_items?: number;
+  new_item_index?: number;
+  next_machine?: string;
+  next_machine_id?: string;
+  pick_direction?: string;
+  picking_revision?: string;
+  returning_to_skipped?: boolean;
+  route?: string;
+  route_id?: string;
+  route_name?: string;
+  session_id?: string;
+  skipped_machine_id?: string;
+  total_items?: number;
+  total_machines?: number;
+  [key: string]: unknown;
+}
+
 export type MachineStatus = 'pending' | 'in_progress' | 'completed' | 'skipped';
 
 export interface MachineState {
@@ -103,10 +172,10 @@ async function fetchMachineTotalItems(machineId: string): Promise<number> {
 export function useStockerSession(userId: string | null) {
   const [routeState, setRouteState] = useState<RouteState>(INITIAL_STATE);
   const [sessionId, setSessionId] = useState('');
-  const [messages, setMessages] = useState<any[]>([]);
+  const [messages, setMessages] = useState<ConversationMessage[]>([]);
 
   // Ref to avoid stale closures - always has latest messages
-  const messagesRef = useRef<any[]>([]);
+  const messagesRef = useRef<ConversationMessage[]>([]);
 
   // CRITICAL FIX: Lock to prevent race conditions during machine transitions
   const machineTransitionLockRef = useRef(false);
@@ -124,7 +193,7 @@ export function useStockerSession(userId: string | null) {
   }, [messages]);
 
   // Helper to format product display from parsed data
-  const formatProductDisplay = (itemData: any): string => {
+  const formatProductDisplay = (itemData: WorkflowItemData): string => {
     // If product_parsed exists, use formatted version
     if (itemData.product_parsed?.name) {
       const parts = [itemData.product_parsed.name];
@@ -137,7 +206,7 @@ export function useStockerSession(userId: string | null) {
     return itemData.product || itemData.product_name || '';
   };
 
-  const updateFromTool = useCallback(async (toolName: string, result: any) => {
+  const updateFromTool = useCallback(async (toolName: string, result: WorkflowResult | null | undefined) => {
     if (result?.session_id && !result.error) {
       setSessionId(result.session_id);
     }
@@ -200,7 +269,7 @@ export function useStockerSession(userId: string | null) {
         next.completed = false;
         // Store machines list from workflow
         if (result.machines && Array.isArray(result.machines)) {
-          next.machines = result.machines.map((m: any) => ({
+          next.machines = result.machines.map(m => ({
             id: m.id,
             name: m.name,
             location: m.location,
@@ -670,7 +739,7 @@ export function useStockerSession(userId: string | null) {
     });
   }, []);
 
-  const addMessage = useCallback((msg: any) => {
+  const addMessage = useCallback((msg: ConversationMessage) => {
     // Update ref immediately (before React re-renders)
     const updated = [...messagesRef.current, msg];
     const trimmed = updated.length > 20 ? updated.slice(-20) : updated;
