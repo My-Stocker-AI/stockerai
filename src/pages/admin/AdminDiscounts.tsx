@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import AdminLayout from "@/components/admin/AdminLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -38,6 +38,9 @@ interface DiscountCode {
   created_at: string | null;
 }
 
+const errorMessage = (error: unknown, fallback: string) =>
+  error instanceof Error && error.message ? error.message : fallback;
+
 const AdminDiscounts = () => {
   const { toast } = useToast();
   const [showCreate, setShowCreate] = useState(false);
@@ -54,7 +57,7 @@ const AdminDiscounts = () => {
   });
 
   // Fetch discount codes from database
-  const fetchDiscounts = async () => {
+  const fetchDiscounts = useCallback(async () => {
     setLoading(true);
     try {
       const { data, error } = await supabase
@@ -64,21 +67,21 @@ const AdminDiscounts = () => {
 
       if (error) throw error;
       setDiscounts(data || []);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error fetching discounts:', error);
       toast({
         title: "Error loading discounts",
-        description: error.message,
+        description: errorMessage(error, 'Please try again.'),
         variant: "destructive",
       });
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
 
   useEffect(() => {
-    fetchDiscounts();
-  }, []);
+    void fetchDiscounts();
+  }, [fetchDiscounts]);
 
   const generateCode = () => {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -138,11 +141,11 @@ const AdminDiscounts = () => {
       await fetchDiscounts();
       setShowCreate(false);
       setNewCode({ code: '', discount_percent: 10, max_uses: 100, duration_type: 'forever', duration_months: 12 });
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error creating coupon:', error);
       toast({
         title: "Failed to create coupon",
-        description: error.message || "Check console for details",
+        description: errorMessage(error, "Check console for details"),
         variant: "destructive",
       });
     } finally {
@@ -167,10 +170,10 @@ const AdminDiscounts = () => {
       });
 
       await fetchDiscounts();
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         title: "Delete failed",
-        description: error.message,
+        description: errorMessage(error, 'Please try again.'),
         variant: "destructive",
       });
     }

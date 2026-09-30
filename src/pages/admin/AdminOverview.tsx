@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import AdminLayout from "@/components/admin/AdminLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,19 @@ interface PlatformStats {
   totalSessions: number;
 }
 
+interface RecentSession {
+  id: string;
+  created_at: string;
+  status: string;
+  profiles: { first_name: string | null; last_name: string | null; email: string | null } | null;
+}
+
+const calculateMonthlyAmount = (driverCount: number) => {
+  if (driverCount <= 5) return driverCount * 20;
+  if (driverCount <= 20) return driverCount * 18;
+  return driverCount * 15;
+};
+
 const AdminOverview = () => {
   const [stats, setStats] = useState<PlatformStats>({
     totalAccounts: 0,
@@ -29,15 +42,9 @@ const AdminOverview = () => {
     totalSessions: 0,
   });
   const [loading, setLoading] = useState(true);
-  const [recentActivity, setRecentActivity] = useState<any[]>([]);
+  const [recentActivity, setRecentActivity] = useState<RecentSession[]>([]);
 
-  const calculateMonthlyAmount = (driverCount: number) => {
-    if (driverCount <= 5) return driverCount * 20;
-    if (driverCount <= 20) return driverCount * 18;
-    return driverCount * 15;
-  };
-
-  const fetchStats = async () => {
+  const fetchStats = useCallback(async () => {
     setLoading(true);
     try {
       // Get all accounts
@@ -109,11 +116,11 @@ const AdminOverview = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    fetchStats();
-  }, []);
+    void fetchStats();
+  }, [fetchStats]);
 
   const statCards = [
     {
