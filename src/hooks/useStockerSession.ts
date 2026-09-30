@@ -51,7 +51,7 @@ interface WorkflowMachineData {
   sequence: number;
   totalItems?: number;
   completedItems?: number;
-  status?: MachineStatus;
+  status?: string;
 }
 
 interface WorkflowResult extends WorkflowItemData {
@@ -87,6 +87,9 @@ interface WorkflowResult extends WorkflowItemData {
 }
 
 export type MachineStatus = 'pending' | 'in_progress' | 'completed' | 'skipped';
+
+const isMachineStatus = (status: string | undefined): status is MachineStatus =>
+  status === 'pending' || status === 'in_progress' || status === 'completed' || status === 'skipped';
 
 export interface MachineState {
   id: string;
@@ -276,7 +279,7 @@ export function useStockerSession(userId: string | null) {
             sequence: m.sequence,
             totalItems: m.totalItems || 0,
             completedItems: m.completedItems || 0,
-            status: m.status || 'pending'
+            status: isMachineStatus(m.status) ? m.status : 'pending'
           }));
           // Fix: Set initial machine total from first machine
           if (next.machines.length > 0) {

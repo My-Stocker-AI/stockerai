@@ -8,6 +8,21 @@ interface UseDeepgramSTTOptions {
   onUtteranceEnd?: () => void;
 }
 
+interface DeepgramTokenResponse {
+  token?: string;
+  expires_in?: number;
+}
+
+interface DeepgramMessage {
+  type?: string;
+  is_final?: boolean;
+  speech_final?: boolean;
+  channel?: { alternatives?: Array<{ transcript?: string }> };
+}
+
+const errorMessage = (error: unknown, fallback: string) =>
+  error instanceof Error && error.message ? error.message : fallback;
+
 export function useDeepgramSTT(options: UseDeepgramSTTOptions = {}) {
   const { onTranscript, onError, onUtteranceEnd } = options;
 
@@ -23,6 +38,7 @@ export function useDeepgramSTT(options: UseDeepgramSTTOptions = {}) {
   const shouldReconnectRef = useRef(true);
   const reconnectAttemptsRef = useRef(0);
   const finalTranscriptRef = useRef('');
+  const connectRef = useRef<() => Promise<void>>(async () => {});
 
   const KEEPALIVE_MS = 8000;
   const MAX_RECONNECT_ATTEMPTS = 5;
@@ -53,13 +69,14 @@ export function useDeepgramSTT(options: UseDeepgramSTTOptions = {}) {
     if (!response.ok) {
       throw new Error('Failed to get Deepgram token');
     }
-    const data = await response.json();
+    const data = await response.json() as DeepgramTokenResponse;
+    if (!data.token) throw new Error('Deepgram token response was incomplete');
     tokenRef.current = data.token;
     tokenExpiryRef.current = now + ((data.expires_in || 600) - 60) * 1000;
     return tokenRef.current;
   }, []);
 
-  const handleMessage = useCallback((data: any) => {
+  const handleMessage = useCallback((data: DeepgramMessage) => {
     if (data.type === 'Results' && data.channel?.alternatives?.[0]) {
       const alt = data.channel.alternatives[0];
       const transcript = alt.transcript || '';
@@ -128,7 +145,7 @@ export function useDeepgramSTT(options: UseDeepgramSTTOptions = {}) {
     await new Promise(resolve => setTimeout(resolve, delay));
 
     try {
-      await connect();
+      await connectRef.current();
     } catch (e) {
       // Will retry via onclose handler
     }
@@ -180,9 +197,9 @@ export function useDeepgramSTT(options: UseDeepgramSTTOptions = {}) {
 
       socket.onmessage = (event) => {
         try {
-          const data = JSON.parse(event.data);
+          const data = JSON.parse(event.data) as DeepgramMessage;
           handleMessage(data);
-        } catch (e) {}
+        } catch (e) { /* Ignore malformed provider frames. */ }
       };
 
       socket.onerror = () => {
@@ -202,6 +219,7 @@ export function useDeepgramSTT(options: UseDeepgramSTTOptions = {}) {
       };
     });
   }, [ensureToken, isConnected, startKeepAlive, stopKeepAlive, setupMediaRecorder, handleMessage, onError, attemptReconnect]);
+  connectRef.current = connect;
 
   const initialize = useCallback(async () => {
     try {
@@ -220,8 +238,8 @@ export function useDeepgramSTT(options: UseDeepgramSTTOptions = {}) {
 
       // Connect WebSocket
       await connect();
-    } catch (error: any) {
-      onError?.(error.message || 'Failed to initialize');
+    } catch (error: unknown) {
+      onError?.(errorMessage(error, 'Failed to initialize'));
       throw error;
     }
   }, [ensureToken, connect, onError]);
@@ -249,7 +267,7 @@ export function useDeepgramSTT(options: UseDeepgramSTTOptions = {}) {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       try {
         mediaRecorderRef.current.stop();
-      } catch (e) {}
+      } catch (e) { /* Recorder may already be stopped. */ }
     }
     mediaRecorderRef.current = null;
 

@@ -24,6 +24,21 @@ interface DiagnosticState {
   errors: string[];
 }
 
+interface VoiceDiagnosticEntry {
+  t: number;
+  type: string;
+  data: unknown;
+}
+
+interface VoiceDiagnosticDetail {
+  type?: unknown;
+  data?: unknown;
+}
+
+type WebkitAudioWindow = Window & typeof globalThis & {
+  webkitAudioContext?: typeof AudioContext;
+};
+
 export function DiagnosticOverlay({ voiceStatus, isDeepgramConnected, isVisible, onClose }: DiagnosticOverlayProps) {
   const [diagnostics, setDiagnostics] = useState<DiagnosticState>({
     audioContextState: 'unknown',
@@ -34,17 +49,19 @@ export function DiagnosticOverlay({ voiceStatus, isDeepgramConnected, isVisible,
     lastSpoken: '',
     errors: []
   });
+  const diagnosticsRef = useRef(diagnostics);
+  diagnosticsRef.current = diagnostics;
 
   // Full timestamped trail of EVERY voice-diagnostic event this session — the real
   // debugging record (the snapshot fields above only show the latest of each). Captured
   // from app mount (this listener is always active); copied out via the button below so
   // support can read the exact sequence instead of guessing. Capped to bound memory.
-  const [fullLog, setFullLog] = useState<Array<{ t: number; type: string; data: any }>>([]);
+  const [fullLog, setFullLog] = useState<VoiceDiagnosticEntry[]>([]);
   const [copied, setCopied] = useState(false);
 
   // Buffer of events not yet shipped to the server + a stable id for this app load so the
   // backend logs can be filtered to one driver's walk.
-  const pendingRef = useRef<Array<{ t: number; type: string; data: any }>>([]);
+  const pendingRef = useRef<VoiceDiagnosticEntry[]>([]);
   const sessionTagRef = useRef<string>(
     `${new Date().toISOString().slice(11, 19)}-${Math.random().toString(36).slice(2, 7)}`
   );
@@ -88,19 +105,20 @@ export function DiagnosticOverlay({ voiceStatus, isDeepgramConnected, isVisible,
     if (!isVisible) return;
 
     const checkDiagnostics = async () => {
+      const current = diagnosticsRef.current;
       const newDiag: DiagnosticState = {
         audioContextState: 'unknown',
         micPermission: 'unknown',
         deepgramConnected: isDeepgramConnected,
         mediaRecorderState: 'unknown',
-        lastTranscript: diagnostics.lastTranscript,
-        lastSpoken: diagnostics.lastSpoken,
-        errors: [...diagnostics.errors]
+        lastTranscript: current.lastTranscript,
+        lastSpoken: current.lastSpoken,
+        errors: [...current.errors]
       };
 
       // Check AudioContext
       try {
-        const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+        const AudioContext = window.AudioContext || (window as WebkitAudioWindow).webkitAudioContext;
         if (AudioContext) {
           const ctx = new AudioContext();
           newDiag.audioContextState = ctx.state;
@@ -129,12 +147,15 @@ export function DiagnosticOverlay({ voiceStatus, isDeepgramConnected, isVisible,
     checkDiagnostics();
     const interval = setInterval(checkDiagnostics, 2000);
     return () => clearInterval(interval);
-  }, [isVisible]);
+  }, [isDeepgramConnected, isVisible]);
 
   // Listen for diagnostic events from useVoice
   useEffect(() => {
-    const handleDiagnosticEvent = (e: CustomEvent) => {
-      const { type, data } = e.detail;
+    const handleDiagnosticEvent = (event: Event) => {
+      if (!(event instanceof CustomEvent)) return;
+      const detail = event.detail as VoiceDiagnosticDetail;
+      if (typeof detail.type !== 'string') return;
+      const { type, data } = detail;
       // Capture EVERY event into the full trail (cap at 800 to bound memory).
       const entry = { t: Date.now(), type, data };
       setFullLog(prev => [...prev.slice(-799), entry]);
@@ -153,21 +174,22 @@ export function DiagnosticOverlay({ voiceStatus, isDeepgramConnected, isVisible,
             // names WHY Deepgram refused the line (1011=concurrency, 4001/4008=token,
             // 1006=network). Previously logged only to console, invisible on a phone.
             if (data && typeof data === 'object' && 'code' in data) {
-              const why = `DG close ${data.code}${data.reason ? ' — ' + data.reason : ''} (try ${data.reconnectAttempt ?? 0})`;
+              const close = data as { code?: unknown; reason?: unknown; reconnectAttempt?: unknown };
+              const why = `DG close ${String(close.code)}${close.reason ? ' — ' + String(close.reason) : ''} (try ${String(close.reconnectAttempt ?? 0)})`;
               updated.errors = [...prev.errors.slice(-4), why];
             }
             break;
           case 'mediarecorder-state':
-            updated.mediaRecorderState = data;
+            updated.mediaRecorderState = String(data ?? 'unknown');
             break;
           case 'transcript':
-            updated.lastTranscript = data;
+            updated.lastTranscript = String(data ?? '');
             break;
           case 'spoken':
-            updated.lastSpoken = data;
+            updated.lastSpoken = String(data ?? '');
             break;
           case 'error':
-            updated.errors = [...prev.errors.slice(-4), data]; // Keep last 5 errors
+            updated.errors = [...prev.errors.slice(-4), String(data ?? 'Unknown voice error')]; // Keep last 5 errors
             break;
         }
 
@@ -175,8 +197,8 @@ export function DiagnosticOverlay({ voiceStatus, isDeepgramConnected, isVisible,
       });
     };
 
-    window.addEventListener('voice-diagnostic' as any, handleDiagnosticEvent);
-    return () => window.removeEventListener('voice-diagnostic' as any, handleDiagnosticEvent);
+    window.addEventListener('voice-diagnostic', handleDiagnosticEvent);
+    return () => window.removeEventListener('voice-diagnostic', handleDiagnosticEvent);
   }, []);
 
   // Auto-ship queued events to the server every 3s (fire-and-forget, errors swallowed —
