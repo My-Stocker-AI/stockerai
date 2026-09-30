@@ -25,6 +25,12 @@ export enum PickingCommand {
   UNDO = 'undo',
   WHICH_MACHINE = 'which_machine',   // "what machine is this" — answered locally from state
   MACHINES_LEFT = 'machines_left',   // "how many machines left" — answered locally from state
+  ITEMS_LEFT = 'items_left',         // remaining picks on the current machine
+  CURRENT_ROUTE = 'current_route',   // current route name
+  SKIPPED_MACHINES = 'skipped_machines', // names/count of skipped machines
+  CURRENT_SLOT = 'current_slot',     // slot(s) for the displayed pick
+  CURRENT_ITEM_POSITION = 'current_item_position', // displayed item sequence position
+  ROUTE_PROGRESS = 'route_progress', // concise route/machine progress summary
   WAKE_ONLY = 'wake_only',           // just the app's name while already awake — ask what he wants
   UNKNOWN = 'unknown'
 }
@@ -180,6 +186,56 @@ const MACHINES_LEFT_PATTERNS = [
   /machines are left/,
   /machines remaining/,
   /how many more machines/,
+];
+
+// Read-only progress/status questions. Keep these ahead of the broad inventory
+// keywords below: "how many items do I have left" asks about picking progress,
+// not the current product's par level.
+const ITEMS_LEFT_PATTERNS = [
+  /^how many items (do i|do we|does this machine) have left$/,
+  /^how many items (are|remain) left$/,
+  /^how many items remain$/,
+  /^how many more items$/,
+  /^items (left|remaining)$/,
+];
+
+const CURRENT_ROUTE_PATTERNS = [
+  /^what route am i on$/,
+  /^which route am i on$/,
+  /^what route is this$/,
+  /^which route is this$/,
+  /^current route$/,
+];
+
+const SKIPPED_MACHINES_PATTERNS = [
+  /^which machines (did i|did we|have i|have we) skip(ped)?$/,
+  /^what machines (did i|did we|have i|have we) skip(ped)?$/,
+  /^how many machines (did i|did we|have i|have we) skip(ped)?$/,
+  /^list (the )?skipped machines$/,
+];
+
+const CURRENT_SLOT_PATTERNS = [
+  /^what slot am i on$/,
+  /^which slot am i on$/,
+  /^what is the current slot$/,
+  /^what'?s the current slot$/,
+  /^current slot$/,
+];
+
+const CURRENT_ITEM_POSITION_PATTERNS = [
+  /^what item number am i on$/,
+  /^which item number am i on$/,
+  /^what item am i on$/,
+  /^which item am i on$/,
+  /^current item number$/,
+];
+
+const ROUTE_PROGRESS_PATTERNS = [
+  /^what'?s my progress$/,
+  /^what is my progress$/,
+  /^how far (am i|are we)$/,
+  /^progress update$/,
+  /^route progress$/,
 ];
 
 const REPEAT_PATTERNS = [
@@ -434,6 +490,30 @@ export class CommandRecognizer {
         confidence: 1.0,
         requiresConfirmation: false,
       };
+    }
+
+    if (SKIPPED_MACHINES_PATTERNS.some(p => p.test(text))) {
+      return { command: PickingCommand.SKIPPED_MACHINES, confidence: 1.0, requiresConfirmation: false };
+    }
+
+    if (ITEMS_LEFT_PATTERNS.some(p => p.test(text))) {
+      return { command: PickingCommand.ITEMS_LEFT, confidence: 1.0, requiresConfirmation: false };
+    }
+
+    if (CURRENT_ROUTE_PATTERNS.some(p => p.test(text))) {
+      return { command: PickingCommand.CURRENT_ROUTE, confidence: 1.0, requiresConfirmation: false };
+    }
+
+    if (CURRENT_SLOT_PATTERNS.some(p => p.test(text))) {
+      return { command: PickingCommand.CURRENT_SLOT, confidence: 1.0, requiresConfirmation: false };
+    }
+
+    if (CURRENT_ITEM_POSITION_PATTERNS.some(p => p.test(text))) {
+      return { command: PickingCommand.CURRENT_ITEM_POSITION, confidence: 1.0, requiresConfirmation: false };
+    }
+
+    if (ROUTE_PROGRESS_PATTERNS.some(p => p.test(text))) {
+      return { command: PickingCommand.ROUTE_PROGRESS, confidence: 1.0, requiresConfirmation: false };
     }
 
     // A QUESTION ABOUT SKIPPED MACHINES IS NOT A QUESTION ABOUT REMAINING ONES.

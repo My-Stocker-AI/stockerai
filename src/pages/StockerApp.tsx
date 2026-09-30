@@ -659,6 +659,78 @@ export default function StockerApp() {
               return;
             }
 
+            case PickingCommand.ITEMS_LEFT: {
+              const remaining = Math.max(0, routeState.currentMachineItemsRemaining || 0);
+              const msg = remaining === 0
+                ? 'No items left on this machine.'
+                : remaining === 1 ? 'One item left on this machine.' : `${remaining} items left on this machine.`;
+              setAiResponse(msg);
+              await v.speak(msg);
+              processingRef.current = false;
+              return;
+            }
+
+            case PickingCommand.CURRENT_ROUTE: {
+              const msg = routeState.routeName ? `You're on the ${routeState.routeName} route.` : "You haven't started a route yet.";
+              setAiResponse(msg);
+              await v.speak(msg);
+              processingRef.current = false;
+              return;
+            }
+
+            case PickingCommand.SKIPPED_MACHINES: {
+              const skipped = routeState.machines.filter(machine => machine.status === 'skipped');
+              const msg = skipped.length === 0
+                ? "You don't have any skipped machines."
+                : skipped.length === 1
+                  ? `You skipped ${skipped[0].name}.`
+                  : `You skipped ${skipped.map(machine => machine.name).join(', ')}.`;
+              setAiResponse(msg);
+              await v.speak(msg);
+              processingRef.current = false;
+              return;
+            }
+
+            case PickingCommand.CURRENT_SLOT: {
+              const slots = [routeState.currentItem?.slot_spoken || routeState.currentItem?.slot,
+                routeState.currentItem2?.slot_spoken || routeState.currentItem2?.slot].filter(Boolean);
+              const msg = slots.length === 0 ? 'No item slot is displayed right now.'
+                : slots.length === 1 ? `The current slot is ${slots[0]}.`
+                  : `The current slots are ${slots[0]} and ${slots[1]}.`;
+              setAiResponse(msg);
+              await v.speak(msg);
+              processingRef.current = false;
+              return;
+            }
+
+            case PickingCommand.CURRENT_ITEM_POSITION: {
+              const first = routeState.currentItem?.item_index;
+              const msg = first == null
+                ? (routeState.currentItem ? `The current item is ${routeState.currentItem.product}.` : 'No item is displayed right now.')
+                : routeState.currentItem2
+                  ? `The current pick starts at item ${first}. Two items are displayed.`
+                  : `You're on item ${first}.`;
+              setAiResponse(msg);
+              await v.speak(msg);
+              processingRef.current = false;
+              return;
+            }
+
+            case PickingCommand.ROUTE_PROGRESS: {
+              const completedMachines = routeState.machines.filter(machine => machine.status === 'completed').length;
+              const machineSummary = routeState.totalMachines
+                ? `${completedMachines} of ${routeState.totalMachines} machines complete`
+                : 'No machine total is available';
+              const remaining = Math.max(0, routeState.currentMachineItemsRemaining || 0);
+              const msg = routeState.currentMachineName
+                ? `${machineSummary}. You're on ${routeState.currentMachineName}, with ${remaining} ${remaining === 1 ? 'item' : 'items'} left.`
+                : `${machineSummary}.`;
+              setAiResponse(msg);
+              await v.speak(msg);
+              processingRef.current = false;
+              return;
+            }
+
             case PickingCommand.REPEAT:
               // Already handled by repeat handler above
               console.log('[CommandRecognizer] REPEAT already handled by repeat handler');

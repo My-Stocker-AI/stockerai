@@ -47,9 +47,14 @@ beforeEach(() => {
   };
   mocks.state = {
     routeId: 'route-test', routeName: 'Fixture', routeDate: '2099-01-01',
-    currentMachineId: 'machine-test', currentMachineIndex: 0,
-    machines: [{ id: 'machine-test', name: 'Fixture machine', status: 'in_progress' }],
-    currentItem: { product: 'Fixture product', quantity: 2, slot: 'A1' },
+    totalMachines: 3, currentMachineId: 'machine-test', currentMachineName: 'Fixture machine', currentMachineIndex: 0,
+    currentMachineItemsRemaining: 4,
+    machines: [
+      { id: 'machine-test', name: 'Fixture machine', status: 'in_progress' },
+      { id: 'machine-complete', name: 'Completed machine', status: 'completed' },
+      { id: 'machine-skipped', name: 'Skipped fixture', status: 'skipped' },
+    ],
+    currentItem: { product: 'Fixture product', quantity: 2, slot: 'A1', slot_spoken: 'A one', item_index: 7 },
     currentItem2: null, completedItems: [], pendingMachineTransition: null,
   };
 });
@@ -168,6 +173,25 @@ describe('actual StockerApp transcript dispatch with mocked services', () => {
     expect(mocks.execute).not.toHaveBeenCalled();
     expect(mocks.send).not.toHaveBeenCalled();
     expect(mocks.speak).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['how many items do i have left', '4 items left on this machine.'],
+    ['what route am i on', "You're on the Fixture route."],
+    ['which machines did i skip', 'You skipped Skipped fixture.'],
+    ['how many machines have we skipped', 'You skipped Skipped fixture.'],
+    ['what slot am i on', 'The current slot is A one.'],
+    ['what item number am i on', "You're on item 7."],
+    ["what's my progress", "1 of 3 machines complete. You're on Fixture machine, with 4 items left."],
+  ])('answers read-only status question locally without changing state: %s', async (question, answer) => {
+    const before = structuredClone(mocks.state);
+    render(React.createElement(StockerApp));
+    await say(question);
+    expect(mocks.speak).toHaveBeenLastCalledWith(answer);
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(mocks.execute).not.toHaveBeenCalled();
+    expect(mocks.update).not.toHaveBeenCalled();
+    expect(mocks.state).toEqual(before);
   });
 
   it('still cancels a pending guess when the driver says no', async () => {
