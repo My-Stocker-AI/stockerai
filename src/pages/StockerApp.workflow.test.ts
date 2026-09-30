@@ -211,6 +211,51 @@ it('a failed product question preserves the pick and the next ordinary command s
   expect(state().completedItems).toHaveLength(1);
 });
 
+it('changes the displayed item only after durable undo is confirmed', async () => {
+  let revision = 0;
+  const calls: Array<{ url: string; body: {
+    action?: string;
+    expected_revision?: string;
+    expected_state?: { completed_items?: number };
+  } }> = [];
+  fixture.fetch.mockImplementation(async (url: string, options: RequestInit) => {
+    const body = JSON.parse(options.body as string);
+    calls.push({ url, body });
+    revision++;
+    if (url.endsWith('/undo-item')) {
+      expect(body.expected_revision).toBe('revision-2');
+      expect(body.expected_state?.completed_items).toBe(2);
+      return response({ action: 'undo_item', machine_id: machines[0].id, machine_name: 'Alpha',
+        item1: { product_name: 'Alpha product 1', quantity: 2, slot: 'S1', slot_spoken: 'S 1' },
+        new_item_index: 1, new_completed_items: 1, confirmed_items: 0, items_remaining: 2,
+        picking_revision: `revision-${revision}`, voice_text: 'Going back to Alpha product 1',
+        spoken: 'Going back to Alpha product 1' });
+    }
+    const position = body.action === 'start' ? 1 : 2;
+    return response({ action: body.action === 'start' ? 'item_ready' : 'next_item',
+      machine_id: machines[0].id, machine_name: 'Alpha',
+      item1: { product_name: `Alpha product ${position}`, quantity: position + 1,
+        slot: `S${position}`, slot_spoken: `S ${position}` },
+      new_item_index: position, new_completed_items: position, items_remaining: 3-position,
+      direction: 'forward', picking_revision: `revision-${revision}`,
+      voice_text: `${position + 1} Alpha product ${position}`, spoken: `${position + 1} Alpha product ${position}` });
+  });
+  await openRoute();
+  await say('top');
+  await say('next');
+  expect(state().currentItem?.product).toBe('Alpha product 2');
+  expect(state().completedItems.map(item => item.product)).toEqual(['Alpha product 1']);
+  await say('previous item');
+  expect(calls.map(call => new URL(call.url).pathname.split('/').pop())).toEqual([
+    'picking-transition', 'picking-transition', 'undo-item',
+  ]);
+  expect(state().currentItem?.product).toBe('Alpha product 1');
+  expect(state().currentItem2).toBeNull();
+  expect(state().completedItems).toEqual([]);
+  expect(state().machines[0].completedItems).toBe(1);
+  expect(state().pickingRevision).toBe('revision-3');
+});
+
 it('does not speak or restart listening when an answer arrives after leaving the screen', async () => {
   const view = await openRoute();
   await act(async () => fixture.session!.setRouteState(previous => ({ ...previous,

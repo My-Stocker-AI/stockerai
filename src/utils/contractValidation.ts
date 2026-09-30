@@ -100,6 +100,10 @@ function validateActionSpecificFields(output: any, errors: ContractViolationErro
       requireFields(output, ['machine_id', 'items_remaining', 'item1'], errors);
       break;
 
+    case 'undo_item':
+      requireFields(output, ['machine_id', 'items_remaining', 'item1', 'new_completed_items'], errors);
+      break;
+
     case 'next_machine':
       requireFields(output, ['next_machine_id', 'next_machine', 'next_location'], errors);
       // If skipped_machine present, spoken MUST say "skipped" not "complete"

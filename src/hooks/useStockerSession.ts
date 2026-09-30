@@ -509,6 +509,33 @@ export function useStockerSession(userId: string | null) {
         }
       }
 
+      if (toolName === 'undo_last_item') {
+        // The server has already reversed the authoritative presented prefix and
+        // returned the exact prior item under a new route revision. Mirror that
+        // result; never manufacture an undo from the browser-only Done list.
+        const itemData = result.item1 || result;
+        next.currentItem = {
+          product: formatProductDisplay(itemData),
+          quantity: itemData.quantity || 0,
+          slot: itemData.slot || '',
+          slot_spoken: itemData.slot_spoken || itemData.slot || '',
+          inventory_current: itemData.inventory_current,
+          inventory_parlevel: itemData.inventory_parlevel,
+          machineName: result.machine_name || prev.currentMachineName || '',
+          items_remaining: result.items_remaining,
+          item_index: result.new_item_index,
+        };
+        next.currentItem2 = null;
+        next.currentMachineItemsRemaining = result.items_remaining ?? prev.currentMachineItemsRemaining;
+        next.completed = false;
+        next.completedItems = prev.completedItems.slice(0, -1);
+        if (prev.currentMachineId && result.new_completed_items !== undefined) {
+          next.machines = prev.machines.map(machine => machine.id === prev.currentMachineId
+            ? { ...machine, completedItems: result.new_completed_items, status: 'in_progress' as const }
+            : machine);
+        }
+      }
+
       if (toolName === 'skip_current_machine') {
         // Release transition lock if skip called during transition
         if (machineTransitionLockRef.current) {

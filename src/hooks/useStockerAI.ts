@@ -211,7 +211,8 @@ const WEBHOOK_MAP: Record<string, string> = USE_PYTHON ? {
   'update_session_state': '/update-session',
   'start_machine': '/start-machine',
   'skip_current_machine': '/skip-machine',
-  'go_back_to_skipped': '/go-back-to-skipped'
+  'go_back_to_skipped': '/go-back-to-skipped',
+  'undo_last_item': '/undo-item'
 } : {
   'get_routes_for_date': '/get-routes',
   'set_route_sequence': '/set-sequence',
@@ -859,7 +860,8 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
         let endpoint = path.startsWith('http') ? path : `${N8N_BASE}${path}`;
         let progressTarget: Record<string, unknown> = {};
         const transitionAction = ({ get_next_item: 'next', start_machine: 'start',
-          skip_current_machine: 'skip', go_back_to_skipped: 'back', reset_route: 'reset' } as Record<string, string>)[name];
+          skip_current_machine: 'skip', go_back_to_skipped: 'back', reset_route: 'reset',
+          undo_last_item: 'undo' } as Record<string, string>)[name];
         if (transitionAction && USE_PYTHON) {
           const machine = pickingContext?.machines.find(m => m.id === pickingContext.currentMachineId);
           if (!pickingContext || !machine || !Number.isInteger(machine.completedItems) ||
@@ -908,16 +910,18 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
           if (name === 'start_machine' && !['beginning', 'end'].includes(args.direction)) {
             throw new Error('Invalid start direction');
           }
-          endpoint = `${PYTHON_API_BASE}/picking-transition`;
+          endpoint = `${PYTHON_API_BASE}${name === 'undo_last_item' ? '/undo-item' : '/picking-transition'}`;
           progressTarget = {
             operation_id: crypto.randomUUID(),
             expected_machine_id: machine.id,
             expected_revision: revision,
             expected_state: { completed_items: machine.completedItems, status: machine.status,
               direction: pickingContext.pickDirection || 'forward' },
-            action: transitionAction,
-            direction: name === 'start_machine' ? (args.direction === 'end' ? 'reverse' : 'forward') :
-              (pickingContext.pickDirection || 'forward'),
+            ...(name === 'undo_last_item' ? {} : {
+              action: transitionAction,
+              direction: name === 'start_machine' ? (args.direction === 'end' ? 'reverse' : 'forward') :
+                (pickingContext.pickDirection || 'forward'),
+            }),
           };
         }
         console.log(`[Tools] Calling ${name}:`, { args, endpoint });
@@ -971,7 +975,7 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
           break; // Do not execute further dependent actions after a refusal.
         }
 
-        let result = await resp.json();
+        const result = await resp.json();
         if (requestSession !== sessionIdRef.current || requestUser !== userIdRef.current) {
           results.push({ tool_call_id: tc.id, result: { ignored: true, success: false, message: 'Session changed while request was in flight' } });
           break;

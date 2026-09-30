@@ -274,30 +274,6 @@ export default function StockerApp() {
     }
   }, [routeState, saveSessionState]);
 
-  // Undo last item - local handler (from original PWA)
-  const undoLastItem = useCallback(() => {
-    if (routeState.completedItems.length === 0) {
-      return { success: false, message: "Nothing to undo - no completed items" };
-    }
-
-    const lastItem = routeState.completedItems[routeState.completedItems.length - 1];
-    const newCompleted = routeState.completedItems.slice(0, -1);
-
-    setRouteState({
-      ...routeState,
-      currentItem: lastItem,
-      completedItems: newCompleted,
-      completed: false
-    });
-
-    voiceRef.current?.playErrorBeep();
-    return {
-      success: true,
-      message: `Going back to ${lastItem.quantity} ${lastItem.product}, ${lastItem.slot_spoken || lastItem.slot}`,
-      item: lastItem
-    };
-  }, [routeState, setRouteState]);
-
   // Handle route selection (voice or tap) - defined before handleTranscript
   // This is called AFTER the initial greeting, so we just trigger the route start silently
   const selectRoute = useCallback(async (routeName: string, dateForRoute?: string) => {
@@ -364,7 +340,9 @@ export default function StockerApp() {
       return;
     }
 
-    // Handle undo commands locally (from original PWA)
+    // Resolve repeat locally. Undo is deliberately left for the precise matcher
+    // below because it must now complete an authoritative, revision-bound server
+    // transition before the displayed item is changed.
     // SURVEY FIX 2026-07-30 — these two checks used to ask "does the phrase CONTAIN any of
     // these words?" anywhere in the sentence, and they ran BEFORE the precise matcher. So they
     // quietly ate commands the matcher owns: "go back to skipped machine" and "previous item"
@@ -372,17 +350,6 @@ export default function StockerApp() {
     // instead of advancing — but only when the transcript kept the apostrophe. Same words, two
     // outcomes, decided by punctuation. Decision logic is unit-tested in localCommandIntent.ts.
     const localIntent = resolveLocalIntent(transcript);
-
-    if (localIntent === 'undo' && routeState.routeName) {
-      processingRef.current = true;
-      const result = undoLastItem();
-      setAiResponse(result.message);
-      await v.speak(result.message);
-      // Track undo as failure (user correcting AI)
-      await keywordLearning.trackKeywords(transcript, false);
-      processingRef.current = false;
-      return;
-    }
 
     // Handle repeat commands - repeat last AI response. See the note above the undo check.
     if (localIntent === 'repeat') {
@@ -779,22 +746,16 @@ export default function StockerApp() {
               break;
 
             case PickingCommand.PREVIOUS_ITEM:
-              // Show previous item (same as undo - pops last item back to current)
-              const prevResult = undoLastItem();
-              setAiResponse(prevResult.message);
-              await v.speak(prevResult.message);
-              if (prevResult.success) await keywordLearning.trackKeywords(transcript, true);
-              processingRef.current = false;
-              return;
-
             case PickingCommand.UNDO:
-              // Already handled above via undoLastItem()
-              const result = undoLastItem();
-              setAiResponse(result.message);
-              await v.speak(result.message);
-              if (result.success) await keywordLearning.trackKeywords(transcript, true);
-              processingRef.current = false;
-              return;
+              toolCalls = [{
+                id: `cmd_${Date.now()}`,
+                type: 'function',
+                function: {
+                  name: 'undo_last_item',
+                  arguments: JSON.stringify({ session_id: sessionId })
+                }
+              }];
+              break;
 
             case PickingCommand.AFFIRMATIVE:
               // Affirmative response during machine transition - auto-call start_machine with saved direction
@@ -889,8 +850,8 @@ export default function StockerApp() {
               }
 
               // Store last item pair for repeat functionality
-              if ((name === 'get_next_item' || name === 'start_machine') &&
-                  (result.action === 'next_item' || result.action === 'item_ready')) {
+              if ((name === 'get_next_item' || name === 'start_machine' || name === 'undo_last_item') &&
+                  (result.action === 'next_item' || result.action === 'item_ready' || result.action === 'undo_item')) {
                 const spokenText = result.voice_text || result.spoken;
                 if (spokenText) {
                   const newItemPair = {
@@ -1300,7 +1261,7 @@ export default function StockerApp() {
     } finally {
       processingRef.current = false;
     }
-  }, [userName, sessionId, routeState, addMessage, sendToAI, executeToolCalls, updateFromTool, undoLastItem, retryCount, messagesRef, showRouteSelection, availableRoutes, selectRoute, shouldIgnoreTranscript]);
+  }, [userName, sessionId, routeState, addMessage, sendToAI, executeToolCalls, updateFromTool, retryCount, messagesRef, showRouteSelection, availableRoutes, selectRoute, shouldIgnoreTranscript]);
 
   const handleWakePhrase = useCallback(async (command: string | null) => {
     const v = voiceRef.current;

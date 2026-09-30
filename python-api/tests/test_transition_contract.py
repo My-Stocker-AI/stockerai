@@ -2,7 +2,7 @@ from unittest.mock import patch
 from uuid import uuid4
 import pytest
 from fastapi import HTTPException
-from app.routes.items import PickingTransitionRequest, picking_transition
+from app.routes.items import PickingTransitionRequest, UndoItemRequest, picking_transition, undo_item
 from app.services.auth import Caller
 
 
@@ -23,6 +23,33 @@ def test_transition_uses_verified_caller_and_never_falls_back():
     params=mock.call_args.args[1]
     assert params['p_user_id']==caller.user_id
     assert 'p_team_user_ids' not in params
+
+
+def test_undo_uses_verified_caller_and_formats_authoritative_item():
+    caller=Caller(user_id=str(uuid4()),account_id='team',team_user_ids=[str(uuid4())])
+    payload=body()
+    payload.pop('action'); payload.pop('direction'); payload.pop('count')
+    req=UndoItemRequest(**payload)
+    row={'action':'undo_item','picking_revision':str(uuid4()),'machine_id':str(req.expected_machine_id),
+        'machine_name':'Fixture','new_completed_items':1,'confirmed_items':0,'total_items':3,
+        'items_remaining':2,'new_item_index':1,'direction':'forward','product_name':'Cola',
+        'quantity':2,'slot':'A1','session_id':str(req.session_id),'operation_id':str(req.operation_id)}
+    with patch('app.routes.items.rpc',return_value=row) as mock:
+        result=undo_item(req,caller)
+    params=mock.call_args.args[1]
+    assert mock.call_args.args[0]=='undo_picking_item'
+    assert params['p_user_id']==caller.user_id and 'p_team_user_ids' not in params
+    assert result['action']=='undo_item' and result['item1']['product_name']=='Cola'
+    assert result['spoken']=='Going back to 2 Cola, A1'
+
+
+def test_undo_hides_private_database_error():
+    payload=body(); payload.pop('action'); payload.pop('direction'); payload.pop('count')
+    req=UndoItemRequest(**payload)
+    caller=Caller(user_id=str(uuid4()),account_id='team',team_user_ids=[])
+    with patch('app.routes.items.rpc',side_effect=RuntimeError('private detail')):
+        with pytest.raises(HTTPException) as error: undo_item(req,caller)
+    assert error.value.status_code==503 and 'private' not in error.value.detail
 
 
 @pytest.mark.parametrize('field,value',[('expected_revision','bad'),('action','destroy'),('direction','sideways'),

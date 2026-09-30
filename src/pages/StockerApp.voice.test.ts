@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   options: null as any,
-  execute: vi.fn(async (_calls: any[]) => []), speak: vi.fn(async () => {}),
+  execute: vi.fn(async (_calls: any[], _onResult?: (name: string, result: unknown) => void) => []), speak: vi.fn(async () => {}),
   send: vi.fn(async () => ({ content: 'test reply' })),
   state: null as any,
   voice: null as any,
@@ -143,6 +143,34 @@ describe('actual StockerApp transcript dispatch with mocked services', () => {
     render(React.createElement(StockerApp));
     await say('go back to skipped');
     expect(mocks.execute.mock.calls[0][0][0].function.name).toBe('go_back_to_skipped');
+  });
+
+  it.each(['previous item', 'undo that'])('uses durable server undo before changing the screen: %s', async text => {
+    mocks.state.completedItems = [{ product: 'Prior', quantity: 1, slot: 'A0', machineName: 'Fixture machine' }];
+    const before = structuredClone(mocks.state);
+    const confirmed = { action: 'undo_item', voice_text: 'Going back to Prior', item1: { product_name: 'Prior' } };
+    mocks.execute.mockImplementation(async (_calls, onResult) => {
+      expect(mocks.update).not.toHaveBeenCalled();
+      expect(mocks.state).toEqual(before);
+      onResult?.('undo_last_item', confirmed);
+      return [{ tool_call_id: 'test', result: confirmed }];
+    });
+    render(React.createElement(StockerApp));
+    await say(text);
+    expect(mocks.execute.mock.calls[0][0][0].function.name).toBe('undo_last_item');
+    expect(mocks.update).toHaveBeenCalledWith('undo_last_item', confirmed);
+    expect(mocks.speak).toHaveBeenLastCalledWith('Going back to Prior');
+  });
+
+  it('preserves local progress when durable undo is refused', async () => {
+    mocks.state.completedItems = [{ product: 'Prior', quantity: 1, slot: 'A0', machineName: 'Fixture machine' }];
+    const before = structuredClone(mocks.state);
+    mocks.execute.mockImplementation(async () => [{ result: { error: 'Request failed', user_message: 'Nothing to undo on this machine.' } }]);
+    render(React.createElement(StockerApp));
+    await say('previous item');
+    expect(mocks.update).not.toHaveBeenCalled();
+    expect(mocks.state).toEqual(before);
+    expect(mocks.speak).toHaveBeenLastCalledWith('Nothing to undo on this machine.');
   });
 
   it('a debounced duplicate is not reported as a speech failure', async () => {

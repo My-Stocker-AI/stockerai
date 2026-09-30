@@ -87,3 +87,28 @@ it('a failed start preserves the destination and its pending direction', async (
   await act(() => result.current.updateFromTool('start_machine', { error: 'Rejected' }));
   expect(result.current.routeState).toEqual(before);
 });
+
+it('applies only a confirmed durable undo result to the displayed state', async () => {
+  const { result } = setup();
+  act(() => result.current.setRouteState(prev => ({ ...prev,
+    pickingRevision: 'old-revision',
+    currentItem: { product: 'Fourth', quantity: 4, slot: '4', slot_spoken: 'four', machineName: 'Current' },
+    currentItem2: { product: 'Fifth', quantity: 5, slot: '5', slot_spoken: 'five', machineName: 'Current' },
+    completedItems: [
+      { product: 'First', quantity: 1, slot: '1', slot_spoken: 'one', machineName: 'Current' },
+      { product: 'Second', quantity: 2, slot: '2', slot_spoken: 'two', machineName: 'Current' },
+    ],
+  })));
+  await act(() => result.current.updateFromTool('undo_last_item', {
+    action: 'undo_item', picking_revision: 'new-revision', machine_id: 'm3', machine_name: 'Current',
+    new_completed_items: 2, confirmed_items: 1, items_remaining: 3, new_item_index: 2,
+    item1: { product_name: 'Second', quantity: 2, slot: '2', slot_spoken: 'two' },
+  }));
+  const state = result.current.routeState;
+  expect(state.pickingRevision).toBe('new-revision');
+  expect(state.currentItem?.product).toBe('Second');
+  expect(state.currentItem2).toBeNull();
+  expect(state.completedItems.map(item => item.product)).toEqual(['First']);
+  expect(state.machines[2].completedItems).toBe(2);
+  expect(state.currentMachineItemsRemaining).toBe(3);
+});

@@ -33,7 +33,7 @@ class Database:
     def table(self, name): return Query(self, name)
 
 
-def fixture(direction='forward', width=2, presented=4, total=5, requested=2):
+def fixture(direction='forward', width=2, presented=4, total=5, requested=2, action='next'):
     db = Database()
     db.reads = []
     guard = dict(session_id='s', route_id='r', current_machine_id='m',
@@ -41,7 +41,7 @@ def fixture(direction='forward', width=2, presented=4, total=5, requested=2):
     positions = list(range(1, total + 1))
     if direction == 'reverse': positions.reverse()
     window = positions[presented-width:presented]
-    result = dict(action='next_item', session_id='s', machine_id='m', picking_revision='rev',
+    result = dict(action='undo_item' if action == 'undo' else 'next_item', session_id='s', machine_id='m', picking_revision='rev',
                   new_completed_items=presented, total_items=total, items_remaining=total-presented)
     for index, number in enumerate(window):
         suffix = '2' if index else ''
@@ -54,7 +54,7 @@ def fixture(direction='forward', width=2, presented=4, total=5, requested=2):
                          total_items=total, completed_items=presented, status='in_progress')],
         'items': [dict(machine_id='m', sequence=n, product_name=f'Product {n}', quantity=n, slot=None) for n in positions],
         'picking_operations': [dict(user_id='caller', session_id='s', result=result,
-            request=dict(protocol=3, session='s', action='next', direction=direction, count=requested))],
+            request=dict(protocol=3, session='s', action=action, direction=direction, count=requested))],
     }
     return db, guard, window
 
@@ -124,3 +124,12 @@ def test_old_client_cannot_silently_drop_half_of_restored_pair():
     assert db.rows == before
     db, guard, _ = fixture(width=1, presented=3, requested=1)
     assert load(db, guard, version=None)['current_item2'] is None
+
+
+@pytest.mark.parametrize('direction', ['forward', 'reverse'])
+def test_restores_durable_undo_receipt(direction):
+    db, guard, window = fixture(direction=direction, width=1, presented=2, requested=1, action='undo')
+    snap = load(db, guard)
+    assert snap['current_item']['product_name'] == f'Product {window[0]}'
+    assert snap['current_item2'] is None
+    assert snap['confirmed_items'] == 1

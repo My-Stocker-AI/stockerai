@@ -73,6 +73,13 @@ class PickingTransitionRequest(PickingContextRequest):
     count: int = Field(1, ge=1, le=2)
 
 
+class UndoItemRequest(PickingContextRequest):
+    operation_id: UUID
+    expected_revision: UUID
+    expected_machine_id: UUID
+    expected_state: ExpectedPickingState
+
+
 def _picking_rpc(name, params):
     try:
         return rpc(name, params)
@@ -81,6 +88,13 @@ def _picking_rpc(name, params):
             raise HTTPException(status_code=403, detail='Not available on this account.') from None
         if getattr(exc, 'message', None) == 'Picking state conflict':
             raise HTTPException(status_code=409, detail='Picking state changed. Reload your saved route before continuing.') from None
+        if getattr(exc, 'message', None) == 'Nothing to undo on this machine':
+            raise HTTPException(status_code=409, detail='Nothing to undo on this machine.') from None
+        if getattr(exc, 'message', None) in {
+            'Exact unfinished items are unavailable',
+            'Saved item window could not be verified',
+        }:
+            raise HTTPException(status_code=409, detail='Exact unfinished items are unavailable. Reload your saved route before continuing.') from None
         raise HTTPException(status_code=503, detail='Could not confirm picking progress. Reload your saved route before continuing.') from None
 
 
@@ -114,6 +128,37 @@ def picking_transition(req: PickingTransitionRequest, caller: Caller = AuthCalle
         result['display_text'] = generate_start_machine_display(row['direction'], parsed, row['quantity'], parsed2, row.get('quantity2'))
     else:
         result = {**row, 'voice_text': row['spoken']}
+    return {**result, 'session_id': str(req.session_id), 'operation_id': str(req.operation_id),
+            'picking_revision': row['picking_revision']}
+
+
+@router.post('/undo-item')
+def undo_item(req: UndoItemRequest, caller: Caller = AuthCaller):
+    """Durably expose the last confirmed item without guessing from browser state."""
+    row = _picking_rpc('undo_picking_item', {
+        'p_user_id': caller.user_id,
+        'p_session_id': str(req.session_id),
+        'p_operation_id': str(req.operation_id),
+        'p_revision': str(req.expected_revision),
+        'p_machine_id': str(req.expected_machine_id),
+        'p_expected': req.expected_state.model_dump(),
+    })
+    if (not isinstance(row, dict) or row.get('action') != 'undo_item'
+            or not row.get('picking_revision') or not row.get('product_name')):
+        raise HTTPException(status_code=503, detail='Could not confirm picking progress. Reload your saved route before continuing.')
+    result = _format_next_item(row, 1)
+    result.update(
+        action='undo_item',
+        confirmed_items=row.get('confirmed_items'),
+        direction=row.get('direction'),
+    )
+    item = result['item1']
+    slot = item.get('slot_spoken') or item.get('slot')
+    spoken = f"Going back to {item.get('quantity', 0)} {item.get('product_name', '')}"
+    if slot:
+        spoken += f", {slot}"
+    result['voice_text'] = result['spoken'] = spoken
+    result['display_text'] = spoken
     return {**result, 'session_id': str(req.session_id), 'operation_id': str(req.operation_id),
             'picking_revision': row['picking_revision']}
 
@@ -625,9 +670,9 @@ def resume_state(req: ResumeStateRequest, caller: Caller = AuthCaller):
             raise HTTPException(409, 'Update and reopen Stocker to restore both unfinished items. Progress has not been changed.')
         if (cur['status'] != 'in_progress' or request.get('protocol') != 3
             or request.get('session') != s['id'] or request.get('direction') != direction
-            or request.get('action') not in ('start', 'next')
+            or request.get('action') not in ('start', 'next', 'undo')
             or request.get('count') not in (1, 2) or width > request['count']
-            or result.get('action') not in ('item_ready', 'next_item')
+            or result.get('action') not in ('item_ready', 'next_item', 'undo_item')
             or result.get('machine_id') != cur_mid or result.get('session_id') != s['id']
             or result.get('picking_revision') != guard['picking_revision']
             or result.get('new_completed_items') != completed or result.get('total_items') != total

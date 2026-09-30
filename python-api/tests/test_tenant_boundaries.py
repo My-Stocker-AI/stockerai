@@ -80,6 +80,8 @@ def test_foreign_session_cannot_be_read_or_advanced(client, tenants):
             'expected_revision': context['picking_revision'], 'expected_machine_id': other['machine'],
             'action': 'next', 'expected_state': {'completed_items': 1, 'status': 'in_progress', 'direction': 'forward'}}
     assert client.post('/api/picking-transition', json=body, headers=a['headers']).status_code == 403
+    undo_body={key:value for key,value in body.items() if key not in {'action'}}
+    assert client.post('/api/undo-item', json=undo_body, headers=a['headers']).status_code == 403
     assert db.table('machines').select('completed_items').eq('id', other['machine']).execute().data[0]['completed_items'] == 1
     assert client.post('/api/picking-transition', json=body, headers=other['headers']).status_code == 200
 
@@ -251,6 +253,8 @@ def test_direct_browser_rpc_execution_denied(role, signature, args):
      'NULL::uuid,NULL::uuid,NULL::uuid,NULL::uuid,0,1,NULL::text'),
     ('transition_picking(uuid,uuid,uuid,uuid,uuid,text,integer,text,jsonb)',
      'NULL::uuid,NULL::uuid,NULL::uuid,NULL::uuid,NULL::uuid,NULL::text,1,NULL::text,NULL::jsonb'),
+    ('undo_picking_item(uuid,uuid,uuid,uuid,uuid,jsonb)',
+     'NULL::uuid,NULL::uuid,NULL::uuid,NULL::uuid,NULL::uuid,NULL::jsonb'),
 ])
 def test_new_tenant_picking_functions_are_service_only(signature, args):
     command = ['docker', 'exec', 'supabase_db_stockerai-disposable', 'psql', '-U', 'postgres',
