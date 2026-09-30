@@ -12,7 +12,7 @@ export interface CurrentItem {
   slot_spoken: string;
   inventory_current?: number;
   inventory_parlevel?: number;
-  machineName?: string;  // Track which machine this item came from
+  machineName: string;  // Track which machine this item came from
   items_remaining?: number;  // How many items left on this machine
   item_index?: number;  // Current item's sequence position
 }

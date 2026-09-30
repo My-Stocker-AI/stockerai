@@ -23,7 +23,7 @@ function setup() {
   act(() => hook.result.current.setRouteState(prev => ({ ...prev, routeId: 'route', routeName: 'Fixture', machines,
     totalMachines: 3, currentMachineId: 'm3', currentMachineName: 'Current', currentMachineIndex: 3,
     currentMachineTotalItems: 5, currentMachineItemsRemaining: 1,
-    currentItem: { product: 'Last', quantity: 1, slot: '1', slot_spoken: 'one' },
+    currentItem: { product: 'Last', quantity: 1, slot: '1', slot_spoken: 'one', machineName: 'Current' },
   })));
   return hook;
 }

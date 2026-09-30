@@ -174,7 +174,7 @@ it.each([[false, 'top'], [false, 'bottom'], [true, 'top'], [true, 'bottom']])(
 it('ignores a late conversational answer after the displayed item changes', async () => {
   await openRoute();
   await act(async () => fixture.session!.setRouteState(previous => ({ ...previous,
-    currentItem: { product: 'Old item', quantity: 1, slot: 'A1', slot_spoken: 'A one' },
+    currentItem: { product: 'Old item', quantity: 1, slot: 'A1', slot_spoken: 'A one', machineName: 'Alpha' },
     machines: previous.machines.map((machine, index) => index ? machine : { ...machine, status: 'in_progress' }),
   })));
   let finish!: (value: Response) => void;
@@ -192,7 +192,7 @@ it('ignores a late conversational answer after the displayed item changes', asyn
 it('a failed product question preserves the pick and the next ordinary command still works', async () => {
   await openRoute();
   await act(async () => fixture.session!.setRouteState(previous => ({ ...previous,
-    currentItem: { product: 'Fixture snack', quantity: 1, slot: 'A1', slot_spoken: 'A one' },
+    currentItem: { product: 'Fixture snack', quantity: 1, slot: 'A1', slot_spoken: 'A one', machineName: 'Alpha' },
     machines: previous.machines.map((machine, index) => index ? machine : { ...machine, status: 'in_progress', completedItems: 1 }),
   })));
   fixture.fetch.mockResolvedValueOnce(response({ detail: 'fixture unavailable' }, 400));
@@ -259,7 +259,7 @@ it('changes the displayed item only after durable undo is confirmed', async () =
 it('does not speak or restart listening when an answer arrives after leaving the screen', async () => {
   const view = await openRoute();
   await act(async () => fixture.session!.setRouteState(previous => ({ ...previous,
-    currentItem: { product: 'Fixture snack', quantity: 1, slot: 'A1', slot_spoken: 'A one' },
+    currentItem: { product: 'Fixture snack', quantity: 1, slot: 'A1', slot_spoken: 'A one', machineName: 'Alpha' },
     machines: previous.machines.map((machine, index) => index ? machine : { ...machine, status: 'in_progress' }),
   })));
   let finish!: (value: Response) => void;

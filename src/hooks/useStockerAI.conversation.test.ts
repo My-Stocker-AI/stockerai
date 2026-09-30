@@ -12,7 +12,7 @@ const context: ConversationContext = {
   totalMachines: 3, completedItemsCount: 4, totalItems: 12,
   machines: [{ id: 'first', name: 'First fixture', status: 'completed' },
     { id: 'second', name: 'Second fixture', status: 'in_progress' }],
-  pendingMachineTransition: null, currentItem2: { product: 'Original coffee', quantity: 3, slot: 'B2', slot_spoken: 'B two' },
+  pendingMachineTransition: null, currentItem2: { product: 'Original coffee', quantity: 3, slot: 'B2', slot_spoken: 'B two', machineName: 'Second fixture' },
 };
 const item = { product: 'Mocha coffee', quantity: 2, slot: 'B1', slot_spoken: 'B one', machineName: 'Second fixture' };
 const history = [{ role: 'assistant', content: 'Start First fixture from top or bottom?' },

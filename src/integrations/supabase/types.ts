@@ -17,6 +17,7 @@ export type Database = {
       account_users: {
         Row: {
           account_id: string
+          can_upload_routes: boolean
           can_view_all_routes: boolean | null
           created_at: string | null
           id: string
@@ -25,6 +26,7 @@ export type Database = {
         }
         Insert: {
           account_id: string
+          can_upload_routes?: boolean
           can_view_all_routes?: boolean | null
           created_at?: string | null
           id?: string
@@ -33,6 +35,7 @@ export type Database = {
         }
         Update: {
           account_id?: string
+          can_upload_routes?: boolean
           can_view_all_routes?: boolean | null
           created_at?: string | null
           id?: string
@@ -264,37 +267,82 @@ export type Database = {
           },
         ]
       }
+      global_keywords: {
+        Row: {
+          confidence_score: number | null
+          created_at: string | null
+          id: string
+          keyword: string
+          last_used_at: string | null
+          total_failure: number | null
+          total_success: number | null
+          updated_at: string | null
+          user_count: number | null
+        }
+        Insert: {
+          confidence_score?: number | null
+          created_at?: string | null
+          id?: string
+          keyword: string
+          last_used_at?: string | null
+          total_failure?: number | null
+          total_success?: number | null
+          updated_at?: string | null
+          user_count?: number | null
+        }
+        Update: {
+          confidence_score?: number | null
+          created_at?: string | null
+          id?: string
+          keyword?: string
+          last_used_at?: string | null
+          total_failure?: number | null
+          total_success?: number | null
+          updated_at?: string | null
+          user_count?: number | null
+        }
+        Relationships: []
+      }
       machines: {
         Row: {
+          completed_items: number
           created_at: string | null
           id: string
           location_name: string | null
           machine_name: string
           machine_number: number | null
           route_id: string
+          route_name: string | null
           sequence: number
+          skipped_at_item: number | null
           status: string | null
           total_items: number | null
         }
         Insert: {
+          completed_items?: number
           created_at?: string | null
           id?: string
           location_name?: string | null
           machine_name: string
           machine_number?: number | null
           route_id: string
+          route_name?: string | null
           sequence?: number
+          skipped_at_item?: number | null
           status?: string | null
           total_items?: number | null
         }
         Update: {
+          completed_items?: number
           created_at?: string | null
           id?: string
           location_name?: string | null
           machine_name?: string
           machine_number?: number | null
           route_id?: string
+          route_name?: string | null
           sequence?: number
+          skipped_at_item?: number | null
           status?: string | null
           total_items?: number | null
         }
@@ -357,30 +405,39 @@ export type Database = {
       }
       profiles: {
         Row: {
+          call_two_items: boolean
           created_at: string | null
           email: string
+          environment_type: string
           first_name: string | null
           id: string
           is_active: boolean | null
           last_name: string | null
+          tts_volume: number
           updated_at: string | null
         }
         Insert: {
+          call_two_items?: boolean
           created_at?: string | null
           email: string
+          environment_type?: string
           first_name?: string | null
           id: string
           is_active?: boolean | null
           last_name?: string | null
+          tts_volume?: number
           updated_at?: string | null
         }
         Update: {
+          call_two_items?: boolean
           created_at?: string | null
           email?: string
+          environment_type?: string
           first_name?: string | null
           id?: string
           is_active?: boolean | null
           last_name?: string | null
+          tts_volume?: number
           updated_at?: string | null
         }
         Relationships: []
@@ -419,33 +476,52 @@ export type Database = {
       }
       routes: {
         Row: {
+          account_id: string
           created_at: string | null
           delivery_date: string
+          driver_name: string | null
           id: string
+          pdf_url: string | null
+          picking_revision: string
           route_name: string
           total_items: number | null
           total_machines: number | null
           user_id: string
         }
         Insert: {
+          account_id: string
           created_at?: string | null
           delivery_date: string
+          driver_name?: string | null
           id?: string
+          pdf_url?: string | null
+          picking_revision?: string
           route_name: string
           total_items?: number | null
           total_machines?: number | null
           user_id: string
         }
         Update: {
+          account_id?: string
           created_at?: string | null
           delivery_date?: string
+          driver_name?: string | null
           id?: string
+          pdf_url?: string | null
+          picking_revision?: string
           route_name?: string
           total_items?: number | null
           total_machines?: number | null
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "routes_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "routes_user_id_fkey"
             columns: ["user_id"]
@@ -454,6 +530,42 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      user_keywords: {
+        Row: {
+          confidence_score: number | null
+          created_at: string | null
+          failure_count: number | null
+          id: string
+          keyword: string
+          last_used_at: string | null
+          success_count: number | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          confidence_score?: number | null
+          created_at?: string | null
+          failure_count?: number | null
+          id?: string
+          keyword: string
+          last_used_at?: string | null
+          success_count?: number | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          confidence_score?: number | null
+          created_at?: string | null
+          failure_count?: number | null
+          id?: string
+          keyword?: string
+          last_used_at?: string | null
+          success_count?: number | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
       }
       sessions: {
         Row: {
@@ -560,6 +672,20 @@ export type Database = {
       }
       can_view_all_routes: { Args: { _user_id: string }; Returns: boolean }
       generate_demo_discount_code: { Args: never; Returns: string }
+      get_top_user_keywords: {
+        Args: {
+          p_limit?: number
+          p_min_confidence?: number
+          p_user_id: string
+        }
+        Returns: {
+          confidence_score: number
+          failure_count: number
+          keyword: string
+          last_used_at: string
+          success_count: number
+        }[]
+      }
       get_next_item: {
         Args: { p_session_key: string }
         Returns: {
@@ -601,6 +727,10 @@ export type Database = {
           p_items_completed: number
           p_machines_completed: number
         }
+        Returns: undefined
+      }
+      upsert_user_keyword: {
+        Args: { p_keyword: string; p_success: boolean; p_user_id: string }
         Returns: undefined
       }
     }

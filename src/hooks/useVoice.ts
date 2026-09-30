@@ -180,7 +180,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
   const ECHO_COOLDOWN_MS = 300;
 
   // TTS refs
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioRef = useRef<HTMLAudioElement | AudioBufferSourceNode | null>(null);
 
   // TTS prefetch cache for parallel processing (Performance Priority 5)
   // Stores { text: string, promise: Promise, timestamp: number }
@@ -1518,7 +1518,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
       // would be a new defect. Covers both the normal audio path and the flat fallback voice.
       const el = audioRef.current;
       const isActivelySpeaking =
-        (!!el && !el.paused && !el.ended) ||
+        (!!el && (!('paused' in el) || (!el.paused && !el.ended))) ||
         (typeof window !== 'undefined' && !!window.speechSynthesis?.speaking);
       const preparation = speechPreparationRef.current;
       const speechPreparationMs = preparation === null ? null : Date.now() - preparation.startedAt;
@@ -1879,7 +1879,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
           console.log('[Voice] HTMLAudioElement volume:', audio.volume);
 
           // Store reference for cleanup
-          audioRef.current = audio as any;
+          audioRef.current = audio;
 
           await new Promise<void>((resolve, reject) => {
             if (stoppedRef.current || speechGenerationRef.current !== speechGeneration) {
@@ -1972,7 +1972,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
 
                 source.connect(gainNode);
                 gainNode.connect(audioContext.destination);
-                audioRef.current = source as any;
+                audioRef.current = source;
 
                 source.onended = () => {
                   if (audioRef.current === source) audioRef.current = null;
@@ -2188,8 +2188,16 @@ export function useVoice(options: UseVoiceOptions = {}) {
       }
       // Stop any playing audio immediately
       if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.src = '';
+        if ('pause' in audioRef.current) {
+          audioRef.current.pause();
+          audioRef.current.src = '';
+        } else {
+          try {
+            audioRef.current.stop();
+          } catch (e) {
+            // Ignore errors - source might already be stopped.
+          }
+        }
         audioRef.current = null;
       }
       // Stop browser speech synthesis
