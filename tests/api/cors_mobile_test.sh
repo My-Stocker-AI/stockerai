@@ -18,11 +18,11 @@
 # ============================================================================
 set -u
 BASE="${STOCKER_API:-https://stockerai-api.onrender.com}"
-ORIGIN="https://my-stocker-ai.com"
+ORIGIN="https://www.stocker-ai.com"
 # Every real install origin must be granted. The Cloudflare Pages domain (NO hyphen)
 # is a real origin for installed apps — a hyphen typo once silently blocked it,
 # which read to the driver as "failed to fetch".
-GRANTED_ORIGINS=("https://my-stocker-ai.com" "https://stockerai.pages.dev")
+GRANTED_ORIGINS=("https://www.stocker-ai.com" "https://stocker-ai.com" "https://my-stocker-ai.com" "https://stockerai.pages.dev")
 BAD_ORIGIN="https://not-allowed.example.com"
 
 # All twelve backend commands the StockerAI mobile app calls.

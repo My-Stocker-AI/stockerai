@@ -41,4 +41,4 @@ Allow: /
 User-agent: *
 Allow: /
 
-Sitemap: https://my-stocker-ai.com/sitemap.xml
+Sitemap: https://www.stocker-ai.com/sitemap.xml

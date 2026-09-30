@@ -1,7 +1,13 @@
 # StockerAI Data Contracts
-**Status:** DRAFT - Contract Definition Phase
+**Status:** HISTORICAL DRAFT - not the current source of truth
 **Created:** 2026-01-25
 **Purpose:** Define immutable data contracts across all system boundaries
+
+> Current product/deployment facts live in `docs/PRODUCTION_SOURCE_OF_TRUTH.md`.
+> Current executable TypeScript/API/database contracts and the remediation register
+> supersede conflicting statements here. In particular, an explicitly authorized,
+> revision-bound durable undo may decrement presented machine progress; browser-only
+> decrement remains forbidden.
 
 ---
 
@@ -71,7 +77,7 @@ interface Machine {
 - ✅ `total_items` MUST equal count of items in items table for this machine_id
 - ✅ `total_items` NEVER changes (even if machine skipped)
 - ✅ `completed_items` starts at 0, increments per item picked (max = total_items)
-- ✅ `completed_items` NEVER decrements
+- ✅ `completed_items` decrements only through an authoritative revision-bound durable undo
 - ✅ `completed_items` NEVER carries over to next machine (each machine independent)
 - ❌ NEVER modify total_items after creation
 - ❌ NEVER reset completed_items when skipping (preserve count)
