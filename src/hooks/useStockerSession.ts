@@ -54,7 +54,7 @@ interface WorkflowMachineData {
   status?: string;
 }
 
-interface WorkflowResult extends WorkflowItemData {
+export interface WorkflowResult extends WorkflowItemData {
   action?: string;
   completed_items?: number;
   date?: string;
@@ -80,6 +80,12 @@ interface WorkflowResult extends WorkflowItemData {
   route_id?: string;
   route_name?: string;
   session_id?: string;
+  success?: boolean;
+  display_text?: string;
+  ignored?: boolean;
+  spoken?: string;
+  user_message?: string;
+  voice_text?: string;
   skipped_machine_id?: string;
   total_items?: number;
   total_machines?: number;

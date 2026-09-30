@@ -1,13 +1,46 @@
 import { useCallback, useRef } from 'react';
 import { authFetch } from '@/lib/authFetch';
 import { toolFailureMessage } from '@/utils/toolFailure';
-import type { CurrentItem } from '@/hooks/useStockerSession';
+import type { ConversationMessage, CurrentItem, WorkflowResult } from '@/hooks/useStockerSession';
 import { pickingQuestionPrompt, pickingQuestionFallback, type ConversationContext } from '@/utils/pickingConversation';
 
 const PYTHON_API_BASE = 'https://stockerai-api.onrender.com/api';
 const N8N_BASE_URL = 'https://visionairy.app.n8n.cloud/webhook';
 const USE_PYTHON = import.meta.env.VITE_API_BACKEND === 'python';
 const N8N_BASE = USE_PYTHON ? PYTHON_API_BASE : N8N_BASE_URL;
+
+interface StockerToolCall {
+  id: string;
+  function: { name: string; arguments: string };
+}
+
+interface OpenAIMessage {
+  role?: string;
+  content?: string | null;
+  tool_calls?: StockerToolCall[];
+  [key: string]: unknown;
+}
+
+interface OpenAIResponse {
+  choices?: Array<{ message?: OpenAIMessage }>;
+}
+
+interface ResumeSnapshot {
+  session_id?: string;
+  pick_direction?: string;
+  route?: { id?: string };
+  current_machine?: { id?: string; completed_items?: number };
+}
+
+interface PickingContextSnapshot {
+  route_id?: string;
+  current_machine_id?: string;
+  pick_direction?: string;
+  picking_revision?: string;
+  machines?: Array<{ id: string; completedItems: number; status?: string }>;
+}
+
+const asError = (error: unknown) => error instanceof Error ? error : new Error(String(error));
 
 // fetchWithTimeout - matches original PWA (30s default timeout)
 async function fetchWithTimeout(url: string, options: RequestInit, timeout = 30000): Promise<Response> {
@@ -21,9 +54,9 @@ async function fetchWithTimeout(url: string, options: RequestInit, timeout = 300
     const response = await authFetch(url, { ...options, signal: controller.signal });
     clearTimeout(timeoutId);
     return response;
-  } catch (e: any) {
+  } catch (e: unknown) {
     clearTimeout(timeoutId);
-    if (e.name === 'AbortError') {
+    if (e instanceof Error && e.name === 'AbortError') {
       throw new Error('Request timed out');
     }
     throw e;
@@ -59,13 +92,14 @@ async function fetchWithRetry(
       console.warn(`[Fetch] Server error ${response.status} on attempt ${attempt + 1}/${maxRetries + 1}`);
       lastError = new Error(`Server error: ${response.status} ${response.statusText}`);
 
-    } catch (e: any) {
-      console.warn(`[Fetch] Request failed on attempt ${attempt + 1}/${maxRetries + 1}:`, e.message);
-      lastError = e;
+    } catch (e: unknown) {
+      const error = asError(e);
+      console.warn(`[Fetch] Request failed on attempt ${attempt + 1}/${maxRetries + 1}:`, error.message);
+      lastError = error;
 
       // Don't retry rate limits, timeouts beyond max retries, or user errors
-      if (e.message.includes('Rate limit') || e.message.includes('timed out') || attempt === maxRetries) {
-        throw e;
+      if (error.message.includes('Rate limit') || error.message.includes('timed out') || attempt === maxRetries) {
+        throw error;
       }
     }
 
@@ -295,7 +329,7 @@ export function useStockerAI() {
     // Add route state for status queries
     let routeStateContext = '';
     if (routeContext?.currentRouteName && routeContext.totalMachines !== undefined) {
-      const skippedMachines = (routeContext.machines || []).filter((m: any) => m.status === 'skipped').map((m: any) => m.name);
+      const skippedMachines = (routeContext.machines || []).filter(m => m.status === 'skipped').map(m => m.name);
       const machinesLeft = routeContext.totalMachines - (routeContext.currentMachineIndex || 0);
 
       // CRITICAL FIX: Add direction awaiting flag
@@ -734,7 +768,7 @@ Current session ID: ${sessionIdRef.current}
 Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${routeSelectionContext}`;
   }, []);
 
-  const sendToAI = useCallback(async (messages: any[], userName: string, currentItem: CurrentItem | null, routeContext?: ConversationContext) => {
+  const sendToAI = useCallback(async (messages: ConversationMessage[], userName: string, currentItem: CurrentItem | null, routeContext?: ConversationContext) => {
     // Check online status (from original PWA)
     if (!navigator.onLine) {
       throw new Error('No internet connection');
@@ -780,11 +814,11 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
       throw new Error(`AI service error (${response.status}): ${errorText}`);
     }
 
-    const data = await response.json();
+    const data = await response.json() as OpenAIResponse;
     console.log('[AI] Response received:', {
       hasContent: !!data.choices?.[0]?.message?.content,
       hasToolCalls: !!data.choices?.[0]?.message?.tool_calls?.length,
-      toolNames: data.choices?.[0]?.message?.tool_calls?.map((tc: any) => tc.function.name)
+      toolNames: data.choices?.[0]?.message?.tool_calls?.map(tc => tc.function.name)
     });
 
     const message = data.choices?.[0]?.message;
@@ -797,8 +831,8 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
   }, [buildSystemPrompt]);
 
   const executeToolCalls = useCallback(async (
-    toolCalls: any[],
-    onResult?: (name: string, result: any) => void,
+    toolCalls: StockerToolCall[],
+    onResult?: (name: string, result: WorkflowResult) => void,
     routeCompleted?: boolean,  // NEW: Flag to check if route is complete
     pickingContext?: PickingContext,
     resetConfirmed = false
@@ -820,13 +854,13 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
       throw new Error("Route already complete. Please start a new route.");
     }
 
-    const results: any[] = [];
+    const results: Array<{ tool_call_id: string; result: WorkflowResult }> = [];
 
     console.log('[Tools] Executing tool calls:', toolCalls.map(tc => tc.function.name));
 
     for (const tc of toolCalls) {
       const name = tc.function.name;
-      const args = JSON.parse(tc.function.arguments);
+      const args = JSON.parse(tc.function.arguments) as Record<string, unknown>;
       if (name === 'reset_route' && !resetConfirmed) {
         results.push({ tool_call_id: tc.id, result: { error: 'Reset requires explicit confirmation' } });
         break;
@@ -876,7 +910,7 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
               method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
             });
             if (!resumed.ok) throw new Error('Could not resolve saved session');
-            const snapshot = await resumed.json();
+            const snapshot = await resumed.json() as ResumeSnapshot;
             if (requestSession !== sessionIdRef.current || requestUser !== userIdRef.current ||
                 !pickingContext.routeId || snapshot.route?.id !== pickingContext.routeId ||
                 snapshot.current_machine?.id !== machine.id ||
@@ -895,19 +929,19 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
               body: JSON.stringify({ session_id: requestSession }),
             });
             if (!contextResponse.ok) throw new Error('Could not verify picking context');
-            const snapshot = await contextResponse.json();
+            const snapshot = await contextResponse.json() as PickingContextSnapshot;
             if (requestSession !== sessionIdRef.current || requestUser !== userIdRef.current ||
                 snapshot.route_id !== pickingContext.routeId || snapshot.current_machine_id !== machine.id ||
                 snapshot.pick_direction !== (pickingContext.pickDirection || 'forward') ||
                 !snapshot.picking_revision || snapshot.machines?.length !== pickingContext.machines.length ||
-                !pickingContext.machines.every(local => snapshot.machines.some((saved: any) =>
+                !pickingContext.machines.every(local => snapshot.machines.some(saved =>
                   saved.id === local.id && saved.completedItems === local.completedItems && saved.status === local.status))) {
               throw new Error('Saved route differs from displayed route');
             }
             revision = snapshot.picking_revision;
             bootstrapRevisionRef.current = { session: requestSession, revision };
           }
-          if (name === 'start_machine' && !['beginning', 'end'].includes(args.direction)) {
+          if (name === 'start_machine' && (typeof args.direction !== 'string' || !['beginning', 'end'].includes(args.direction))) {
             throw new Error('Invalid start direction');
           }
           endpoint = `${PYTHON_API_BASE}${name === 'undo_last_item' ? '/undo-item' : '/picking-transition'}`;
@@ -975,7 +1009,7 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
           break; // Do not execute further dependent actions after a refusal.
         }
 
-        const result = await resp.json();
+        const result = await resp.json() as WorkflowResult;
         if (requestSession !== sessionIdRef.current || requestUser !== userIdRef.current) {
           results.push({ tool_call_id: tc.id, result: { ignored: true, success: false, message: 'Session changed while request was in flight' } });
           break;
@@ -996,7 +1030,7 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
         }
         onResult?.(name, result);
         results.push({ tool_call_id: tc.id, result });
-      } catch (e: any) {
+      } catch (e: unknown) {
         console.error(`[Tools] ${name} exception:`, e);
         results.push({ tool_call_id: tc.id, result: {
           error: 'Action outcome could not be confirmed',
