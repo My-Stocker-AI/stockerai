@@ -39,7 +39,7 @@ export interface CommandMatch {
   command: PickingCommand;
   confidence: number;
   requiresConfirmation?: boolean;
-  parameters?: Record<string, any>;
+  parameters?: { direction?: 'beginning' | 'end' };
 }
 
 /**
@@ -739,7 +739,7 @@ export class CommandRecognizer {
       const confidence = 1 - (bestMatch.distance / bestMatch.phrase.length);
 
       // Add parameters if needed
-      const parameters: Record<string, any> = {};
+      const parameters: CommandMatch['parameters'] = {};
       if (bestMatch.command === PickingCommand.DIRECTION_TOP) {
         parameters.direction = 'beginning';
       } else if (bestMatch.command === PickingCommand.DIRECTION_BOTTOM) {

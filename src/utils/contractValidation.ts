@@ -34,7 +34,9 @@ import {
  * - Counter values valid
  * - Action-specific requirements
  */
-export function validateWorkflowOutput(output: any, toolName: string): ValidationResult {
+type WorkflowOutputRecord = Record<string, unknown>;
+
+export function validateWorkflowOutput(output: WorkflowOutputRecord, toolName: string): ValidationResult {
   const errors: ContractViolationError[] = [];
 
   // 1. Must have action field
@@ -45,7 +47,7 @@ export function validateWorkflowOutput(output: any, toolName: string): Validatio
   }
 
   // 2. Must have spoken text (CRITICAL - fixes Bug #1)
-  if (!output.spoken || output.spoken.trim() === '') {
+  if (typeof output.spoken !== 'string' || output.spoken.trim() === '') {
     errors.push(
       new ContractViolationError(
         'WorkflowOutput',
@@ -67,7 +69,7 @@ export function validateWorkflowOutput(output: any, toolName: string): Validatio
 
   // 5. Validate machine totalItems if present (never 0 or negative)
   if (output.machine_total_items !== undefined) {
-    if (output.machine_total_items <= 0) {
+    if (typeof output.machine_total_items !== 'number' || output.machine_total_items <= 0) {
       errors.push(
         new ContractViolationError(
           'WorkflowOutput',
@@ -88,7 +90,7 @@ export function validateWorkflowOutput(output: any, toolName: string): Validatio
 /**
  * Validate action-specific required fields
  */
-function validateActionSpecificFields(output: any, errors: ContractViolationError[]): void {
+function validateActionSpecificFields(output: WorkflowOutputRecord, errors: ContractViolationError[]): void {
   const action = output.action as WorkflowAction;
 
   switch (action) {
@@ -107,7 +109,7 @@ function validateActionSpecificFields(output: any, errors: ContractViolationErro
     case 'next_machine':
       requireFields(output, ['next_machine_id', 'next_machine', 'next_location'], errors);
       // If skipped_machine present, spoken MUST say "skipped" not "complete"
-      if (output.skipped_machine && output.spoken) {
+      if (output.skipped_machine && typeof output.spoken === 'string') {
         const spokenLower = output.spoken.toLowerCase();
         if (spokenLower.includes('complete') && !spokenLower.includes('skipped')) {
           errors.push(
@@ -121,7 +123,7 @@ function validateActionSpecificFields(output: any, errors: ContractViolationErro
         }
       }
       // If completed_machine present, spoken MUST say "complete"
-      if (output.completed_machine && output.spoken) {
+      if (output.completed_machine && typeof output.spoken === 'string') {
         const spokenLower = output.spoken.toLowerCase();
         if (!spokenLower.includes('complete')) {
           errors.push(
@@ -155,7 +157,7 @@ function validateActionSpecificFields(output: any, errors: ContractViolationErro
 /**
  * Require specific fields to be present
  */
-function requireFields(output: any, fields: string[], errors: ContractViolationError[]): void {
+function requireFields(output: WorkflowOutputRecord, fields: string[], errors: ContractViolationError[]): void {
   for (const field of fields) {
     if (output[field] === undefined || output[field] === null) {
       errors.push(
@@ -168,13 +170,14 @@ function requireFields(output: any, fields: string[], errors: ContractViolationE
 /**
  * Validate counter fields (must be >= 0)
  */
-function validateCounterFields(output: any, errors: ContractViolationError[]): void {
+function validateCounterFields(output: WorkflowOutputRecord, errors: ContractViolationError[]): void {
   const counterFields = ['items_remaining', 'completed_items', 'total_items'];
 
   for (const field of counterFields) {
-    if (output[field] !== undefined && output[field] < 0) {
+    const value = output[field];
+    if (value !== undefined && (typeof value !== 'number' || value < 0)) {
       errors.push(
-        new ContractViolationError('WorkflowOutput', `${field} cannot be negative`, output[field], '>= 0')
+        new ContractViolationError('WorkflowOutput', `${field} must be a non-negative number`, value, 'number >= 0')
       );
     }
   }

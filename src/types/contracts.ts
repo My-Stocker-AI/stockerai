@@ -382,8 +382,8 @@ export class ContractViolationError extends Error {
   constructor(
     public contractName: string,
     public rule: string,
-    public actual: any,
-    public expected?: any
+    public actual: unknown,
+    public expected?: unknown
   ) {
     super(`Contract violation in ${contractName}: ${rule}`);
     this.name = 'ContractViolationError';
