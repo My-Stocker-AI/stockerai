@@ -19,12 +19,16 @@ jobs:
           cache: npm
       - run: npm ci
 
+      # BLOCKING — frontend contracts and generated database metadata must agree.
+      - name: Type-check
+        run: npm run typecheck
+
       # BLOCKING — a broken build (missing import, syntax error) fails here.
       # This is what would have caught the missing `Settings` import crash.
       - name: Build
         run: npm run build
 
-      # BLOCKING — unit tests must pass (127 today).
+      # BLOCKING — unit tests must pass.
       - name: Unit tests (vitest)
         run: npm run test
 
@@ -34,9 +38,6 @@ jobs:
       # treated as bugs (the Start Picking crash was this class).
       - name: Lint (report-only)
         run: npm run lint || true
-
-      - name: Type-check (report-only)
-        run: npx tsc -p tsconfig.app.json --noEmit || true
 
   backend:
     name: Backend (pytest)
@@ -51,7 +52,7 @@ jobs:
           python-version: "3.12"
       - run: pip install -r requirements.txt -r requirements-dev.txt
 
-      # BLOCKING — backend tests must pass (37 today).
+      # BLOCKING — backend tests must pass.
       - name: Backend tests
         run: python -m pytest -q
 
