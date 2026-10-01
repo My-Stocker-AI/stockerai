@@ -67,14 +67,14 @@ const PROMISES: Array<{ phrase: string; expect: Expect; from: string }> = [
   // — Waking it —
   { phrase: 'ok stocker', expect: PickingCommand.WAKE_ONLY, from: 'pause & wake' },
 
-  // — Questions answered from state. These go to the semantic path on purpose: they change
-  //   nothing, they are not time-critical, and a driver phrases them a hundred ways.
-  { phrase: 'which machines did i skip', expect: 'semantic', from: 'progress' },
-  { phrase: 'how many machines have we skipped', expect: 'semantic', from: 'Davy asked this live' },
-  { phrase: 'what slot am i on', expect: 'semantic', from: 'Davy asked this live' },
-  { phrase: 'what item number am i on', expect: 'semantic', from: 'Davy asked this live' },
-  { phrase: "what's my progress", expect: 'semantic', from: 'progress' },
-  { phrase: 'what route am i on', expect: 'semantic', from: 'progress' },
+  // — Questions answered deterministically from the displayed route state —
+  { phrase: 'how many items do i have left', expect: PickingCommand.ITEMS_LEFT, from: 'progress' },
+  { phrase: 'which machines did i skip', expect: PickingCommand.SKIPPED_MACHINES, from: 'progress' },
+  { phrase: 'how many machines have we skipped', expect: PickingCommand.SKIPPED_MACHINES, from: 'Davy asked this live' },
+  { phrase: 'what slot am i on', expect: PickingCommand.CURRENT_SLOT, from: 'Davy asked this live' },
+  { phrase: 'what item number am i on', expect: PickingCommand.CURRENT_ITEM_POSITION, from: 'Davy asked this live' },
+  { phrase: "what's my progress", expect: PickingCommand.ROUTE_PROGRESS, from: 'progress' },
+  { phrase: 'what route am i on', expect: PickingCommand.CURRENT_ROUTE, from: 'progress' },
   { phrase: 'which machine am i working on', expect: PickingCommand.WHICH_MACHINE, from: 'progress' },
   { phrase: 'how many machines are left', expect: PickingCommand.MACHINES_LEFT, from: 'progress' },
 ];

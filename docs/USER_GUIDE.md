@@ -16,7 +16,7 @@ Stocker is a voice assistant that reads your stocking list out loud, item by ite
 ### Step 1: Install the App
 
 1. On your phone, open **Safari** (iPhone) or **Chrome** (Android)
-2. Go to **my-stocker-ai.com**
+2. Go to **www.stocker-ai.com**
 3. Tap the **Share** button (iPhone) or **Menu** (Android)
 4. Tap **"Add to Home Screen"**
 5. Now you have Stocker on your home screen like a regular app

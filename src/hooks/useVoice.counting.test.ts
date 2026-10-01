@@ -313,8 +313,8 @@ describe('real microphone transcript dispatch with fake browser devices', () => 
   });
 
   it('awaits the existing connection attempt instead of reporting a second start as ready', async () => {
-    let resolveToken!: (value: { ok: boolean; json: () => Promise<{ token: string; expires_in: number }> }) => void;
-    vi.mocked(fetch).mockImplementation(() => new Promise(resolve => { resolveToken = resolve; }));
+    let resolveToken!: (value: Response) => void;
+    vi.mocked(fetch).mockImplementation(() => new Promise<Response>(resolve => { resolveToken = resolve; }));
     const hook = renderHook(() => useVoice({}));
     let first!: Promise<boolean>;
     let second!: Promise<boolean>;
@@ -327,7 +327,9 @@ describe('real microphone transcript dispatch with fake browser devices', () => 
     });
     expect(secondSettled).toBe(false);
     await act(async () => {
-      resolveToken({ ok: true, json: async () => ({ token: 'fake-token', expires_in: 600 }) });
+      resolveToken(new Response(JSON.stringify({ token: 'fake-token', expires_in: 600 }), {
+        headers: { 'Content-Type': 'application/json' },
+      }));
       expect(await first).toBe(true);
       expect(await second).toBe(true);
     });

@@ -171,11 +171,11 @@ const Billing = () => {
       if (data?.url) {
         window.open(data.url, '_blank');
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Checkout error:', error);
       toast({ 
         title: "Checkout failed", 
-        description: error.message || "Please try again.", 
+        description: error instanceof Error && error.message ? error.message : "Please try again.",
         variant: "destructive" 
       });
     } finally {
@@ -202,11 +202,11 @@ const Billing = () => {
       if (data?.url) {
         window.open(data.url, '_blank');
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Portal error:', error);
       toast({ 
         title: "Could not open billing portal", 
-        description: error.message || "Please try again.", 
+        description: error instanceof Error && error.message ? error.message : "Please try again.",
         variant: "destructive" 
       });
     } finally {

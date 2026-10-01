@@ -39,6 +39,24 @@ it.each([['start_machine','start'],['skip_current_machine','skip'],['go_back_to_
       direction: name === 'start_machine' ? 'reverse' : 'forward' });
   });
 
+it('binds undo to the exact displayed state and dedicated durable endpoint', async () => {
+  mocks.fetch.mockResolvedValue(new Response(JSON.stringify({ action: 'undo_item', picking_revision: 'revision-2' })));
+  const { result } = renderHook(() => useStockerAI());
+  result.current.setSession(session, 'user');
+  await result.current.executeToolCalls([tool('undo_last_item', {
+    expected_revision: 'forged', expected_machine_id: 'forged', session_id: 'forged',
+  })], undefined, false, { ...context, pickingRevision: 'revision-1',
+    machines: [{ ...context.machines[0], completedItems: 2, status: 'in_progress' }] });
+  expect(mocks.fetch).toHaveBeenCalledOnce();
+  expect(mocks.fetch.mock.calls[0][0]).toContain('/undo-item');
+  const body = JSON.parse(mocks.fetch.mock.calls[0][1].body);
+  expect(body).toMatchObject({ session_id: session, expected_revision: 'revision-1',
+    expected_machine_id: 'machine', expected_state: {
+      completed_items: 2, status: 'in_progress', direction: 'forward',
+    } });
+  expect(body.action).toBeUndefined();
+});
+
 it('pins the initial revision across a lost response instead of upgrading stale intent', async () => {
   mocks.fetch.mockResolvedValueOnce(new Response(JSON.stringify(snapshot)))
     .mockRejectedValueOnce(new Error('response lost'))

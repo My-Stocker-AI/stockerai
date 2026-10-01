@@ -30,12 +30,12 @@ const Home = () => {
     {
       question: "What do I need to get started?",
       answer:
-        "A smartphone, Bluetooth earbuds (optional), and your route PDFs from Parlevel, Nayax, or VendSoft. A laptop makes generating and uploading PDFs easier, but it works from a phone too.",
+        "A smartphone, Bluetooth earbuds (optional), and a supported route PDF. Parlevel Prekitting Detail is the currently verified layout; contact us to review another vending-system format.",
     },
     {
-      question: "How long does setup take?",
+      question: "How do I get started?",
       answer:
-        "5 minutes. Upload your PDF and start picking. New drivers are productive in 15 minutes with zero training.",
+        "Upload a supported PDF, review the parsed route, assign it to a driver, and start picking from a phone. Review any parser warnings before using the route.",
     },
     {
       question: "What's the trial?",
@@ -64,13 +64,13 @@ const Home = () => {
                 VOICE PICKING FOR VENDING ROUTE OPERATORS
               </p>
               <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold tracking-tight text-foreground mb-6 animate-fade-in-up">
-                Enterprise Warehouse Speed.{" "}
+                Voice Guidance.{" "}
                 <br className="hidden sm:block" />
-                <span style={{ color: '#0cb08b' }}>Zero Hardware Cost.</span>
+                <span style={{ color: '#0cb08b' }}>No Dedicated Picking Hardware.</span>
               </h1>
               <p className="text-lg sm:text-xl text-muted-foreground mb-8 max-w-2xl animate-fade-in-up animation-delay-100">
-                Hardware automation runs $100k+. Stocker AI runs on the phone in your
-                pocket. Same accuracy and speed, no hardware. Works with Parlevel, Nayax, and VendSoft. Starting at $40/month.
+                Stocker AI runs in the browser on the phone in your pocket. It turns supported
+                vending route reports into spoken pick guidance, saves confirmed progress, and keeps touch controls available. Parlevel Prekitting Detail is supported today.
               </p>
 
               <div className="flex flex-col sm:flex-row gap-4 md:justify-start justify-center animate-fade-in-up animation-delay-200">
@@ -132,7 +132,7 @@ const Home = () => {
               </div>
               <h3 className="text-2xl font-bold text-white mb-2">Want to see it in action?</h3>
               <p className="text-gray-400 mb-6 max-w-md mx-auto">
-                Experience voice-guided stocking right now. No signup needed. 30 seconds to "wow."
+                Experience a guided sample route right now. No signup needed and no customer data is used.
               </p>
               <Link to="/demo">
                 <Button className="h-14 px-8 text-lg font-bold bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-lg shadow-emerald-500/30">
@@ -152,7 +152,7 @@ const Home = () => {
         <div className="section-container">
           <div className="text-center mb-16">
             <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
-              Up and Running in 5 Minutes
+              A Simple Phone-Based Workflow
             </h2>
           </div>
 
@@ -213,22 +213,22 @@ const Home = () => {
               {
                 icon: Eye,
                 headline: "Stop Squinting at Screens",
-                body: "Screen-based picking slows drivers down and causes errors. Stocker AI's voice guidance calls out quantity, product, and slot - hands stay full, eyes stay up. Result: up to 35% faster picks with near-zero mistakes.",
+                body: "Stocker AI calls out quantity, product, and slot while keeping the same details visible on screen. Drivers can use voice when it works for the moment and touch controls when it does not.",
               },
               {
                 icon: UserPlus,
-                headline: "New Driver? Productive in 15 Minutes",
-                body: "Training new hires takes weeks of shadowing and costly mistakes. Stocker AI walks them through every pick, step by step, from day one. Result: Onboarding drops from weeks to minutes.",
+                headline: "Consistent Step-by-Step Guidance",
+                body: "Stocker AI walks a driver through the assigned route one pick at a time. The same quantity, product, slot, and progress context is available throughout the workflow.",
               },
               {
                 icon: Save,
                 headline: "Every Pick Confirmed. Every Item Tracked",
-                body: "Lost progress means rework - or worse, missed deliveries. Stocker AI auto-saves after every item and resumes exactly where you stopped. Result: Zero rework, 100% route completion.",
+                body: "Confirmed picking transitions are saved on the server. Refresh and reopening recovery restore the verified item window when authoritative evidence is available, and refuse to guess when it is not.",
               },
               {
                 icon: Settings,
                 headline: "Your Workflow, Your Way",
-                body: "Forcing one picking method slows drivers down and fights muscle memory. Stocker AI adapts to each driver and machine - they choose how to work it. Result: No retraining, no friction, natural flow.",
+                body: "Drivers can choose top or bottom direction, one- or two-item callouts, voice commands, or touch controls while keeping progress tied to the active route.",
               },
             ].map((feature, index) => (
               <div key={index} className="card-base border border-border">

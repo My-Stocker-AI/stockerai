@@ -1,7 +1,7 @@
 {
   "name": "vite_react_shadcn_ts",
   "private": true,
-  "version": "0.2.3",
+  "version": "0.2.4",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,7 +9,10 @@
     "build:dev": "vite build --mode development",
     "prerender": "node scripts/prerender.mjs",
     "build:deploy": "vite build && node scripts/prerender.mjs",
+    "typecheck": "tsc -p tsconfig.app.json --noEmit",
     "lint": "eslint .",
+    "lint:src": "eslint src",
+    "lint:active": "eslint src playwright-tests supabase/functions tailwind.config.ts",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",

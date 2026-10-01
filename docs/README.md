@@ -1,5 +1,5 @@
 # StockerAI Documentation Index
-**Last Updated:** 2026-01-25
+**Last Updated:** 2026-09-30
 **Documentation Cleanup:** 177 files → 70 files (60% reduction)
 
 ---
@@ -8,8 +8,10 @@
 
 **For Claude Code:**
 - Start here: `/CLAUDE.md` - Operational directives (PRIMARY)
-- Session state: `/MEMORY.md` - Current session tracking
-- System contracts: `/docs/DATA_CONTRACTS.md` - CRITICAL data contracts
+- Current product/deployment facts: `/docs/PRODUCTION_SOURCE_OF_TRUTH.md`
+- Remediation status: private operational `docs/remediation/REMEDIATION.md` register when present
+- Historical session context: `/MEMORY.md` - never overrides current code/runtime evidence
+- Historical contract draft: `/docs/DATA_CONTRACTS.md` - verify against current executable contracts
 
 **For Developers:**
 - Product requirements: `STOCKER_PRD_v1.md`
@@ -42,7 +44,8 @@
 **Location:** `/docs/`
 
 ### Critical Contracts
-- **DATA_CONTRACTS.md** ⚠️ CRITICAL - System-wide data contracts
+- **PRODUCTION_SOURCE_OF_TRUTH.md** - Current supported product, deployment, pricing, architecture, limitations, and acceptance boundary
+- **DATA_CONTRACTS.md** - Historical system-wide contract draft; current executable contracts and the production source of truth control
   - Immutable vs mutable data separation
   - Route/Machine/Item/Session contracts
   - Workflow input/output contracts

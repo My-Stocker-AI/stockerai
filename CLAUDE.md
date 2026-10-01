@@ -14,10 +14,11 @@ killed the Cloudflare and Render auto-deploy webhooks; see the deployment sectio
 ## Tech Stack
 
 **Frontend:** React + TypeScript + Vite + shadcn-ui + Tailwind CSS
-**Backend:** Supabase (PostgreSQL + Edge Functions) + Deepgram WebSocket (voice)
-**Workflows:** n8n (visionairy.app.n8n.cloud)
+**Backend:** FastAPI on Render + Supabase (PostgreSQL, Auth, Storage, and restricted Edge compatibility paths)
+**Voice:** Deepgram streaming recognition + TTS worker/browser fallback
+**Legacy workflows:** n8n remains historical/fallback material, not the primary Python picking path
 **Deployed:** GitHub → Cloudflare Pages (auto-deploy on push)
-**URLs:** https://my-stocker-ai.com (primary) | https://stocker-ai.pages.dev (legacy)
+**URLs:** https://www.stocker-ai.com (primary) | https://stocker-ai.com, https://my-stocker-ai.com, and https://stockerai.pages.dev (supported aliases)
 
 ---
 
@@ -71,7 +72,7 @@ release shipped, and it is the right call whenever the halves are coupled.)
 **Always VERIFY against the live bytes — never trust "Success!".** The app screen is a separate
 chunk from the main bundle, so grepping the main bundle proves nothing:
 ```bash
-curl -s https://my-stocker-ai.com/assets/<chunk>-<hash>.js | grep -c "<a string you just added>"
+curl -s https://www.stocker-ai.com/assets/<chunk>-<hash>.js | grep -c "<a string you just added>"
 ```
 Get the exact filename from `ls dist/assets/` after the build. For the login code the chunk is
 `authFetch-*.js`; for screen changes it is `StockerApp-*.js`.
@@ -85,7 +86,9 @@ Get the exact filename from `ls dist/assets/` after the build. For the login cod
 
 ## Source of Truth
 
-**MEMORY.md is the primary SOT.** Read it first for current state, workflow IDs, and pending tasks.
+**Current product/deployment facts:** `docs/PRODUCTION_SOURCE_OF_TRUTH.md`.
+
+**Remediation status and acceptance evidence:** `docs/remediation/REMEDIATION.md` in the operational workspace. Preserve its stable finding IDs and evidence boundaries. `MEMORY.md` is historical session context and must not override current code, runtime evidence, or those records.
 
 ---
 

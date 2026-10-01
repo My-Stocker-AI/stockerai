@@ -17,20 +17,43 @@ const TTS_URL = 'https://solitary-base-799c.russ-731.workers.dev';
 const TTS_PREPARATION_WATCHDOG_MS = 16000;
 const PENDING_COMMAND_MAX_AGE_MS = 5000;
 
+type WebkitAudioWindow = Window & typeof globalThis & {
+  webkitAudioContext?: typeof AudioContext;
+};
+
+interface DeepgramMessage {
+  type?: string;
+  reason?: unknown;
+  description?: unknown;
+  message?: unknown;
+  error?: unknown;
+  is_final?: boolean;
+  speech_final?: boolean;
+  channel?: { alternatives?: Array<{ transcript?: string }> };
+}
+
+const getAudioContextConstructor = () =>
+  window.AudioContext ?? (window as WebkitAudioWindow).webkitAudioContext;
+
+const errorMessage = (error: unknown, fallback: string) =>
+  error instanceof Error && error.message ? error.message : fallback;
+
+const errorName = (error: unknown) => error instanceof Error ? error.name : '';
+
 // Deepgram STT via Cloudflare Worker (same as original PWA)
 const DEEPGRAM_TOKEN_URL = 'https://stocker-deepgram-stt.russ-731.workers.dev/token';
 
 // Build marker — bump alongside package.json "version" and sw.js SW_VERSION on each deploy.
 // Emitted to the diagnostic pipe on startListening so Davy's Render logs show EXACTLY which
 // build his phone is running (kills the "tested stale code" trap).
-const BUILD_VERSION = 'v0.2.3-pair-recovery';
+const BUILD_VERSION = 'v0.2.4-durable-undo';
 
 // Wake phrases including common mishearings (from original PWA).
 // Moved to src/utils/wakePhrases.ts 2026-07-30 so the command matcher reads the SAME list —
 // it did not know the app's own name, so "OK Stocker, next" went unrecognized while listening.
 
 // Helper to emit diagnostic events for troubleshooting
-function emitDiagnostic(type: string, data: any) {
+function emitDiagnostic(type: string, data: unknown) {
   try {
     window.dispatchEvent(new CustomEvent('voice-diagnostic', { detail: { type, data } }));
   } catch (e) {
@@ -38,15 +61,15 @@ function emitDiagnostic(type: string, data: any) {
   }
 }
 
-interface UseVoiceOptions {
+export interface UseVoiceOptions {
   onMicrophoneRecovered?: () => void;
   /** Discard non-input before queueing, interrupting audio, or acknowledging it. */
   shouldIgnoreTranscript?: (transcript: string) => boolean;
   /** Stable identity for the route/item state a deferred command would act on. */
   commandContextKey?: string;
-  onTranscript?: (transcript: string, isFinal: boolean) => void;
+  onTranscript?: (transcript: string, isFinal: boolean) => void | Promise<void>;
   onError?: (error: string) => void;
-  onWakePhrase?: (command: string | null) => void;
+  onWakePhrase?: (command: string | null) => void | Promise<void>;
   continuous?: boolean;
   keywords?: string[];  // Dynamic keywords for improved recognition (route names, commands)
   environmentEndpointing?: number;  // Deepgram endpointing from environment detection (ms)
@@ -180,14 +203,15 @@ export function useVoice(options: UseVoiceOptions = {}) {
   const ECHO_COOLDOWN_MS = 300;
 
   // TTS refs
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioRef = useRef<HTMLAudioElement | AudioBufferSourceNode | null>(null);
+  const stopAudioRef = useRef<(opts?: { keepSpeakingAfter?: boolean }) => void>(() => {});
 
   // TTS prefetch cache for parallel processing (Performance Priority 5)
   // Stores { text: string, promise: Promise, timestamp: number }
   const ttsPrefetchCacheRef = useRef<{ text: string; promise: Promise<Blob>; timestamp: number } | null>(null);
 
   // Wake Lock ref - prevents screen timeout during voice session
-  const wakeLockRef = useRef<any>(null);
+  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
 
   const KEEPALIVE_MS = 8000;
 
@@ -271,7 +295,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
   const getAudioContext = useCallback(async () => {
     if (!audioContextRef.current) {
       // Safari requires webkit prefix
-      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      const AudioContextClass = getAudioContextConstructor();
       if (!AudioContextClass) {
         console.error('[Voice] AudioContext not supported');
         return null;
@@ -318,7 +342,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
 
     // 2. Create AudioContext if not exists (with user gesture)
     if (!audioContextRef.current) {
-      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      const AudioContextClass = getAudioContextConstructor();
       if (AudioContextClass) {
         audioContextRef.current = new AudioContextClass({ sampleRate: 44100 });
         console.log('[Voice] AudioContext created in unlock');
@@ -554,22 +578,16 @@ export function useVoice(options: UseVoiceOptions = {}) {
       emitDiagnostic('tts-interrupted', text);
       // keepSpeakingAfter: he interrupted THIS sentence, he did not ask the app to go quiet.
       // Without this the next few items appeared on screen in silence (see stopAudio).
-      stopAudio({ keepSpeakingAfter: true });
+      stopAudioRef.current({ keepSpeakingAfter: true });
       setStatus('listening');
     }
     // Play acknowledgment chime — immediate audio feedback that command was heard
     playCommandChime();
     // Pass to handler - use ref to avoid stale closure
     onTranscriptRef.current?.(text, true);
-    // NOTE: stopAudio is intentionally NOT listed in this dependency array.
-    // stopAudio is a stable useCallback([]) declared further down this file.
-    // Listing it here evaluated the binding during render — before its own
-    // declaration — throwing "Cannot access 'on' before initialization" and
-    // crashing the picking screen. The body above calls it via closure at
-    // runtime (after it is initialized), so omitting it is safe and correct.
   }, [hasWakePhrase, extractWakeCommand, isEcho, playCommandChime, setStatus]); // refs used elsewhere to avoid stale closures
 
-  const handleDeepgramMessage = useCallback((data: any) => {
+  const handleDeepgramMessage = useCallback((data: DeepgramMessage) => {
     // Capture Deepgram's OWN error/metadata messages — these name WHY it drops (e.g.
     // NET-0001 inactivity, concurrency/rate limit, encoding mismatch), which a bare close
     // code (1006) never reveals. Skip the high-frequency transcript/utterance types.
@@ -634,7 +652,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
         processAccumulatedTranscript();
       }
     }
-  }, [onTranscript, processAccumulatedTranscript]);
+  }, [processAccumulatedTranscript]);
 
   // ── Raw-PCM capture (AudioWorklet) — replaces MediaRecorder ───────────────────────
   // Captures the ONE shared mic stream, downsamples to 16kHz Int16 PCM in the worklet,
@@ -687,7 +705,8 @@ export function useVoice(options: UseVoiceOptions = {}) {
       return true;
     }
     try {
-      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      const AudioContextClass = getAudioContextConstructor();
+      if (!AudioContextClass) throw new Error('AudioContext is not supported');
       const ctx: AudioContext = new AudioContextClass();
       captureCtxRef.current = ctx;
       if (ctx.state === 'suspended') { try { await ctx.resume(); } catch (e) { /* best effort */ } }
@@ -714,10 +733,10 @@ export function useVoice(options: UseVoiceOptions = {}) {
       emitDiagnostic('capture-state', 'recording');
       console.log('[Voice] PCM capture started (16kHz linear16 via AudioWorklet)');
       return true;
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('[Voice] Failed to start PCM capture:', e);
       emitDiagnostic('error', 'PCM capture setup failed: ' + String(e));
-      onErrorRef.current?.(e?.message || 'Failed to start recording');
+      onErrorRef.current?.(errorMessage(e, 'Failed to start recording'));
       stopPcmCapture();
       return false;
     }
@@ -886,9 +905,9 @@ export function useVoice(options: UseVoiceOptions = {}) {
 
       socket.onmessage = (event) => {
         try {
-          const data = JSON.parse(event.data);
+          const data = JSON.parse(event.data) as DeepgramMessage;
           handleDeepgramMessage(data);
-        } catch (e) {}
+        } catch (e) { /* Ignore malformed provider frames. */ }
       };
 
       socket.onerror = () => {
@@ -1123,6 +1142,10 @@ export function useVoice(options: UseVoiceOptions = {}) {
     return recovery;
   }, [getOrCreateAudioStream]);
 
+  const invalidateMicrophoneGeneration = useCallback(() => {
+    microphoneGenerationRef.current++;
+  }, []);
+
   useEffect(() => {
     const schedule = (delay: number) => {
       if (!shouldReconnectRef.current || !audioStreamRef.current) return;
@@ -1165,10 +1188,10 @@ export function useVoice(options: UseVoiceOptions = {}) {
       navigator.mediaDevices?.removeEventListener('devicechange', changed);
       document.removeEventListener('visibilitychange', visible);
       detachMicrophoneRef.current();
-      microphoneGenerationRef.current++;
+      invalidateMicrophoneGeneration();
       if (microphoneTimerRef.current) clearTimeout(microphoneTimerRef.current);
     };
-  }, [recoverMicrophone]);
+  }, [invalidateMicrophoneGeneration, recoverMicrophone]);
 
   // Scope 2 — capture the environment-tuning snapshot at a connection boundary. The
   // GUARD: if a connection is already open, do nothing — a setting change made mid-pick
@@ -1214,7 +1237,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
 
   const releaseVoiceLock = useCallback(() => {
     if (voiceLockReleaseRef.current) {
-      try { voiceLockReleaseRef.current(); } catch (e) {}
+      try { voiceLockReleaseRef.current(); } catch (e) { /* Lock may already be released. */ }
       voiceLockReleaseRef.current = null;
     }
     voiceLockOwnedRef.current = false;
@@ -1265,7 +1288,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
     // Hands-free operation requires screen to stay awake for continuous picking
     if ('wakeLock' in navigator) {
       try {
-        wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+        wakeLockRef.current = await navigator.wakeLock.request('screen');
         console.log('[Voice] Wake lock acquired - screen will stay awake');
 
         // Re-acquire wake lock automatically when released (screen dim, power button, etc.)
@@ -1273,15 +1296,15 @@ export function useVoice(options: UseVoiceOptions = {}) {
           console.log('[Voice] Wake lock released — attempting re-acquisition');
           if (shouldReconnectRef.current) {
             try {
-              wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+              wakeLockRef.current = await navigator.wakeLock.request('screen');
               console.log('[Voice] Wake lock re-acquired successfully');
-            } catch (e: any) {
-              console.warn('[Voice] Wake lock re-acquisition failed:', e.message);
+            } catch (e: unknown) {
+              console.warn('[Voice] Wake lock re-acquisition failed:', errorMessage(e, 'Unknown wake lock error'));
             }
           }
         });
-      } catch (e: any) {
-        console.warn('[Voice] Wake lock failed (not critical):', e.message);
+      } catch (e: unknown) {
+        console.warn('[Voice] Wake lock failed (not critical):', errorMessage(e, 'Unknown wake lock error'));
         // Not critical - continue without wake lock
       }
     } else {
@@ -1306,28 +1329,28 @@ export function useVoice(options: UseVoiceOptions = {}) {
 
       console.log('[Voice] startListening complete - voice active');
       return true;
-    } catch (error: any) {
+    } catch (error: unknown) {
       if (microphoneGeneration !== microphoneGenerationRef.current || !shouldReconnectRef.current) return false;
       console.error('[Voice] startListening failed:', error);
 
       // Handle specific microphone errors
-      if (error.name === 'NotAllowedError') {
+      if (errorName(error) === 'NotAllowedError') {
         console.error('[Voice] Microphone permission denied');
         onErrorRef.current?.('Microphone access denied. Please allow microphone access.');
-      } else if (error.name === 'NotFoundError') {
+      } else if (errorName(error) === 'NotFoundError') {
         console.error('[Voice] No microphone found');
         onErrorRef.current?.('No microphone found. Please connect a microphone.');
-      } else if (error.name === 'NotReadableError') {
+      } else if (errorName(error) === 'NotReadableError') {
         console.error('[Voice] Microphone in use');
         onErrorRef.current?.('Microphone is in use by another application.');
       } else {
         console.error('[Voice] Failed to start listening:', error);
-        onErrorRef.current?.(error.message || 'Failed to start listening');
+        onErrorRef.current?.(errorMessage(error, 'Failed to start listening'));
       }
       setStatus('error');
       return false;
     }
-  }, [connectDeepgram, setStatus, unlockAudio, getOrCreateAudioStream]); // Using ref for onError
+  }, [connectDeepgram, ensureVoiceOwnership, getOrCreateAudioStream, refreshEnvTuningSnapshot, setStatus, unlockAudio]); // Using ref for onError
 
   // Keep the ref pointed at the latest startListening for the screen-wake reconnect.
   startListeningRef.current = startListening;
@@ -1436,10 +1459,10 @@ export function useVoice(options: UseVoiceOptions = {}) {
     // Re-acquire wake lock when resuming (keep screen awake again)
     if ('wakeLock' in navigator && !wakeLockRef.current) {
       try {
-        wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+        wakeLockRef.current = await navigator.wakeLock.request('screen');
         console.log('[Voice] Wake lock re-acquired on resume');
-      } catch (e: any) {
-        console.warn('[Voice] Wake lock re-acquisition failed:', e.message);
+      } catch (e: unknown) {
+        console.warn('[Voice] Wake lock re-acquisition failed:', errorMessage(e, 'Unknown wake lock error'));
       }
     }
 
@@ -1493,9 +1516,9 @@ export function useVoice(options: UseVoiceOptions = {}) {
       }
     } else if (!isConnectedRef.current) {
       pendingCommandRef.current = null; // Clear stale queued command — full reconnect needed, command too old to replay
-      try { await startListening(); } catch (e: any) {
+      try { await startListening(); } catch (e: unknown) {
         setStatus('error');
-        onErrorRef.current?.(e?.message || 'Voice reconnect failed — tap to retry');
+        onErrorRef.current?.(errorMessage(e, 'Voice reconnect failed — tap to retry'));
       }
     }
   }, [startPcmCapture, startListening, setStatus, playCommandChime]);
@@ -1518,7 +1541,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
       // would be a new defect. Covers both the normal audio path and the flat fallback voice.
       const el = audioRef.current;
       const isActivelySpeaking =
-        (!!el && !el.paused && !el.ended) ||
+        (!!el && (!('paused' in el) || (!el.paused && !el.ended))) ||
         (typeof window !== 'undefined' && !!window.speechSynthesis?.speaking);
       const preparation = speechPreparationRef.current;
       const speechPreparationMs = preparation === null ? null : Date.now() - preparation.startedAt;
@@ -1549,7 +1572,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
       }
     }, WATCHDOG_POLL_MS);
     return () => clearInterval(timer);
-  }, []);
+  }, [setStatus]);
 
   const mute = useCallback(() => {
     // Clear silence timer and accumulated transcript (matches original PWA mute behavior)
@@ -1650,8 +1673,9 @@ export function useVoice(options: UseVoiceOptions = {}) {
     }
     try {
       window.speechSynthesis.cancel();
-    } catch (e) {}
+    } catch (e) { /* Speech synthesis may be unavailable during teardown. */ }
   }, []);
+  stopAudioRef.current = stopAudio;
 
   const speakBrowser = useCallback((text: string, generation: number): Promise<void> => {
     return new Promise((resolve) => {
@@ -1659,7 +1683,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
       const timeout = setTimeout(() => {
         console.warn('[Voice] speakBrowser timeout (15s) — forcing resolve');
         if (speechGenerationRef.current === generation) {
-          try { window.speechSynthesis.cancel(); } catch (e) {}
+          try { window.speechSynthesis.cancel(); } catch (e) { /* Best-effort timeout cleanup. */ }
         }
         resolve();
       }, 15000);
@@ -1879,7 +1903,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
           console.log('[Voice] HTMLAudioElement volume:', audio.volume);
 
           // Store reference for cleanup
-          audioRef.current = audio as any;
+          audioRef.current = audio;
 
           await new Promise<void>((resolve, reject) => {
             if (stoppedRef.current || speechGenerationRef.current !== speechGeneration) {
@@ -1923,7 +1947,8 @@ export function useVoice(options: UseVoiceOptions = {}) {
           console.log('[Voice] iOS/Desktop - using Web Audio API');
 
           // Reuse existing AudioContext if healthy — creating a new one on every speak() adds latency
-          const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+          const AudioContextClass = getAudioContextConstructor();
+          if (!AudioContextClass) throw new Error('AudioContext is not supported');
           let audioContext: AudioContext;
           if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
             audioContext = new AudioContextClass({ sampleRate: 44100 });
@@ -1972,7 +1997,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
 
                 source.connect(gainNode);
                 gainNode.connect(audioContext.destination);
-                audioRef.current = source as any;
+                audioRef.current = source;
 
                 source.onended = () => {
                   if (audioRef.current === source) audioRef.current = null;
@@ -1984,7 +2009,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
                   // GRID-002: sound is actually coming out NOW — start the echo window here.
                   markSpeechStarted(processed, speechGeneration);
                   console.log('[Voice] Web Audio API playback started');
-                } catch (err: any) {
+                } catch (err: unknown) {
                   console.error('[Voice] Web Audio playback failed:', err);
                   if (audioRef.current === source) audioRef.current = null;
                   reject(err);
@@ -2063,7 +2088,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
       // Always release lock (matches original PWA unlock in finally)
       releaseSpeakLock(speakLockOwner);
     }
-  }, [acquireSpeakLock, releaseSpeakLock, stopAudio, pauseListening, resumeListening, speakBrowser, playReadyBeep, setStatus, markSpeechStarted]);
+  }, [acquireSpeakLock, ensureVoiceOwnership, releaseSpeakLock, resumeListening, speakBrowser, playReadyBeep, setStatus, markSpeechStarted]);
 
   // Prefetch TTS audio in parallel to reduce latency (Performance Priority 5)
   // Starts TTS fetch immediately when result is available, before speak() is called
@@ -2188,14 +2213,22 @@ export function useVoice(options: UseVoiceOptions = {}) {
       }
       // Stop any playing audio immediately
       if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.src = '';
+        if ('pause' in audioRef.current) {
+          audioRef.current.pause();
+          audioRef.current.src = '';
+        } else {
+          try {
+            audioRef.current.stop();
+          } catch (e) {
+            // Ignore errors - source might already be stopped.
+          }
+        }
         audioRef.current = null;
       }
       // Stop browser speech synthesis
       try {
         window.speechSynthesis.cancel();
-      } catch (e) {}
+      } catch (e) { /* Speech synthesis may be unavailable during teardown. */ }
       // Set stopped flag to prevent pending TTS
       stoppedRef.current = true;
       // Stop microphone + PCM capture graph
@@ -2281,16 +2314,16 @@ export function useVoice(options: UseVoiceOptions = {}) {
       // then quietly began timing out for the remainder of the route.
       // Spec: .xf/specs/2026-07-30-voice-wake-lock-xffi.md
       if (shouldReconnectRef.current && 'wakeLock' in navigator && !wakeLockRef.current) {
-        (navigator as any).wakeLock
+        navigator.wakeLock
           .request('screen')
-          .then((sentinel: any) => {
+          .then((sentinel: WakeLockSentinel) => {
             wakeLockRef.current = sentinel;
             emitDiagnostic('wake-lock', 'reacquired-on-visible');
           })
-          .catch((e: any) => {
+          .catch((e: unknown) => {
             // Rejected (Android can refuse) — the picker is NOT told here; that message is
             // StockerApp's job per the wake-lock spec. Recorded so a real device run shows it.
-            emitDiagnostic('wake-lock', { outcome: 'rejected-on-visible', reason: String(e?.message || e) });
+            emitDiagnostic('wake-lock', { outcome: 'rejected-on-visible', reason: errorMessage(e, String(e)) });
           });
       }
 
@@ -2328,7 +2361,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
       stopEverything();
       stopListening();
     };
-  }, [stopListening]);
+  }, [releaseVoiceLock, stopListening, stopPcmCapture]);
 
   return {
     status,

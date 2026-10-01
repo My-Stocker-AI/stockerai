@@ -3,14 +3,18 @@
 import React from 'react';
 import { act, cleanup, render, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-const f = vi.hoisted(() => ({ options: null as any, session: null as any, voice: null as any,
+import type { useStockerSession } from '@/hooks/useStockerSession';
+import type { UseVoiceOptions, useVoice } from '@/hooks/useVoice';
+const f = vi.hoisted(() => ({ options: null as UseVoiceOptions | null,
+  session: null as ReturnType<typeof useStockerSession> | null,
+  voice: null as Partial<ReturnType<typeof useVoice>> | null,
   params: new URLSearchParams('route=route-fixture&resume=1'), user: { id: 'fixture-user' },
   persistence: { load: vi.fn(async () => null), save: vi.fn(), clear: vi.fn() },
   fetch: vi.fn(), speak: vi.fn(async () => {}) }));
 vi.mock('react-router-dom', () => ({ useNavigate: () => vi.fn(), useSearchParams: () => [f.params] }));
 vi.mock('@tanstack/react-query', () => ({ useQueryClient: () => ({ invalidateQueries: vi.fn() }) }));
 vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ user: f.user, userProfile: { first_name: 'Tester' }, loading: false }) }));
-vi.mock('@/hooks/useVoice', () => ({ useVoice: (options: any) => { f.options = options; return f.voice; } }));
+vi.mock('@/hooks/useVoice', () => ({ useVoice: (options: UseVoiceOptions) => { f.options = options; return f.voice; } }));
 vi.mock('@/hooks/useSessionPersistence', () => ({ useSessionPersistence: () => f.persistence }));
 vi.mock('@/hooks/useKeywordLearning', () => ({ useKeywordLearning: () => ({ getUserKeywords: vi.fn(async () => []), trackKeywords: vi.fn() }) }));
 vi.mock('@/hooks/useEnvironmentDetection', () => ({ useEnvironmentDetection: () => ({ environment: { endpointing: 300 } }) }));
@@ -25,18 +29,18 @@ vi.mock('@/integrations/supabase/client', () => ({ supabase: { from: vi.fn(() =>
 let StockerApp: typeof import('./StockerApp').default;
 
 let now = 10_000;
-const state = () => f.session.routeState;
+const state = () => f.session!.routeState;
 const response = (value: unknown) => new Response(JSON.stringify(value));
 async function say(text: string) {
   now += 2_000;
-  await act(async () => f.options.onTranscript(text, true));
+  await act(async () => { await f.options!.onTranscript?.(text, true); });
 }
 beforeEach(async () => {
   vi.resetModules(); vi.clearAllMocks(); localStorage.clear();
   vi.stubEnv('VITE_API_BACKEND', 'python');
   vi.spyOn(Date, 'now').mockImplementation(() => now);
   vi.stubGlobal('fetch', vi.fn(() => { throw new Error('Live network forbidden'); }));
-  window.matchMedia = vi.fn(() => ({ matches: false })) as any;
+  window.matchMedia = vi.fn(() => ({ matches: false } as MediaQueryList));
   f.voice = { status: 'listening', getStatus: () => 'listening', speak: f.speak,
     startListening: vi.fn(async () => true), stopListening: vi.fn(), stopAudio: vi.fn(),
     setAwaitingDirection: vi.fn(), setThinking: vi.fn(), resumeListening: vi.fn(),
@@ -50,7 +54,7 @@ it.each([[false, 'forward'], [false, 'reverse'], [true, 'forward'], [true, 'reve
     localStorage.setItem('stocker-call-two-items', String(two));
     const order = direction === 'forward' ? ['First', 'Second'] : ['Second', 'First'];
     const item = (name: string) => ({ product_name: name, quantity: 2, slot: name, slot_spoken: name });
-    const transitions: any[] = [];
+    const transitions: Record<string, unknown>[] = [];
     f.fetch.mockImplementation(async (url: string, options: RequestInit) => {
       const body = JSON.parse(options.body as string);
       if (url.endsWith('/resume-state')) {
@@ -82,7 +86,7 @@ it.each([[false, 'forward'], [false, 'reverse'], [true, 'forward'], [true, 'reve
     expect(transitions[0]).toMatchObject({ session_id: '10000000-0000-4000-8000-000000000001', expected_revision: 'saved-revision',
       expected_machine_id: 'm1', action: 'next', count: two ? 2 : 1,
       expected_state: { completed_items: 2, status: 'in_progress', direction } });
-    expect(state().completedItems.map((it: any) => it.product)).toEqual(order);
+    expect(state().completedItems.map(it => it.product)).toEqual(order);
     expect(state().currentItem).toBeNull();
     expect(state().currentItem2).toBeNull();
     expect(state().pendingMachineTransition.nextMachineId).toBe('m2');

@@ -2,12 +2,17 @@
 import React from 'react';
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import type { RouteState } from '@/hooks/useStockerSession';
+import type { useSessionPersistence } from '@/hooks/useSessionPersistence';
+import type { useVoice } from '@/hooks/useVoice';
 
 const mocks = vi.hoisted(() => ({
   params: new URLSearchParams('route=route-fixture&resume=1'),
   fetch: vi.fn(), from: vi.fn(), load: vi.fn(), clear: vi.fn(), setState: vi.fn(), reset: vi.fn(),
   speak: vi.fn(async () => {}), start: vi.fn(async () => true), send: vi.fn(),
-  persistence: null as any, voice: null as any, state: null as any,
+  persistence: null as Partial<ReturnType<typeof useSessionPersistence>> | null,
+  voice: null as Partial<ReturnType<typeof useVoice>> | null,
+  state: null as Partial<RouteState> | null,
   user: { id: 'fixture-user' },
 }));
 vi.mock('react-router-dom', () => ({ useNavigate: () => vi.fn(), useSearchParams: () => [mocks.params] }));
@@ -44,18 +49,19 @@ beforeEach(() => {
   mocks.state = { routeId: null, routeName: null, machines: [], completedItems: [], currentItem: null, currentItem2: null, pendingMachineTransition: null };
   mocks.load.mockResolvedValue(null);
   mocks.send.mockResolvedValue({ content: 'Fixture reply' });
-  mocks.persistence = { load: mocks.load, clear: mocks.clear, save: vi.fn(), isValidSession: (value: any) => !!value };
+  mocks.persistence = { load: mocks.load, clear: mocks.clear, save: vi.fn(), isValidSession: (value: unknown) => !!value };
   mocks.voice = { status: 'idle', getStatus: () => 'idle', speak: mocks.speak, startListening: mocks.start,
     stopListening: vi.fn(), stopAudio: vi.fn(), setAwaitingDirection: vi.fn(), setThinking: vi.fn(),
     resumeListening: vi.fn(), playErrorBeep: vi.fn() };
   mocks.fetch.mockResolvedValue(new Response(JSON.stringify(snapshot())));
-  const query: any = { select: vi.fn(() => query), eq: vi.fn(() => query),
+  type QueryMock = { select: ReturnType<typeof vi.fn>; eq: ReturnType<typeof vi.fn>; limit: ReturnType<typeof vi.fn>; single: ReturnType<typeof vi.fn> };
+  const query: QueryMock = { select: vi.fn(() => query), eq: vi.fn(() => query),
     limit: vi.fn(async () => ({ data: [{ id: 'route-fixture', route_name: 'Fixture route', delivery_date: '2099-01-01' }], error: null })),
     single: vi.fn(async () => ({ data: { id: 'route-fixture' }, error: null })) };
   mocks.from.mockReturnValue(query);
-  window.matchMedia = vi.fn(() => ({ matches: false })) as any;
+  window.matchMedia = vi.fn(() => ({ matches: false } as MediaQueryList));
   Object.defineProperty(navigator, 'userAgent', { configurable: true, value: 'Chrome fixture' });
-  vi.spyOn(performance, 'getEntriesByType').mockReturnValue([{ type: 'navigate' }] as any);
+  vi.spyOn(performance, 'getEntriesByType').mockReturnValue([{ type: 'navigate' }] as unknown as PerformanceEntryList);
   vi.stubGlobal('fetch', vi.fn(() => { throw new Error('Live network forbidden'); }));
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });

@@ -10,12 +10,18 @@ import { resolveFailureSpeech, classifyFailure, type FailureKind } from '@/hooks
 import { isConnectionError, pickingConnectionMessage } from '@/utils/userFacingErrors';
 import { resolveTranscriptGate, gateReason } from '@/hooks/transcriptGate';
 import { CONFIRM_PROMPT, resolveUnknownReply } from '@/utils/commandGuess';
+import {
+  capturePendingConfirmation,
+  invalidatePendingConfirmation,
+  pendingConfirmationStatus,
+  type PendingCommandConfirmation,
+} from '@/utils/pendingCommandConfirmation';
 import { isBareNumber } from '@/utils/spokenNumber';
 import { resolveLocalIntent } from '@/utils/localCommandIntent';
 import { pickingContextKey, pickingQuestionFallback } from '@/utils/pickingConversation';
 import { useStockerAI } from '@/hooks/useStockerAI';
-import { useStockerSession } from '@/hooks/useStockerSession';
-import { useSessionPersistence } from '@/hooks/useSessionPersistence';
+import { useStockerSession, type ConversationMessage, type CurrentItem, type MachineState } from '@/hooks/useStockerSession';
+import { useSessionPersistence, type SessionData } from '@/hooks/useSessionPersistence';
 import { useKeywordLearning } from '@/hooks/useKeywordLearning';
 import { pickKey } from '@/utils/restoreKey';
 import { supabase } from '@/integrations/supabase/client';
@@ -40,6 +46,60 @@ interface RouteOption {
   machine_names: string[];
 }
 
+interface StockerToolCall {
+  id: string;
+  type?: 'function';
+  function: { name: string; arguments: string };
+}
+
+interface PickingDisplayResult {
+  action?: string;
+  display_text?: string;
+  product_name?: string;
+  quantity?: number;
+  item2?: { product_name?: string; quantity?: number } | null;
+  spoken?: string;
+}
+
+interface ResumeItem {
+  product_name: string;
+  quantity: number;
+  slot: string;
+  slot_spoken?: string;
+  inventory_current?: number;
+  inventory_parlevel?: number;
+}
+
+interface ResumeSnapshot {
+  has_session?: boolean;
+  resume_window_version?: number;
+  session_id?: string;
+  picking_revision?: string;
+  route?: { id?: string; route_name?: string; route_date?: string; total_machines?: number };
+  current_machine?: { id?: string; name?: string; total_items?: number; completed_items?: number };
+  current_machine_index?: number;
+  current_item?: ResumeItem | null;
+  current_item2?: ResumeItem | null;
+  completed_list?: ResumeItem[];
+  confirmed_items?: number;
+  items_remaining?: number;
+  machines?: MachineState[];
+  awaiting_direction?: boolean;
+  pick_direction?: string | null;
+}
+
+type StockerWindow = Window & typeof globalThis & {
+  __routeStartDate?: string;
+  __testInjectTranscript?: (text: string) => void;
+};
+
+type StandaloneNavigator = Navigator & { standalone?: boolean };
+
+const errorDetails = (error: unknown) => ({
+  message: error instanceof Error ? error.message : String(error),
+  stack: error instanceof Error ? error.stack : undefined,
+});
+
 // Route verification - check if route still exists (from original PWA)
 async function verifyRouteExists(routeId: string | null, routeName: string, routeDate: string): Promise<boolean> {
   // RLS enforces visibility, including assigned teammate routes. Ownership is
@@ -52,10 +112,10 @@ async function verifyRouteExists(routeId: string | null, routeName: string, rout
 }
 
 // Conversation sanitization (from original PWA)
-function sanitizeConversationHistory(history: any[]): any[] {
+function sanitizeConversationHistory(history: ConversationMessage[]): ConversationMessage[] {
   if (!history || !Array.isArray(history)) return [];
 
-  const sanitized: any[] = [];
+  const sanitized: ConversationMessage[] = [];
   const pendingToolCallIds = new Set<string>();
 
   for (const msg of history) {
@@ -93,7 +153,7 @@ function sanitizeConversationHistory(history: any[]): any[] {
 
 // Trim conversation history to prevent memory growth (from original PWA)
 const MAX_MESSAGES = 30;
-function trimConversationHistory(history: any[]): any[] {
+function trimConversationHistory(history: ConversationMessage[]): ConversationMessage[] {
   if (!history || history.length <= MAX_MESSAGES) return history;
 
   const trimmed = [...history];
@@ -104,7 +164,7 @@ function trimConversationHistory(history: any[]): any[] {
       if (trimmed[i].role !== 'system') {
         // If it's an assistant with tool_calls, also remove the following tool messages
         if (trimmed[i].role === 'assistant' && trimmed[i].tool_calls) {
-          const toolCallIds = new Set(trimmed[i].tool_calls.map((tc: any) => tc.id));
+          const toolCallIds = new Set(trimmed[i].tool_calls.map(tc => tc.id));
           trimmed.splice(i, 1);
           // Remove corresponding tool messages
           for (let j = i; j < trimmed.length; ) {
@@ -167,8 +227,8 @@ export default function StockerApp() {
   const [aiResponse, setAiResponse] = useState('');
   const [lastItemPair, setLastItemPair] = useState<{
     spokenText: string;
-    item1?: any;
-    item2?: any;
+    item1?: unknown;
+    item2?: unknown;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [initialized, setInitialized] = useState(false);
@@ -182,7 +242,7 @@ export default function StockerApp() {
   const [showSettings, setShowSettings] = useState(false);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
-  const [savedSession, setSavedSession] = useState<any>(null);
+  const [savedSession, setSavedSession] = useState<SessionData | null>(null);
   const [resumeLoadFailed, setResumeLoadFailed] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
   const [micPermission, setMicPermission] = useState<'prompt' | 'granted' | 'denied' | 'checking'>('checking');
@@ -199,9 +259,12 @@ export default function StockerApp() {
   const initStartedRef = useRef(false); // Prevent double initialization
   const lastRouteIdRef = useRef<string | null>(null); // Track last processed route ID
   const MAX_RETRIES = 2;
-  const voiceRef = useRef<any>(null); // Ref to hold voice methods for callbacks
-  // The command the app just asked about ("Next item?"). A yes on the next turn runs it.
-  const pendingGuessRef = useRef<PickingCommand | null>(null);
+  const voiceRef = useRef<ReturnType<typeof useVoice> | null>(null); // Ref to hold voice methods for callbacks
+  const startFreshRef = useRef<() => Promise<void>>(async () => {});
+  const triggerRouteStartRef = useRef<(routeName: string) => void>(() => {});
+  // A command the app asked about ("Next item?"), bound to its route context and lifetime.
+  // Invalidations remain as a tombstone so a later "yes" cannot become a fresh next command.
+  const pendingGuessRef = useRef<PendingCommandConfirmation | null>(null);
 
   // SIBLING SWEEP 2026-07-30 — handleVoiceError is useCallback([]), so it can NEVER read
   // routeState directly: that closure is frozen at mount and currentItem would read null for
@@ -216,7 +279,7 @@ export default function StockerApp() {
 
   // Detect iOS PWA mode (standalone) - getUserMedia() is broken in iOS PWA
   const isPWA = window.matchMedia('(display-mode: standalone)').matches ||
-                (window.navigator as any).standalone === true;
+                (window.navigator as StandaloneNavigator).standalone === true;
 
   const userName = userProfile?.first_name || 'there';
   const userId = user?.id || null;
@@ -229,7 +292,9 @@ export default function StockerApp() {
   useEffect(() => () => { questionLifetimeRef.current += 1; }, []);
   const { setSession, sendToAI, executeToolCalls, getRoutes } = useStockerAI();
   const sessionPersistence = useSessionPersistence();
-  const keywordLearning = useKeywordLearning();
+  const { trackKeywords, getUserKeywords } = useKeywordLearning();
+  const getUserKeywordsRef = useRef(getUserKeywords);
+  getUserKeywordsRef.current = getUserKeywords;
 
   // Save session state whenever route changes
   const saveSessionState = useCallback(async () => {
@@ -274,30 +339,6 @@ export default function StockerApp() {
     }
   }, [routeState, saveSessionState]);
 
-  // Undo last item - local handler (from original PWA)
-  const undoLastItem = useCallback(() => {
-    if (routeState.completedItems.length === 0) {
-      return { success: false, message: "Nothing to undo - no completed items" };
-    }
-
-    const lastItem = routeState.completedItems[routeState.completedItems.length - 1];
-    const newCompleted = routeState.completedItems.slice(0, -1);
-
-    setRouteState({
-      ...routeState,
-      currentItem: lastItem,
-      completedItems: newCompleted,
-      completed: false
-    });
-
-    voiceRef.current?.playErrorBeep();
-    return {
-      success: true,
-      message: `Going back to ${lastItem.quantity} ${lastItem.product}, ${lastItem.slot_spoken || lastItem.slot}`,
-      item: lastItem
-    };
-  }, [routeState, setRouteState]);
-
   // Handle route selection (voice or tap) - defined before handleTranscript
   // This is called AFTER the initial greeting, so we just trigger the route start silently
   const selectRoute = useCallback(async (routeName: string, dateForRoute?: string) => {
@@ -305,7 +346,7 @@ export default function StockerApp() {
     // DON'T hide route selection yet - wait for first item to load
     // Store the date if provided, so triggerRouteStart can use it
     if (dateForRoute) {
-      (window as any).__routeStartDate = dateForRoute;
+      (window as StockerWindow).__routeStartDate = dateForRoute;
     }
     // Don't announce here - the initial greeting already introduced the route
     // The triggerRouteStart effect will handle sending the command to the AI
@@ -314,6 +355,20 @@ export default function StockerApp() {
   // Counting is not a command while actively picking. Use the same predicate at the
   // microphone boundary and direct/touch injection boundary, before any side effects.
   // Route/date selection and top/bottom handoffs keep their existing input semantics.
+  const currentCommandMachine = routeState.machines.find(machine => machine.id === routeState.currentMachineId);
+  const commandContextKey = JSON.stringify([
+    sessionId,
+    routeState.routeId,
+    routeState.pickingRevision ?? null,
+    routeState.currentMachineId,
+    currentCommandMachine?.status ?? null,
+    currentCommandMachine?.completedItems ?? null,
+    routeState.currentItem?.slot ?? null,
+    routeState.currentItem2?.slot ?? null,
+    routeState.pendingMachineTransition?.nextMachineId ?? null,
+    routeState.pickDirection,
+  ]);
+
   const shouldIgnoreTranscript = useCallback((transcript: string) => {
     return !!routeState.routeName && !routeState.pendingMachineTransition &&
       routeState.machines.some(m => m.id === routeState.currentMachineId && m.status === 'in_progress') &&
@@ -351,20 +406,24 @@ export default function StockerApp() {
 
     // Handle voice pause/mute/continue commands locally (from original PWA)
     if (lower === 'pause' || lower === 'stop listening') {
+      pendingGuessRef.current = invalidatePendingConfirmation(pendingGuessRef.current);
       v.pauseListening();
       return;
     }
     if (lower === 'mute' || lower === 'mute mic' || lower === 'mute microphone') {
+      pendingGuessRef.current = invalidatePendingConfirmation(pendingGuessRef.current);
       v.mute();
       return;
     }
-    if ((lower === 'continue' || lower === 'resume' || lower === 'start listening') && voice.status === 'idle') {
-      voice.startListening();
+    if ((lower === 'continue' || lower === 'resume' || lower === 'start listening') && v.status === 'idle') {
+      v.startListening();
       setAiResponse('Resumed. Say "OK Stocker" for commands.');
       return;
     }
 
-    // Handle undo commands locally (from original PWA)
+    // Resolve repeat locally. Undo is deliberately left for the precise matcher
+    // below because it must now complete an authoritative, revision-bound server
+    // transition before the displayed item is changed.
     // SURVEY FIX 2026-07-30 — these two checks used to ask "does the phrase CONTAIN any of
     // these words?" anywhere in the sentence, and they ran BEFORE the precise matcher. So they
     // quietly ate commands the matcher owns: "go back to skipped machine" and "previous item"
@@ -373,19 +432,9 @@ export default function StockerApp() {
     // outcomes, decided by punctuation. Decision logic is unit-tested in localCommandIntent.ts.
     const localIntent = resolveLocalIntent(transcript);
 
-    if (localIntent === 'undo' && routeState.routeName) {
-      processingRef.current = true;
-      const result = undoLastItem();
-      setAiResponse(result.message);
-      await v.speak(result.message);
-      // Track undo as failure (user correcting AI)
-      await keywordLearning.trackKeywords(transcript, false);
-      processingRef.current = false;
-      return;
-    }
-
     // Handle repeat commands - repeat last AI response. See the note above the undo check.
     if (localIntent === 'repeat') {
+      pendingGuessRef.current = null;
       processingRef.current = true;
 
       // Check if 2-item mode is enabled
@@ -417,7 +466,7 @@ export default function StockerApp() {
       }
 
       // Track repeat as failure (user didn't understand)
-      await keywordLearning.trackKeywords(transcript, false);
+      await trackKeywords(transcript, false);
       processingRef.current = false;
       return;
     }
@@ -465,17 +514,30 @@ export default function StockerApp() {
       // If the last thing the app said was "Next item?", a yes runs it and a no drops it.
       // Anything else is treated as a fresh command, so he is never trapped in the question.
       if (pendingGuessRef.current) {
-        const guessed = pendingGuessRef.current;
+        const pending = pendingGuessRef.current;
         pendingGuessRef.current = null;
 
-        if (
+        const affirmative =
           commandMatch.command === PickingCommand.AFFIRMATIVE ||
-          /^(yes|yeah|yep|yup|sure|correct|right|do it|go ahead|please)$/.test(lower)
-        ) {
-          console.log('[CommandGuess] ✓ confirmed:', guessed);
-          commandMatch = { command: guessed, confidence: 1, parameters: {} };
-        } else if (/^(no|nope|nah|negative|cancel|never ?mind|forget it)$/.test(lower)) {
-          console.log('[CommandGuess] ✗ declined:', guessed);
+          /^(yes|yeah|yep|yup|sure|correct|right|do it|go ahead|please)$/.test(lower);
+        const negative = /^(no|nope|nah|negative|cancel|never ?mind|forget it)$/.test(lower);
+
+        if (affirmative || negative) {
+          const status = pendingConfirmationStatus(pending, commandContextKey);
+          if (status !== 'current') {
+            console.log('[CommandGuess] discarded:', status, pending.command);
+            const msg = 'That confirmation expired. Please say the command again.';
+            setAiResponse(msg);
+            await v.speak(msg);
+            return;
+          }
+        }
+
+        if (affirmative) {
+          console.log('[CommandGuess] ✓ confirmed:', pending.command);
+          commandMatch = { command: pending.command, confidence: 1, parameters: {} };
+        } else if (negative) {
+          console.log('[CommandGuess] ✗ declined:', pending.command);
           const msg = 'Okay.';
           setAiResponse(msg);
           await v.speak(msg);
@@ -498,7 +560,7 @@ export default function StockerApp() {
       ) {
         const prompt = CONFIRM_PROMPT[commandMatch.command];
         if (prompt) {
-          pendingGuessRef.current = commandMatch.command;
+          pendingGuessRef.current = capturePendingConfirmation(commandMatch.command, commandContextKey);
           setAiResponse(prompt);
           await v.speak(prompt);
           processingRef.current = false;
@@ -560,7 +622,7 @@ export default function StockerApp() {
 
         try {
           // Build OpenAI-format tool call for executeToolCalls
-          let toolCalls: any[] = [];
+          let toolCalls: StockerToolCall[] = [];
 
           switch (commandMatch.command) {
             case PickingCommand.NEXT_ITEM:
@@ -659,6 +721,78 @@ export default function StockerApp() {
               return;
             }
 
+            case PickingCommand.ITEMS_LEFT: {
+              const remaining = Math.max(0, routeState.currentMachineItemsRemaining || 0);
+              const msg = remaining === 0
+                ? 'No items left on this machine.'
+                : remaining === 1 ? 'One item left on this machine.' : `${remaining} items left on this machine.`;
+              setAiResponse(msg);
+              await v.speak(msg);
+              processingRef.current = false;
+              return;
+            }
+
+            case PickingCommand.CURRENT_ROUTE: {
+              const msg = routeState.routeName ? `You're on the ${routeState.routeName} route.` : "You haven't started a route yet.";
+              setAiResponse(msg);
+              await v.speak(msg);
+              processingRef.current = false;
+              return;
+            }
+
+            case PickingCommand.SKIPPED_MACHINES: {
+              const skipped = routeState.machines.filter(machine => machine.status === 'skipped');
+              const msg = skipped.length === 0
+                ? "You don't have any skipped machines."
+                : skipped.length === 1
+                  ? `You skipped ${skipped[0].name}.`
+                  : `You skipped ${skipped.map(machine => machine.name).join(', ')}.`;
+              setAiResponse(msg);
+              await v.speak(msg);
+              processingRef.current = false;
+              return;
+            }
+
+            case PickingCommand.CURRENT_SLOT: {
+              const slots = [routeState.currentItem?.slot_spoken || routeState.currentItem?.slot,
+                routeState.currentItem2?.slot_spoken || routeState.currentItem2?.slot].filter(Boolean);
+              const msg = slots.length === 0 ? 'No item slot is displayed right now.'
+                : slots.length === 1 ? `The current slot is ${slots[0]}.`
+                  : `The current slots are ${slots[0]} and ${slots[1]}.`;
+              setAiResponse(msg);
+              await v.speak(msg);
+              processingRef.current = false;
+              return;
+            }
+
+            case PickingCommand.CURRENT_ITEM_POSITION: {
+              const first = routeState.currentItem?.item_index;
+              const msg = first == null
+                ? (routeState.currentItem ? `The current item is ${routeState.currentItem.product}.` : 'No item is displayed right now.')
+                : routeState.currentItem2
+                  ? `The current pick starts at item ${first}. Two items are displayed.`
+                  : `You're on item ${first}.`;
+              setAiResponse(msg);
+              await v.speak(msg);
+              processingRef.current = false;
+              return;
+            }
+
+            case PickingCommand.ROUTE_PROGRESS: {
+              const completedMachines = routeState.machines.filter(machine => machine.status === 'completed').length;
+              const machineSummary = routeState.totalMachines
+                ? `${completedMachines} of ${routeState.totalMachines} machines complete`
+                : 'No machine total is available';
+              const remaining = Math.max(0, routeState.currentMachineItemsRemaining || 0);
+              const msg = routeState.currentMachineName
+                ? `${machineSummary}. You're on ${routeState.currentMachineName}, with ${remaining} ${remaining === 1 ? 'item' : 'items'} left.`
+                : `${machineSummary}.`;
+              setAiResponse(msg);
+              await v.speak(msg);
+              processingRef.current = false;
+              return;
+            }
+
             case PickingCommand.REPEAT:
               // Already handled by repeat handler above
               console.log('[CommandRecognizer] REPEAT already handled by repeat handler');
@@ -707,22 +841,16 @@ export default function StockerApp() {
               break;
 
             case PickingCommand.PREVIOUS_ITEM:
-              // Show previous item (same as undo - pops last item back to current)
-              const prevResult = undoLastItem();
-              setAiResponse(prevResult.message);
-              await v.speak(prevResult.message);
-              if (prevResult.success) await keywordLearning.trackKeywords(transcript, true);
-              processingRef.current = false;
-              return;
-
             case PickingCommand.UNDO:
-              // Already handled above via undoLastItem()
-              const result = undoLastItem();
-              setAiResponse(result.message);
-              await v.speak(result.message);
-              if (result.success) await keywordLearning.trackKeywords(transcript, true);
-              processingRef.current = false;
-              return;
+              toolCalls = [{
+                id: `cmd_${Date.now()}`,
+                type: 'function',
+                function: {
+                  name: 'undo_last_item',
+                  arguments: JSON.stringify({ session_id: sessionId })
+                }
+              }];
+              break;
 
             case PickingCommand.AFFIRMATIVE:
               // Affirmative response during machine transition - auto-call start_machine with saved direction
@@ -772,7 +900,7 @@ export default function StockerApp() {
           }
 
           // Helper: Build display-friendly text (correct spelling) from tool result
-          const buildDisplayText = (result: any): string => {
+          const buildDisplayText = (result: PickingDisplayResult): string => {
             // OPTION B: Use display_text field if available (new format)
             if (result.display_text) {
               console.log('[Display] Using display_text:', result.display_text);
@@ -817,8 +945,8 @@ export default function StockerApp() {
               }
 
               // Store last item pair for repeat functionality
-              if ((name === 'get_next_item' || name === 'start_machine') &&
-                  (result.action === 'next_item' || result.action === 'item_ready')) {
+              if ((name === 'get_next_item' || name === 'start_machine' || name === 'undo_last_item') &&
+                  (result.action === 'next_item' || result.action === 'item_ready' || result.action === 'undo_item')) {
                 const spokenText = result.voice_text || result.spoken;
                 if (spokenText) {
                   const newItemPair = {
@@ -842,7 +970,7 @@ export default function StockerApp() {
               setAiResponse(message);
               v.playErrorBeep();
               await v.speak(message);
-              await keywordLearning.trackKeywords(transcript, false);
+              await trackKeywords(transcript, false);
               processingRef.current = false;
               return;
             }
@@ -902,7 +1030,7 @@ export default function StockerApp() {
                 console.log('[Voice] Using voice_text:', tr.result?.voice_text ? 'new format' : 'backwards compat', voiceText);
                 setAiResponse(buildDisplayText(tr.result)); // Display uses display_text
                 await v.speak(voiceText); // TTS uses voice_text (pronunciation-friendly)
-                await keywordLearning.trackKeywords(transcript, true); // Track as success
+                await trackKeywords(transcript, true); // Track as success
                 processingRef.current = false;
                 return;
               }
@@ -916,7 +1044,7 @@ export default function StockerApp() {
             processingRef.current = false;
             return;
           }
-        } catch (err: any) {
+        } catch (err: unknown) {
           console.error('[CommandRecognizer] Direct execution failed:', err);
           const errorMsg = "Something went wrong. Can you try again?";
           setAiResponse(errorMsg);
@@ -953,7 +1081,7 @@ export default function StockerApp() {
         const reply = resolveUnknownReply(correctedTranscript);
         if (reply.ask && reply.guess) {
           console.log('[CommandGuess] ? asking:', reply.guess.command, 'from', reply.guess.matched);
-          pendingGuessRef.current = reply.guess.command;
+          pendingGuessRef.current = capturePendingConfirmation(reply.guess.command, commandContextKey);
           setAiResponse(reply.phrase);
           await v.speak(reply.phrase);
           processingRef.current = false;
@@ -1076,7 +1204,7 @@ export default function StockerApp() {
           addMessage({ role: 'assistant', content: message });
           v.playErrorBeep();
           await v.speak(message);
-          await keywordLearning.trackKeywords(transcript, false);
+          await trackKeywords(transcript, false);
           return; // Never let the AI automatically reissue a failed mutation.
         }
         if (toolResults.length > 0 && toolResults.every(tr => tr.result?.ignored)) {
@@ -1085,7 +1213,7 @@ export default function StockerApp() {
         }
 
         // Helper: Build display-friendly text (correct spelling) from tool result
-        const buildDisplayText = (result: any): string => {
+        const buildDisplayText = (result: PickingDisplayResult): string => {
           // OPTION B: Use display_text field if available (new format)
           if (result.display_text) {
             console.log('[Display] Using display_text:', result.display_text);
@@ -1142,9 +1270,10 @@ export default function StockerApp() {
         console.log('[Voice] Speaking:', fastPathVoiceText ? 'voice_text' : 'content', textToSpeak);
         await v.speak(textToSpeak);
         // Track successful AI response (user was understood)
-        await keywordLearning.trackKeywords(transcript, true);
+        await trackKeywords(transcript, true);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const { message: errorMsg, stack: errorStack } = errorDetails(err);
       if (routeState.routeName) {
         if (questionLifetimeRef.current !== questionLifetime) return;
         if (questionContextRef.current === questionTarget) {
@@ -1155,7 +1284,6 @@ export default function StockerApp() {
         }
         return; // An information request must never clear a handoff or replay a command.
       }
-      const errorMsg = err.message || 'Something went wrong';
       const isNetworkError = isConnectionError(errorMsg);
       const isRateLimited = errorMsg.includes('429') || errorMsg.includes('rate limit');
 
@@ -1163,7 +1291,7 @@ export default function StockerApp() {
       console.error('[Stocker] Command failed:', {
         transcript,
         error: errorMsg,
-        errorStack: err.stack,
+        errorStack,
         isNetworkError,
         isRateLimited,
         retryCount,
@@ -1228,7 +1356,7 @@ export default function StockerApp() {
     } finally {
       processingRef.current = false;
     }
-  }, [userName, sessionId, routeState, addMessage, sendToAI, executeToolCalls, updateFromTool, undoLastItem, retryCount, messagesRef, showRouteSelection, availableRoutes, selectRoute, shouldIgnoreTranscript]);
+  }, [userName, sessionId, routeState, addMessage, sendToAI, executeToolCalls, updateFromTool, retryCount, messagesRef, availableRoutes, shouldIgnoreTranscript, aiResponse, lastItemPair, routeSelectionDate, setRouteState, trackKeywords, commandContextKey]);
 
   const handleWakePhrase = useCallback(async (command: string | null) => {
     const v = voiceRef.current;
@@ -1260,6 +1388,7 @@ export default function StockerApp() {
 
   // Smart error handler - detects mic permission issues and rate limits
   const handleVoiceError = useCallback((errorMsg: string) => {
+    pendingGuessRef.current = invalidatePendingConfirmation(pendingGuessRef.current);
     const lower = errorMsg.toLowerCase();
 
     // SIBLING SWEEP 2026-07-30 — say it out loud, not just on screen.
@@ -1317,13 +1446,7 @@ export default function StockerApp() {
   const voice = useVoice({
     onMicrophoneRecovered: () => setError(current => current === 'Microphone disconnected — tap to reconnect.' ? null : current),
     shouldIgnoreTranscript,
-    commandContextKey: JSON.stringify([
-      sessionId,
-      routeState.currentMachineId,
-      routeState.currentItem?.slot ?? null,
-      routeState.currentItem2?.slot ?? null,
-      routeState.pendingMachineTransition?.nextMachineId ?? null,
-    ]),
+    commandContextKey,
     onTranscript: handleTranscript,
     onError: handleVoiceError,
     onWakePhrase: handleWakePhrase,
@@ -1331,13 +1454,15 @@ export default function StockerApp() {
     keywords: [...routeKeywords, ...learnedKeywords],  // Dynamic route names + learned keywords
     environmentEndpointing: environment.endpointing  // Adaptive endpointing based on environment
   });
+  const stopVoiceListening = voice.stopListening;
+  const stopVoiceAudio = voice.stopAudio;
 
   // Expose transcript injection for Playwright E2E testing (no mic in headless)
   useEffect(() => {
-    (window as any).__testInjectTranscript = (text: string) => {
+    (window as StockerWindow).__testInjectTranscript = (text: string) => {
       handleTranscript(text, true);
     };
-    return () => { delete (window as any).__testInjectTranscript; };
+    return () => { delete (window as StockerWindow).__testInjectTranscript; };
   }, [handleTranscript]);
 
   // Handle environment auto-detection (requires microphone access)
@@ -1357,7 +1482,7 @@ export default function StockerApp() {
         }
       });
       await detectEnvironment(stream);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('[StockerApp] Environment detection failed:', error);
       setError('Microphone access required for environment detection');
     }
@@ -1406,13 +1531,13 @@ export default function StockerApp() {
       if (!userId) return;
 
       console.log('[StockerApp] Fetching learned keywords for user:', userId);
-      const keywords = await keywordLearning.getUserKeywords(0.60, 50);
+      const keywords = await getUserKeywordsRef.current(0.60, 50);
       setLearnedKeywords(keywords);
       console.log('[StockerApp] Loaded', keywords.length, 'learned keywords with confidence > 0.60');
     }
 
     fetchLearnedKeywords();
-  }, [userId]); // keywordLearning is a stable hook - don't include in deps
+  }, [userId]);
 
   // CRITICAL: Clean up voice session on unmount (navigation away from this page)
   // This prevents mic from staying open when user navigates to other pages
@@ -1449,10 +1574,10 @@ export default function StockerApp() {
   useEffect(() => {
     return () => {
       console.log('[StockerApp] Unmounting - stopping voice session');
-      voice.stopListening();
-      voice.stopAudio();
+      stopVoiceListening();
+      stopVoiceAudio();
     };
-  }, [voice.stopListening, voice.stopAudio]);
+  }, [stopVoiceAudio, stopVoiceListening]);
 
   useEffect(() => {
     if (sessionId && userId) setSession(sessionId, userId);
@@ -1554,7 +1679,7 @@ export default function StockerApp() {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ user_id: userId, resume_window_version: 1 }),
             });
-            const snap = await resp.json();
+            const snap = await resp.json() as ResumeSnapshot;
             if (!resp.ok || !snap?.has_session || snap.resume_window_version !== 1 || snap.route?.id !== routeIdFromUrl || !snap.current_machine?.id || !snap.session_id) {
               throw new Error('Saved route could not be verified for this request');
             }
@@ -1564,25 +1689,25 @@ export default function StockerApp() {
               // bar counts done items by machineName match (line ~2240). Without this,
               // all resumed done items read as "no machine" and the bar shows 0 of N
               // until you pick live items. All resume done-list items belong to cm.
-              const mapItem = (it: any): any => it ? {
+              const mapItem = (it: ResumeItem | null | undefined): CurrentItem | null => it ? {
                 product: it.product_name,
                 quantity: it.quantity,
                 slot: it.slot,
                 slot_spoken: it.slot_spoken,
                 inventory_current: it.inventory_current,
                 inventory_parlevel: it.inventory_parlevel,
-                machineName: cm.name,
+                machineName: cm.name || '',
               } : null;
               const ci = mapItem(snap.current_item);
               const ci2 = mapItem(snap.current_item2);
               setRouteState({
-                routeId: snap.route.id,
-                routeName: snap.route.route_name,
-                routeDate: snap.route.route_date,
+                routeId: snap.route.id || null,
+                routeName: snap.route.route_name || null,
+                routeDate: snap.route.route_date || null,
                 totalMachines: snap.route.total_machines || 0,
                 currentMachineIndex: snap.current_machine_index || 1,
-                currentMachineName: cm.name,
-                currentMachineId: cm.id,
+                currentMachineName: cm.name || null,
+                currentMachineId: cm.id || null,
                 currentMachineTotalItems: cm.total_items || 0,
                 currentMachineItemsRemaining: snap.items_remaining || 0,
                 currentItem: ci,
@@ -1603,7 +1728,7 @@ export default function StockerApp() {
               }
               await voice.startListening();
               const confirmedCount = snap.confirmed_items ?? (snap.completed_list || []).length;
-              const describe = (it: any) => `${it.quantity} ${it.product}, ${it.slot_spoken || it.slot}`;
+              const describe = (it: CurrentItem) => `${it.quantity} ${it.product}, ${it.slot_spoken || it.slot}`;
               const msg = ci
                 ? `Welcome back ${userName}! Resuming ${cm.name}, ${confirmedCount} of ${cm.total_items} confirmed. Still to pick: ${describe(ci)}${ci2 ? `, and ${describe(ci2)}` : ''}. Say next when finished.`
                 : snap.awaiting_direction
@@ -1680,8 +1805,8 @@ export default function StockerApp() {
               await voice.speak(greeting);
 
               // Trigger route start directly (can't rely on useEffect — showRouteSelection is false)
-              (window as any).__routeStartDate = route.delivery_date;
-              triggerRouteStart(route.route_name);
+              (window as StockerWindow).__routeStartDate = route.delivery_date;
+              triggerRouteStartRef.current(route.route_name);
               return;
             } else {
               console.log('[Stocker] Route not found:', routeIdFromUrl, routeError);
@@ -1811,7 +1936,7 @@ export default function StockerApp() {
         }
       } else {
         console.log('[Stocker] No valid session found, starting fresh');
-        startFresh();
+        void startFreshRef.current();
       }
     };
 
@@ -1825,7 +1950,7 @@ export default function StockerApp() {
         setInitialized(true);
       });
     }
-  }, [loading, user, userId, initialized, sessionPersistence, routeIdFromUrl, resumeFromUrl, urlRouteProcessed, voice, userName, addMessage, reset, generateNewSessionId, audioUnlocked]);
+  }, [loading, user, userId, initialized, sessionPersistence, routeIdFromUrl, resumeFromUrl, urlRouteProcessed, voice, userName, addMessage, reset, generateNewSessionId, audioUnlocked, isIOS, isSafari, setMessages, setRouteState, setSession, setSessionId]);
 
   const resumeSession = useCallback(async () => {
     if (!savedSession) return;
@@ -1903,19 +2028,20 @@ export default function StockerApp() {
         await voice.speak(`Welcome back to ${savedSession.routeName} route. Say next to continue.`);
       }
     }
-  }, [savedSession, setRouteState, setSessionId, generateNewSessionId, setMessages, voice]);
+  }, [savedSession, setRouteState, setSessionId, generateNewSessionId, setMessages, setSession, userId, voice]);
 
   // selectRoute is now defined above handleTranscript to avoid "used before declaration" error
   // Trigger the normal flow after route selection
   const triggerRouteStart = useCallback((routeName: string) => {
     setTimeout(() => {
-      const storedDate = (window as any).__routeStartDate;
+      const storedDate = (window as StockerWindow).__routeStartDate;
       const dateStr = storedDate ? ` for ${storedDate}` : '';
       handleTranscript(`start ${routeName} route${dateStr}`, true);
       // Clean up stored date
-      delete (window as any).__routeStartDate;
+      delete (window as StockerWindow).__routeStartDate;
     }, 500);
   }, [handleTranscript]);
+  triggerRouteStartRef.current = triggerRouteStart;
 
   // Effect to trigger route start after selection
   useEffect(() => {
@@ -1975,7 +2101,7 @@ export default function StockerApp() {
         setAvailableRoutes(data.routes);
         setRouteSelectionDate(routeDate);
 
-        const names = data.routes.map((r: any) => r.route_name);
+        const names = data.routes.map((r: RouteOption) => r.route_name);
 
         if (names.length === 1) {
           // SINGLE ROUTE: One smooth greeting that includes everything
@@ -2024,7 +2150,8 @@ export default function StockerApp() {
       addMessage({ role: 'assistant', content: greeting });
       await voice.speak(greeting);
     }
-  }, [userId, sessionPersistence, reset, generateNewSessionId, voice, getRoutes, userName, addMessage, selectRoute, audioUnlocked, isSafari, isIOS]);
+  }, [userId, sessionPersistence, reset, generateNewSessionId, setSession, voice, getRoutes, userName, addMessage, selectRoute]);
+  startFreshRef.current = startFresh;
 
   // Tap-to-advance (from original PWA)
   const handleItemCardClick = useCallback(() => {
@@ -2034,6 +2161,7 @@ export default function StockerApp() {
   }, [routeState, voice.status, handleTranscript]);
 
   const handleBackToDashboard = () => {
+    pendingGuessRef.current = invalidatePendingConfirmation(pendingGuessRef.current);
     voice.stopAudio();      // Stop any speaking immediately
     voice.stopListening();  // Stop microphone
 
@@ -2062,6 +2190,7 @@ export default function StockerApp() {
 
       // If 3 taps within 1 second, show diagnostics AND attempt recovery
       if (tapTimesRef.current.length >= 3) {
+        pendingGuessRef.current = invalidatePendingConfirmation(pendingGuessRef.current);
         console.log('[Triple-Tap] Triggered - showing diagnostics and attempting voice recovery');
         setShowDiagnostics(true);
         tapTimesRef.current = [];
@@ -2124,6 +2253,7 @@ export default function StockerApp() {
     if (voice.status === 'muted') {
       voice.unmute();
     } else {
+      pendingGuessRef.current = invalidatePendingConfirmation(pendingGuessRef.current);
       voice.mute();
       // Say which kind of hold this is, at the moment he creates it. Pause and Mute now behave
       // differently — one still hears the app's name, the other does not — and an orange button
@@ -2151,6 +2281,7 @@ export default function StockerApp() {
     if (voice.status === 'paused' || voice.status === 'muted') {
       voice.unmute();
     } else {
+      pendingGuessRef.current = invalidatePendingConfirmation(pendingGuessRef.current);
       voice.pauseListening();
       // The counterpart to the Mute message: this is the hold that DOES still hear his name,
       // and he has no way to know that from an orange button alone.
@@ -2168,10 +2299,12 @@ export default function StockerApp() {
     }
 
     // Otherwise show confirmation
+    pendingGuessRef.current = invalidatePendingConfirmation(pendingGuessRef.current);
     setShowStopConfirm(true);
   };
 
   const confirmStop = async () => {
+    pendingGuessRef.current = invalidatePendingConfirmation(pendingGuessRef.current);
     voice.stopAudio();
     voice.stopListening();
     await saveSessionState();
@@ -2330,7 +2463,7 @@ export default function StockerApp() {
 
   // Resume dialog - SIMPLIFIED for 5-year-old proof UX
   if (showResumeDialog && savedSession) {
-    const completedCount = savedSession.machines?.filter((m: any) => m.status === 'completed').length || 0;
+    const completedCount = savedSession.machines?.filter(m => m.status === 'completed').length || 0;
     const progressPercent = Math.round((completedCount / savedSession.totalMachines) * 100);
     return (
       <div className="min-h-screen bg-[#0d1117] flex flex-col items-center justify-center p-6">

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import AdminLayout from "@/components/admin/AdminLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -36,6 +36,10 @@ interface DailyUsage {
   uniqueUsers: number;
 }
 
+const GPT_COST_PER_SESSION = 0.02;
+const TTS_COST_PER_SESSION = 0.15;
+const TOTAL_COST_PER_SESSION = GPT_COST_PER_SESSION + TTS_COST_PER_SESSION;
+
 const AdminMetrics = () => {
   const [metrics, setMetrics] = useState({
     totalRoutes: 0,
@@ -47,13 +51,10 @@ const AdminMetrics = () => {
   const [usageByAccount, setUsageByAccount] = useState<UsageByAccount[]>([]);
   const [dailyUsage, setDailyUsage] = useState<DailyUsage[]>([]);
   const [dateRange, setDateRange] = useState('30'); // Last 30 days
+  const fetchUsageByAccountRef = useRef<() => Promise<void>>(async () => {});
+  const fetchDailyUsageRef = useRef<() => Promise<void>>(async () => {});
 
-  // Cost estimates per session
-  const GPT_COST_PER_SESSION = 0.02; // ~$0.02 per route for GPT-4o-mini
-  const TTS_COST_PER_SESSION = 0.15; // ~$0.15 per route for TTS
-  const TOTAL_COST_PER_SESSION = GPT_COST_PER_SESSION + TTS_COST_PER_SESSION;
-
-  const fetchMetrics = async () => {
+  const fetchMetrics = useCallback(async () => {
     setLoading(true);
     try {
       // Get route count
@@ -84,18 +85,18 @@ const AdminMetrics = () => {
       });
 
       // Fetch usage breakdown by account
-      await fetchUsageByAccount();
+      await fetchUsageByAccountRef.current();
 
       // Fetch daily usage for the selected period
-      await fetchDailyUsage();
+      await fetchDailyUsageRef.current();
     } catch (error) {
       console.error('Error fetching metrics:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const fetchUsageByAccount = async () => {
+  const fetchUsageByAccount = useCallback(async () => {
     try {
       // Get all accounts with their usage
       const { data: accounts } = await supabase
@@ -146,9 +147,9 @@ const AdminMetrics = () => {
     } catch (error) {
       console.error('Error fetching usage by account:', error);
     }
-  };
+  }, []);
 
-  const fetchDailyUsage = async () => {
+  const fetchDailyUsage = useCallback(async () => {
     try {
       const days = parseInt(dateRange);
       const startDate = format(subDays(new Date(), days), 'yyyy-MM-dd');
@@ -203,15 +204,17 @@ const AdminMetrics = () => {
     } catch (error) {
       console.error('Error fetching daily usage:', error);
     }
-  };
-
-  useEffect(() => {
-    fetchMetrics();
-  }, []);
-
-  useEffect(() => {
-    fetchDailyUsage();
   }, [dateRange]);
+  fetchUsageByAccountRef.current = fetchUsageByAccount;
+  fetchDailyUsageRef.current = fetchDailyUsage;
+
+  useEffect(() => {
+    void fetchMetrics();
+  }, [fetchMetrics]);
+
+  useEffect(() => {
+    void fetchDailyUsage();
+  }, [fetchDailyUsage]);
 
   const metricCards = [
     {

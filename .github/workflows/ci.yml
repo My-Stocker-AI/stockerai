@@ -7,7 +7,49 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  actions: read
+  contents: read
+
 jobs:
+  changes:
+    name: Release scope
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    outputs:
+      frontend: ${{ steps.scope.outputs.frontend }}
+      backend: ${{ steps.scope.outputs.backend }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: scope
+        name: Classify changed paths
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          TARGET_SHA: ${{ github.sha }}
+        run: |
+          frontend=false
+          backend=false
+
+          if [[ "$BEFORE_SHA" =~ ^0+$ ]] || ! git cat-file -e "$BEFORE_SHA^{commit}" 2>/dev/null; then
+            changed_files="$(git show --pretty=format: --name-only "$TARGET_SHA")"
+          else
+            changed_files="$(git diff --name-only "$BEFORE_SHA" "$TARGET_SHA")"
+          fi
+
+          while IFS= read -r path; do
+            [[ -z "$path" ]] && continue
+            case "$path" in
+              python-api/*) backend=true ;;
+              docs/*|*.md) ;;
+              *) frontend=true ;;
+            esac
+          done <<< "$changed_files"
+
+          echo "frontend=$frontend" >> "$GITHUB_OUTPUT"
+          echo "backend=$backend" >> "$GITHUB_OUTPUT"
+
   frontend:
     name: Frontend (build + tests)
     runs-on: ubuntu-latest
@@ -19,24 +61,29 @@ jobs:
           cache: npm
       - run: npm ci
 
+      # BLOCKING — frontend contracts and generated database metadata must agree.
+      - name: Type-check
+        run: npm run typecheck
+
+      # BLOCKING — active frontend, browser-test, Edge-function and build-config code must
+      # have no lint errors. Fast Refresh export-shape notices remain visible as warnings
+      # while shared UI helpers are separated deliberately.
+      - name: Lint active TypeScript
+        run: npm run lint:active
+
       # BLOCKING — a broken build (missing import, syntax error) fails here.
       # This is what would have caught the missing `Settings` import crash.
       - name: Build
         run: npm run build
 
-      # BLOCKING — unit tests must pass (127 today).
+      # BLOCKING — unit tests must pass.
       - name: Unit tests (vitest)
         run: npm run test
 
-      # REPORT-ONLY for now — 126 lint errors + 18 hook-dependency warnings exist
-      # in the codebase already. Surfaced here so they're visible and can be
-      # ratcheted to blocking after a cleanup pass. New hook warnings should be
-      # treated as bugs (the Start Picking crash was this class).
-      - name: Lint (report-only)
+      # REPORT-ONLY inventory for Edge functions, Playwright and historical n8n code-node
+      # snippets. The blocking source gate above covers the shipped React application.
+      - name: Broader repository lint inventory (report-only)
         run: npm run lint || true
-
-      - name: Type-check (report-only)
-        run: npx tsc -p tsconfig.app.json --noEmit || true
 
   backend:
     name: Backend (pytest)
@@ -51,7 +98,7 @@ jobs:
           python-version: "3.12"
       - run: pip install -r requirements.txt -r requirements-dev.txt
 
-      # BLOCKING — backend tests must pass (37 today).
+      # BLOCKING — backend tests must pass.
       - name: Backend tests
         run: python -m pytest -q
 
@@ -67,3 +114,21 @@ jobs:
         run: python -m unittest discover -s scripts -p test_check_secrets.py
       - name: Block credential publication
         run: python scripts/check-secrets.py
+
+  deploy_frontend:
+    name: Release frontend after gates
+    needs: [changes, frontend, backend, secrets]
+    if: github.event_name == 'push' && needs.changes.outputs.frontend == 'true'
+    uses: ./.github/workflows/deploy-frontend.yml
+    with:
+      commit_sha: ${{ github.sha }}
+    secrets: inherit
+
+  deploy_backend:
+    name: Release backend after gates
+    needs: [changes, frontend, backend, secrets]
+    if: github.event_name == 'push' && needs.changes.outputs.backend == 'true'
+    uses: ./.github/workflows/deploy-backend.yml
+    with:
+      commit_sha: ${{ github.sha }}
+    secrets: inherit

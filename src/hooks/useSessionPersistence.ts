@@ -1,11 +1,12 @@
 import { useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import type { ConversationMessage, CurrentItem, MachineState } from '@/hooks/useStockerSession';
 
 const DB_NAME = 'stocker-sessions';
 const STORE_NAME = 'active-session';
 const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours
 
-interface SessionData {
+export interface SessionData {
   pickingRevision?: string;
   id?: string;
   sessionId: string;
@@ -19,12 +20,12 @@ interface SessionData {
   currentMachineName: string | null;
   currentMachineTotalItems?: number;  // Total items on current machine (from DB)
   currentMachineItemsRemaining?: number;  // Remaining items (from workflow)
-  currentItem: any;
-  currentItem2?: any;  // Second item in 2-pick mode
-  completedItems: any[];
-  machines: any[];  // CRITICAL FIX: Persist per-machine progress for dropdown
+  currentItem: CurrentItem | null;
+  currentItem2?: CurrentItem | null;  // Second item in 2-pick mode
+  completedItems: CurrentItem[];
+  machines: MachineState[];  // CRITICAL FIX: Persist per-machine progress for dropdown
   completed: boolean;
-  conversationHistory: any[];
+  conversationHistory: ConversationMessage[];
   savedAt?: number;
   pendingMachineTransition?: {  // Machine awaiting direction response
     nextMachineId: string;
@@ -64,7 +65,7 @@ export function useSessionPersistence() {
 
   const saveLocal = useCallback(async (data: SessionData): Promise<void> => {
     const maxRetries = 3;
-    let lastError: any = null;
+    let lastError: unknown = null;
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
@@ -124,7 +125,7 @@ export function useSessionPersistence() {
   }, [openDB]);
 
   // Save minimal session metadata to Supabase sessions table for backend workflow tracking
-  const saveToServer = useCallback(async (data: SessionData, userId: string): Promise<void> => {
+  const saveToServer = useCallback(async (_data: SessionData, _userId: string): Promise<void> => {
     // NO-OP (disabled): the backend (set_route_sequence creates the row; start_machine /
     // get_next_item update current_machine_id, pick_direction, status, completed_items) is
     // the sole owner of the server `sessions` row. The frontend writing here created a
@@ -132,60 +133,6 @@ export function useSessionPersistence() {
     // current_machine_id, so picks landed on one row while the UI read another — the core
     // save/resume bug. Progress now lives server-side only; the phone keeps IndexedDB.
     return;
-    // eslint-disable-next-line no-unreachable
-    try {
-      // CRITICAL FIX: Must match Python API's session_key format (stocking_{route_id})
-      // so frontend UPDATES the session created by set_route_sequence instead of creating a duplicate.
-      // Old format: `${userId}-${data.routeId}` caused two sessions per route.
-      const sessionKey = `stocking_${data.routeId || 'active'}`;
-
-      // Check if session exists (match by key OR by route_id for backwards compat)
-      const { data: existing } = await supabase
-        .from('sessions')
-        .select('id')
-        .eq('user_id', userId)
-        .eq('current_route_id', data.routeId)
-        .eq('status', 'stocking')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      const sessionRecord = {
-        session_key: sessionKey,
-        user_id: userId,
-        current_route_id: data.routeId,
-        current_machine_id: data.currentMachineId,
-        pick_direction: data.pickDirection || null,
-        // REMOVED: current_item_index - managed exclusively by n8n workflows
-        // Frontend was incorrectly writing currentMachineIndex (machine number) to current_item_index (item sequence)
-        // This caused machine to complete after only 2 items because index was corrupted to 1 instead of 24
-        status: data.completed ? 'completed' : 'stocking',
-        updated_at: new Date().toISOString(),
-      };
-
-      if (existing?.id) {
-        await supabase
-          .from('sessions')
-          .update(sessionRecord)
-          .eq('id', existing.id);
-      } else {
-        // Only INSERT if we have a route - don't create sessions without routes
-        if (!data.routeId) {
-          console.log('[Session] Skipping INSERT - no route selected yet');
-          return;
-        }
-        await supabase
-          .from('sessions')
-          .insert({
-            ...sessionRecord,
-            started_at: new Date().toISOString(),
-          });
-      }
-      
-      console.log('[Session] Saved to server for workflow tracking');
-    } catch (e) {
-      console.error('[Session] Server save error:', e);
-    }
   }, []);
 
   const loadFromServer = useCallback(async (userId: string): Promise<SessionData | null> => {
@@ -215,8 +162,8 @@ export function useSessionPersistence() {
       if (error || !session) return null;
 
       // Convert server session to local format
-      const route = session.routes as any;
-      const machine = session.machines as any;
+      const route = session.routes as { route_name?: string | null; total_machines?: number | null } | null;
+      const machine = session.machines as { machine_name?: string | null } | null;
 
       // SYSTEMIC FIX: Removed current_item_index reference
       // currentMachineIndex is machine position in route (1st, 2nd, 3rd)
@@ -296,7 +243,7 @@ export function useSessionPersistence() {
       // Verify deletion
       if (data && data.length > 0) {
         console.log(`[Session] ✅ Deleted ${data.length} session(s) from Supabase`);
-        console.log('[Session] Deleted session IDs:', data.map((s: any) => s.id));
+        console.log('[Session] Deleted session IDs:', data.map(s => s.id));
       } else {
         console.log('[Session] ⚠️ No sessions found to delete (might be already clear)');
       }

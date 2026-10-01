@@ -72,11 +72,7 @@ export function useDriverSettings() {
         return;
       }
 
-      const row = data as {
-        tts_volume: number | null;
-        call_two_items: boolean | null;
-        environment_type: string | null;
-      };
+      const row = data;
       const next: DriverSettings = {
         ttsVolume: typeof row.tts_volume === 'number' ? row.tts_volume : readSettingsFromLocalStorage().ttsVolume,
         callTwoItems: typeof row.call_two_items === 'boolean' ? row.call_two_items : readSettingsFromLocalStorage().callTwoItems,

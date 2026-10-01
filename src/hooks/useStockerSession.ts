@@ -12,12 +12,90 @@ export interface CurrentItem {
   slot_spoken: string;
   inventory_current?: number;
   inventory_parlevel?: number;
-  machineName?: string;  // Track which machine this item came from
+  machineName: string;  // Track which machine this item came from
   items_remaining?: number;  // How many items left on this machine
   item_index?: number;  // Current item's sequence position
 }
 
+export interface ConversationToolCall {
+  id: string;
+  function?: { name?: string; arguments?: string };
+}
+
+export interface ConversationMessage {
+  role: string;
+  content?: string;
+  tool_calls?: ConversationToolCall[];
+  tool_call_id?: string;
+  [key: string]: unknown;
+}
+
+interface WorkflowItemData {
+  product?: string;
+  product_name?: string;
+  product_parsed?: {
+    name?: string;
+    size?: string;
+  };
+  quantity?: number;
+  slot?: string;
+  slot_spoken?: string;
+  inventory_current?: number;
+  inventory_parlevel?: number;
+}
+
+interface WorkflowMachineData {
+  id: string;
+  name: string;
+  location: string;
+  sequence: number;
+  totalItems?: number;
+  completedItems?: number;
+  status?: string;
+}
+
+export interface WorkflowResult extends WorkflowItemData {
+  action?: string;
+  completed_items?: number;
+  date?: string;
+  direction?: string;
+  error?: unknown;
+  item1?: WorkflowItemData;
+  item2?: WorkflowItemData;
+  items_remaining?: number;
+  items_to_increment?: number;
+  machine_id?: string;
+  machine_index?: number;
+  machine_name?: string;
+  machines?: WorkflowMachineData[];
+  machines_count?: number;
+  new_completed_items?: number;
+  new_item_index?: number;
+  next_machine?: string;
+  next_machine_id?: string;
+  pick_direction?: string;
+  picking_revision?: string;
+  returning_to_skipped?: boolean;
+  route?: string;
+  route_id?: string;
+  route_name?: string;
+  session_id?: string;
+  success?: boolean;
+  display_text?: string;
+  ignored?: boolean;
+  spoken?: string;
+  user_message?: string;
+  voice_text?: string;
+  skipped_machine_id?: string;
+  total_items?: number;
+  total_machines?: number;
+  [key: string]: unknown;
+}
+
 export type MachineStatus = 'pending' | 'in_progress' | 'completed' | 'skipped';
+
+const isMachineStatus = (status: string | undefined): status is MachineStatus =>
+  status === 'pending' || status === 'in_progress' || status === 'completed' || status === 'skipped';
 
 export interface MachineState {
   id: string;
@@ -103,10 +181,10 @@ async function fetchMachineTotalItems(machineId: string): Promise<number> {
 export function useStockerSession(userId: string | null) {
   const [routeState, setRouteState] = useState<RouteState>(INITIAL_STATE);
   const [sessionId, setSessionId] = useState('');
-  const [messages, setMessages] = useState<any[]>([]);
+  const [messages, setMessages] = useState<ConversationMessage[]>([]);
 
   // Ref to avoid stale closures - always has latest messages
-  const messagesRef = useRef<any[]>([]);
+  const messagesRef = useRef<ConversationMessage[]>([]);
 
   // CRITICAL FIX: Lock to prevent race conditions during machine transitions
   const machineTransitionLockRef = useRef(false);
@@ -124,7 +202,7 @@ export function useStockerSession(userId: string | null) {
   }, [messages]);
 
   // Helper to format product display from parsed data
-  const formatProductDisplay = (itemData: any): string => {
+  const formatProductDisplay = (itemData: WorkflowItemData): string => {
     // If product_parsed exists, use formatted version
     if (itemData.product_parsed?.name) {
       const parts = [itemData.product_parsed.name];
@@ -137,7 +215,7 @@ export function useStockerSession(userId: string | null) {
     return itemData.product || itemData.product_name || '';
   };
 
-  const updateFromTool = useCallback(async (toolName: string, result: any) => {
+  const updateFromTool = useCallback(async (toolName: string, result: WorkflowResult | null | undefined) => {
     if (result?.session_id && !result.error) {
       setSessionId(result.session_id);
     }
@@ -200,14 +278,14 @@ export function useStockerSession(userId: string | null) {
         next.completed = false;
         // Store machines list from workflow
         if (result.machines && Array.isArray(result.machines)) {
-          next.machines = result.machines.map((m: any) => ({
+          next.machines = result.machines.map(m => ({
             id: m.id,
             name: m.name,
             location: m.location,
             sequence: m.sequence,
             totalItems: m.totalItems || 0,
             completedItems: m.completedItems || 0,
-            status: m.status || 'pending'
+            status: isMachineStatus(m.status) ? m.status : 'pending'
           }));
           // Fix: Set initial machine total from first machine
           if (next.machines.length > 0) {
@@ -509,6 +587,33 @@ export function useStockerSession(userId: string | null) {
         }
       }
 
+      if (toolName === 'undo_last_item') {
+        // The server has already reversed the authoritative presented prefix and
+        // returned the exact prior item under a new route revision. Mirror that
+        // result; never manufacture an undo from the browser-only Done list.
+        const itemData = result.item1 || result;
+        next.currentItem = {
+          product: formatProductDisplay(itemData),
+          quantity: itemData.quantity || 0,
+          slot: itemData.slot || '',
+          slot_spoken: itemData.slot_spoken || itemData.slot || '',
+          inventory_current: itemData.inventory_current,
+          inventory_parlevel: itemData.inventory_parlevel,
+          machineName: result.machine_name || prev.currentMachineName || '',
+          items_remaining: result.items_remaining,
+          item_index: result.new_item_index,
+        };
+        next.currentItem2 = null;
+        next.currentMachineItemsRemaining = result.items_remaining ?? prev.currentMachineItemsRemaining;
+        next.completed = false;
+        next.completedItems = prev.completedItems.slice(0, -1);
+        if (prev.currentMachineId && result.new_completed_items !== undefined) {
+          next.machines = prev.machines.map(machine => machine.id === prev.currentMachineId
+            ? { ...machine, completedItems: result.new_completed_items, status: 'in_progress' as const }
+            : machine);
+        }
+      }
+
       if (toolName === 'skip_current_machine') {
         // Release transition lock if skip called during transition
         if (machineTransitionLockRef.current) {
@@ -643,7 +748,7 @@ export function useStockerSession(userId: string | null) {
     });
   }, []);
 
-  const addMessage = useCallback((msg: any) => {
+  const addMessage = useCallback((msg: ConversationMessage) => {
     // Update ref immediately (before React re-renders)
     const updated = [...messagesRef.current, msg];
     const trimmed = updated.length > 20 ? updated.slice(-20) : updated;

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import AdminLayout from "@/components/admin/AdminLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -46,6 +46,9 @@ interface Account {
   primary_admin_name?: string;
 }
 
+const errorMessage = (error: unknown, fallback: string) =>
+  error instanceof Error && error.message ? error.message : fallback;
+
 const AdminSubscriptions = () => {
   const { toast } = useToast();
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -68,7 +71,7 @@ const AdminSubscriptions = () => {
     return driverCount * 15;
   };
 
-  const fetchAccounts = async () => {
+  const fetchAccounts = useCallback(async () => {
     setLoading(true);
     try {
       const { data: accountsData, error: accountsError } = await supabase
@@ -99,21 +102,21 @@ const AdminSubscriptions = () => {
       );
 
       setAccounts(accountsWithAdmins as Account[]);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error fetching accounts:', error);
       toast({
         title: "Error loading accounts",
-        description: error.message,
+        description: errorMessage(error, 'Please try again.'),
         variant: "destructive",
       });
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
 
   useEffect(() => {
-    fetchAccounts();
-  }, []);
+    void fetchAccounts();
+  }, [fetchAccounts]);
 
   const openEditModal = (account: Account) => {
     setSelectedAccount(account);
@@ -146,10 +149,10 @@ const AdminSubscriptions = () => {
 
       setEditModalOpen(false);
       await fetchAccounts();
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         title: "Update failed",
-        description: error.message,
+        description: errorMessage(error, 'Please try again.'),
         variant: "destructive",
       });
     } finally {

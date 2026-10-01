@@ -12,7 +12,7 @@ const context: ConversationContext = {
   totalMachines: 3, completedItemsCount: 4, totalItems: 12,
   machines: [{ id: 'first', name: 'First fixture', status: 'completed' },
     { id: 'second', name: 'Second fixture', status: 'in_progress' }],
-  pendingMachineTransition: null, currentItem2: { product: 'Original coffee', quantity: 3, slot: 'B2', slot_spoken: 'B two' },
+  pendingMachineTransition: null, currentItem2: { product: 'Original coffee', quantity: 3, slot: 'B2', slot_spoken: 'B two', machineName: 'Second fixture' },
 };
 const item = { product: 'Mocha coffee', quantity: 2, slot: 'B1', slot_spoken: 'B one', machineName: 'Second fixture' };
 const history = [{ role: 'assistant', content: 'Start First fixture from top or bottom?' },
@@ -52,5 +52,5 @@ it('retains route-selection tools before a route is selected', async () => {
     { availableRoutes: ['Fixture route'], date: '2099-01-01' });
   const request = JSON.parse(mocks.fetch.mock.calls[0][1].body);
   expect(request.messages[0].content).toContain('ROUTE SELECTION MODE');
-  expect(request.tools.some((t: any) => t.function.name === 'set_route_sequence')).toBe(true);
+  expect(request.tools.some((tool: { function: { name: string } }) => tool.function.name === 'set_route_sequence')).toBe(true);
 });

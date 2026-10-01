@@ -21,7 +21,7 @@
 
 ## Step 1: Create Your Account
 
-1. Go to **[my-stocker-ai.com](https://my-stocker-ai.com)**
+1. Go to **[www.stocker-ai.com](https://www.stocker-ai.com)**
 
 2. Click **"Sign Up"** tab
 
@@ -162,7 +162,7 @@ The screen shows:
 
 If you close the app or your browser accidentally:
 
-1. Reopen **my-stocker-ai.com**
+1. Reopen **www.stocker-ai.com**
 2. Log in with your account
 3. You'll see: *"Resume Session?"*
 4. Click **"Resume"** to continue where you left off
@@ -183,7 +183,7 @@ If you close the app or your browser accidentally:
 
 **Safari (Mac):**
 1. Go to Safari menu → Settings → Websites → Microphone
-2. Find my-stocker-ai.com and set to "Allow"
+2. Find www.stocker-ai.com and set to "Allow"
 3. Also check: System Settings → Privacy & Security → Microphone → Safari
 
 ### Voice not responding

@@ -324,6 +324,25 @@ describe('CommandRecognizer', () => {
     });
   });
 
+  describe('read-only route status commands', () => {
+    it.each([
+      ['how many items do i have left', PickingCommand.ITEMS_LEFT],
+      ['how many more items', PickingCommand.ITEMS_LEFT],
+      ['what route am i on', PickingCommand.CURRENT_ROUTE],
+      ['which machines did i skip', PickingCommand.SKIPPED_MACHINES],
+      ['how many machines have we skipped', PickingCommand.SKIPPED_MACHINES],
+      ['what slot am i on', PickingCommand.CURRENT_SLOT],
+      ['what item number am i on', PickingCommand.CURRENT_ITEM_POSITION],
+      ["what's my progress", PickingCommand.ROUTE_PROGRESS],
+    ])('recognizes "%s" as %s', (input, command) => {
+      expect(r.recognize(input).command).toBe(command);
+    });
+
+    it('does not answer item progress as inventory', () => {
+      expect(r.recognize('how many items do i have left').command).not.toBe(PickingCommand.INVENTORY_QUERY);
+    });
+  });
+
   // ─── AFFIRMATIVE ───────────────────────────────────────────────────────────
 
   describe('affirmative command', () => {

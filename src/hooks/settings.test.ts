@@ -16,7 +16,7 @@ class MemoryStorage {
 }
 
 beforeEach(() => {
-  (globalThis as any).localStorage = new MemoryStorage();
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: new MemoryStorage() });
 });
 
 describe('Scope 1 — readSettingsFromLocalStorage', () => {

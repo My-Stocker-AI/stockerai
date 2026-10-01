@@ -29,8 +29,8 @@ async function accessToken(forceRefresh = false): Promise<string | null> {
     }
     const { data } = await supabase.auth.getSession();
     return data?.session?.access_token ?? null;
-  } catch (e: any) {
-    console.warn('[authFetch] could not read the login:', e?.message ?? e);
+  } catch (e: unknown) {
+    console.warn('[authFetch] could not read the login:', e instanceof Error ? e.message : String(e));
     return null;
   }
 }

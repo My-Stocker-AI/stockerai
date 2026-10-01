@@ -9,7 +9,7 @@ const ROICalculator = () => {
   const [drivers, setDrivers] = useState(5);
   const [hourlyWage, setHourlyWage] = useState(21);
   const [pickingHours, setPickingHours] = useState(1.5);
-  const [reduction, setReduction] = useState(35);
+  const [reduction, setReduction] = useState(0);
 
   const calculations = useMemo(() => {
     // Monthly picking hours, averaged over 52 working weeks per year
@@ -72,7 +72,7 @@ const ROICalculator = () => {
 
           {[
             { id: "picking-hours", label: "Picking hours per route per workday", value: pickingHours, set: setPickingHours, min: 0, max: 24, step: 0.25 },
-            { id: "time-reduction", label: "Estimated picking-time reduction (%)", value: reduction, set: setReduction, min: 25, max: 35, step: 1 },
+            { id: "time-reduction", label: "Your estimated picking-time reduction (%)", value: reduction, set: setReduction, min: 0, max: 100, step: 1 },
           ].map(({ id, label, value, set, min, max, step }) => (
             <div key={id} className="space-y-2">
               <Label htmlFor={id}>{label}</Label>
@@ -128,7 +128,7 @@ const ROICalculator = () => {
 
         {/* Footnote */}
         <p className="text-sm text-muted-foreground text-center">
-          Assumes one route per driver per workday, five workdays per week, and 52 working weeks per year. Savings use picking time only. The 35% default is an assumed reduction in time, not a guaranteed result. Time freed up is not necessarily a reduction in payroll. Subscription pricing includes a two-driver minimum.
+          Assumes one route per driver per workday, five workdays per week, and 52 working weeks per year. The reduction starts at 0%; enter an estimate based on your own measured pilot. Results are illustrative, not guaranteed, and time freed up is not necessarily a reduction in payroll. Subscription pricing includes a two-driver minimum.
         </p>
       </div>
     </div>

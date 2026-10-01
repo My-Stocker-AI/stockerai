@@ -22,7 +22,7 @@ it.each([400, 401, 403, 409, 429, 500])('handles HTTP %s without replaying or re
   const { result } = renderHook(() => useStockerAI());
   result.current.setSession('session', 'test-user');
   const success = vi.fn();
-  let replies: any;
+  let replies: Awaited<ReturnType<typeof result.current.executeToolCalls>> = [];
   await act(async () => { replies = await result.current.executeToolCalls([tool(), tool('start_machine')], success); });
   expect(mocks.fetch).toHaveBeenCalledTimes(1);
   expect(success).not.toHaveBeenCalled();
@@ -48,7 +48,7 @@ it.each(['get_next_item', 'skip_current_machine', 'start_machine'])('does not re
   mocks.fetch.mockRejectedValue(new TypeError('Network response lost after commit'));
   const { result } = renderHook(() => useStockerAI());
   result.current.setSession('session', 'test-user');
-  let replies: any;
+  let replies: Awaited<ReturnType<typeof result.current.executeToolCalls>> = [];
   await act(async () => { replies = await result.current.executeToolCalls([tool(name)]); });
   expect(mocks.fetch).toHaveBeenCalledTimes(1);
   expect(replies[0].result.user_message).toContain('Check your saved route');

@@ -103,7 +103,7 @@ export default function Troubleshooting() {
                 <li>Click the <strong>camera/mic icon</strong> (or padlock) in Chrome's address bar</li>
                 <li>Find <strong>"Microphone"</strong> and select <strong>"Allow"</strong></li>
                 <li>Refresh the page</li>
-                <li><strong>Alternative:</strong> Go to <code className="bg-gray-800 px-2 py-1 rounded text-sm">chrome://settings/content/microphone</code> and allow my-stocker-ai.com</li>
+                <li><strong>Alternative:</strong> Go to <code className="bg-gray-800 px-2 py-1 rounded text-sm">chrome://settings/content/microphone</code> and allow www.stocker-ai.com</li>
               </ol>
             </div>
 

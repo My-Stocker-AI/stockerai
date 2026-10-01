@@ -38,6 +38,11 @@ interface Account {
   driver_count: number | null;
 }
 
+interface TeamMemberRow {
+  user_id: string;
+  profiles: { first_name: string | null; last_name: string | null } | null;
+}
+
 const Usage = () => {
   const { userRole } = useAuth();
 
@@ -167,7 +172,7 @@ const Usage = () => {
       }
 
       // Aggregate machine progress by date
-      machines?.forEach((machine: any) => {
+      machines?.forEach(machine => {
         const dateKey = format(new Date(machine.updated_at), 'yyyy-MM-dd');
         if (dateMap[dateKey] !== undefined) {
           dateMap[dateKey] += machine.completed_items || 0;
@@ -204,9 +209,10 @@ const Usage = () => {
         .eq('account_id', userRole.account_id);
 
       if (!teamMembers || teamMembers.length === 0) return [];
+      const typedTeamMembers = teamMembers as unknown as TeamMemberRow[];
 
       // Get sessions for this month for all team members
-      const userIds = teamMembers.map((m: any) => m.user_id);
+      const userIds = typedTeamMembers.map(m => m.user_id);
       const { data: sessions } = await supabase
         .from('sessions')
         .select('user_id, status, current_route_id')
@@ -224,7 +230,7 @@ const Usage = () => {
 
       // Create route-to-user mapping
       const routeUserMap: Record<string, string> = {};
-      sessions?.forEach((session: any) => {
+      sessions?.forEach(session => {
         if (session.current_route_id) {
           routeUserMap[session.current_route_id] = session.user_id;
         }
@@ -233,7 +239,7 @@ const Usage = () => {
       // Aggregate stats per driver
       const statsMap: Record<string, { routes: number; items: number; machines: number; days: Set<string> }> = {};
 
-      sessions?.forEach((session: any) => {
+      sessions?.forEach(session => {
         if (!statsMap[session.user_id]) {
           statsMap[session.user_id] = { routes: 0, items: 0, machines: 0, days: new Set() };
         }
@@ -243,7 +249,7 @@ const Usage = () => {
       });
 
       // Add machine data to stats
-      machines?.forEach((machine: any) => {
+      machines?.forEach(machine => {
         const userId = routeUserMap[machine.route_id];
         if (userId && statsMap[userId]) {
           statsMap[userId].items += machine.completed_items || 0;
@@ -253,7 +259,7 @@ const Usage = () => {
         }
       });
 
-      return teamMembers.map((member: any) => {
+      return typedTeamMembers.map(member => {
         const stats = statsMap[member.user_id] || { routes: 0, items: 0, machines: 0 };
         const workingDays = Math.max(1, new Date().getDate()); // Days in month so far
         return {

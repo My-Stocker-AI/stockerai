@@ -6,9 +6,10 @@ import { act, cleanup, render } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { useStockerSession } from '@/hooks/useStockerSession';
 import type { useStockerAI } from '@/hooks/useStockerAI';
+import type { UseVoiceOptions, useVoice } from '@/hooks/useVoice';
 
 const fixture = vi.hoisted(() => ({
-  options: null as any, voice: null as any,
+  options: null as UseVoiceOptions | null, voice: null as Partial<ReturnType<typeof useVoice>> | null,
   session: null as ReturnType<typeof useStockerSession> | null,
   ai: null as ReturnType<typeof useStockerAI> | null,
   fetch: vi.fn(), speak: vi.fn(async (_text: string) => {}),
@@ -16,7 +17,7 @@ const fixture = vi.hoisted(() => ({
 vi.mock('react-router-dom', () => ({ useNavigate: () => vi.fn(), useSearchParams: () => [new URLSearchParams()] }));
 vi.mock('@tanstack/react-query', () => ({ useQueryClient: () => ({ invalidateQueries: vi.fn() }) }));
 vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ user: null, loading: true }) }));
-vi.mock('@/hooks/useVoice', () => ({ useVoice: (options: any) => { fixture.options = options; return fixture.voice; } }));
+vi.mock('@/hooks/useVoice', () => ({ useVoice: (options: UseVoiceOptions) => { fixture.options = options; return fixture.voice; } }));
 vi.mock('@/hooks/useStockerSession', async importOriginal => {
   const actual = await importOriginal<typeof import('@/hooks/useStockerSession')>();
   return { ...actual, useStockerSession: (userId: string | null) => {
@@ -44,7 +45,7 @@ const state = () => fixture.session!.routeState;
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 async function say(text: string) {
   clock += 2_000; // deliberate separate utterances, beyond the existing debounce
-  await act(async () => { await fixture.options.onTranscript(text, true); });
+  await act(async () => { await fixture.options!.onTranscript?.(text, true); });
 }
 async function openRoute(two = false) {
   localStorage.setItem('stocker-call-two-items', String(two));
@@ -67,7 +68,7 @@ beforeEach(async () => {
   vi.stubEnv('VITE_API_BACKEND', 'python');
   vi.stubGlobal('fetch', vi.fn(() => { throw new Error('Live network forbidden'); }));
   vi.spyOn(Date, 'now').mockImplementation(() => clock);
-  window.matchMedia = vi.fn(() => ({ matches: false })) as any;
+  window.matchMedia = vi.fn(() => ({ matches: false } as MediaQueryList));
   fixture.voice = {
     status: 'listening', getStatus: () => 'listening', speak: fixture.speak,
     stopListening: vi.fn(), stopAudio: vi.fn(), setAwaitingDirection: vi.fn(),
@@ -81,8 +82,8 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.uns
 it.each([[false, 'top'], [false, 'bottom'], [true, 'top'], [true, 'bottom']])(
   'finishes three machines with interleaved questions: two items=%s, direction=%s', async (two, direction) => {
     let machineIndex = 0, presented = 0, revision = 0;
-    const transitions: any[] = [], questions: any[] = [];
-    const questionRequests: any[] = [];
+    const transitions: Record<string, unknown>[] = [], questions: Record<string, unknown>[] = [];
+    const questionRequests: Record<string, unknown>[] = [];
     fixture.fetch.mockImplementation(async (url: string, options: RequestInit) => {
       const body = JSON.parse(options.body as string);
       if (url.endsWith('/openai-chat')) {
@@ -174,13 +175,13 @@ it.each([[false, 'top'], [false, 'bottom'], [true, 'top'], [true, 'bottom']])(
 it('ignores a late conversational answer after the displayed item changes', async () => {
   await openRoute();
   await act(async () => fixture.session!.setRouteState(previous => ({ ...previous,
-    currentItem: { product: 'Old item', quantity: 1, slot: 'A1', slot_spoken: 'A one' },
+    currentItem: { product: 'Old item', quantity: 1, slot: 'A1', slot_spoken: 'A one', machineName: 'Alpha' },
     machines: previous.machines.map((machine, index) => index ? machine : { ...machine, status: 'in_progress' }),
   })));
   let finish!: (value: Response) => void;
   fixture.fetch.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
   let pending!: Promise<void>;
-  await act(async () => { pending = fixture.options.onTranscript('Is that the original flavor?', true); });
+  await act(async () => { pending = Promise.resolve(fixture.options!.onTranscript?.('Is that the original flavor?', true)).then(() => {}); });
   await act(async () => fixture.session!.setRouteState(previous => ({ ...previous,
     currentItem: { ...previous.currentItem!, product: 'New item' },
   })));
@@ -192,7 +193,7 @@ it('ignores a late conversational answer after the displayed item changes', asyn
 it('a failed product question preserves the pick and the next ordinary command still works', async () => {
   await openRoute();
   await act(async () => fixture.session!.setRouteState(previous => ({ ...previous,
-    currentItem: { product: 'Fixture snack', quantity: 1, slot: 'A1', slot_spoken: 'A one' },
+    currentItem: { product: 'Fixture snack', quantity: 1, slot: 'A1', slot_spoken: 'A one', machineName: 'Alpha' },
     machines: previous.machines.map((machine, index) => index ? machine : { ...machine, status: 'in_progress', completedItems: 1 }),
   })));
   fixture.fetch.mockResolvedValueOnce(response({ detail: 'fixture unavailable' }, 400));
@@ -211,16 +212,61 @@ it('a failed product question preserves the pick and the next ordinary command s
   expect(state().completedItems).toHaveLength(1);
 });
 
+it('changes the displayed item only after durable undo is confirmed', async () => {
+  let revision = 0;
+  const calls: Array<{ url: string; body: {
+    action?: string;
+    expected_revision?: string;
+    expected_state?: { completed_items?: number };
+  } }> = [];
+  fixture.fetch.mockImplementation(async (url: string, options: RequestInit) => {
+    const body = JSON.parse(options.body as string);
+    calls.push({ url, body });
+    revision++;
+    if (url.endsWith('/undo-item')) {
+      expect(body.expected_revision).toBe('revision-2');
+      expect(body.expected_state?.completed_items).toBe(2);
+      return response({ action: 'undo_item', machine_id: machines[0].id, machine_name: 'Alpha',
+        item1: { product_name: 'Alpha product 1', quantity: 2, slot: 'S1', slot_spoken: 'S 1' },
+        new_item_index: 1, new_completed_items: 1, confirmed_items: 0, items_remaining: 2,
+        picking_revision: `revision-${revision}`, voice_text: 'Going back to Alpha product 1',
+        spoken: 'Going back to Alpha product 1' });
+    }
+    const position = body.action === 'start' ? 1 : 2;
+    return response({ action: body.action === 'start' ? 'item_ready' : 'next_item',
+      machine_id: machines[0].id, machine_name: 'Alpha',
+      item1: { product_name: `Alpha product ${position}`, quantity: position + 1,
+        slot: `S${position}`, slot_spoken: `S ${position}` },
+      new_item_index: position, new_completed_items: position, items_remaining: 3-position,
+      direction: 'forward', picking_revision: `revision-${revision}`,
+      voice_text: `${position + 1} Alpha product ${position}`, spoken: `${position + 1} Alpha product ${position}` });
+  });
+  await openRoute();
+  await say('top');
+  await say('next');
+  expect(state().currentItem?.product).toBe('Alpha product 2');
+  expect(state().completedItems.map(item => item.product)).toEqual(['Alpha product 1']);
+  await say('previous item');
+  expect(calls.map(call => new URL(call.url).pathname.split('/').pop())).toEqual([
+    'picking-transition', 'picking-transition', 'undo-item',
+  ]);
+  expect(state().currentItem?.product).toBe('Alpha product 1');
+  expect(state().currentItem2).toBeNull();
+  expect(state().completedItems).toEqual([]);
+  expect(state().machines[0].completedItems).toBe(1);
+  expect(state().pickingRevision).toBe('revision-3');
+});
+
 it('does not speak or restart listening when an answer arrives after leaving the screen', async () => {
   const view = await openRoute();
   await act(async () => fixture.session!.setRouteState(previous => ({ ...previous,
-    currentItem: { product: 'Fixture snack', quantity: 1, slot: 'A1', slot_spoken: 'A one' },
+    currentItem: { product: 'Fixture snack', quantity: 1, slot: 'A1', slot_spoken: 'A one', machineName: 'Alpha' },
     machines: previous.machines.map((machine, index) => index ? machine : { ...machine, status: 'in_progress' }),
   })));
   let finish!: (value: Response) => void;
   fixture.fetch.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
   let pending!: Promise<void>;
-  await act(async () => { pending = fixture.options.onTranscript('Is that the original flavor?', true); });
+  await act(async () => { pending = Promise.resolve(fixture.options!.onTranscript?.('Is that the original flavor?', true)).then(() => {}); });
   view.unmount();
   await act(async () => { finish(response({ choices: [{ message: { content: 'Late answer' } }] })); await pending; });
   expect(fixture.speak).not.toHaveBeenCalled();

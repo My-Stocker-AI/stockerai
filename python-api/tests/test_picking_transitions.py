@@ -29,6 +29,11 @@ def call(client, body):
     return client.post('/api/picking-transition', json=body)
 
 
+def undo(client, body):
+    undo_body = {key:value for key,value in body.items() if key not in {'action','direction','count'}}
+    return client.post('/api/undo-item', json=undo_body)
+
+
 def state(route):
     db, sid, mids = route
     return (db.table('machines').select('*').in_('id', mids).order('sequence').execute().data,
@@ -176,9 +181,135 @@ def test_local_only_count_change_cannot_use_valid_revision(client,route):
     assert state(route)==before
 
 
+@pytest.mark.parametrize('direction', ['forward','reverse'])
+@pytest.mark.parametrize('count', [1,2])
+def test_undo_restores_exact_previous_item_and_survives_replay(client,route,direction,count):
+    prepare(route,'start')
+    started=call(client,request(client,route,'start',direction=direction,count=count))
+    assert started.status_code==200,started.text
+    advanced=call(client,request(client,route,'next',direction=direction,count=count))
+    assert advanced.status_code==200,advanced.text
+    body=request(client,route,'next')
+    first=undo(client,body)
+    assert first.status_code==200,first.text
+    expected='Product 1' if count==1 and direction=='forward' else \
+        'Product 3' if count==1 else ('Product 2')
+    assert first.json()['item1']['product_name']==expected
+    assert first.json()['action']=='undo_item' and 'item2' not in first.json()
+    after=state(route)
+    assert undo(client,body).json()==first.json()
+    assert state(route)==after
+
+
+@pytest.mark.parametrize('direction,products', [
+    ('forward',['Product 2','Product 1']),
+    ('reverse',['Product 2','Product 3']),
+])
+def test_pair_window_can_rewind_one_item_at_a_time(client,route,direction,products):
+    prepare(route,'start')
+    assert call(client,request(client,route,'start',direction=direction,count=2)).status_code==200
+    assert call(client,request(client,route,'next',direction=direction,count=2)).status_code==200
+    seen=[]
+    for product in products:
+        result=undo(client,request(client,route,'next'))
+        assert result.status_code==200,result.text
+        seen.append(result.json()['item1']['product_name'])
+        assert result.json()['new_completed_items']==3-len(seen)
+    assert seen==products
+    before=state(route)
+    refused=undo(client,request(client,route,'next'))
+    assert refused.status_code==409 and 'Nothing to undo' in refused.text
+    assert state(route)==before
+
+
+def test_stale_undo_cannot_reverse_a_newer_transition(client,route):
+    prepare(route,'start')
+    assert call(client,request(client,route,'start')).status_code==200
+    assert call(client,request(client,route,'next')).status_code==200
+    stale=request(client,route,'next')
+    assert call(client,request(client,route,'next')).status_code==200
+    before=state(route)
+    assert undo(client,stale).status_code==409
+    assert state(route)==before
+
+
+@pytest.mark.parametrize('same_key', [False, True])
+def test_concurrent_undo_serializes_and_replays_exactly(client,route,same_key):
+    prepare(route,'start')
+    assert call(client,request(client,route,'start')).status_code==200
+    assert call(client,request(client,route,'next')).status_code==200
+    body=request(client,route,'next')
+    other=body if same_key else {**body,'operation_id':str(uuid4())}
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        responses=list(pool.map(lambda value:undo(client,value),[body,other]))
+    assert sorted(response.status_code for response in responses)==([200,200] if same_key else [200,409])
+    if same_key:
+        assert responses[0].json()==responses[1].json()
+
+
+def test_undo_receipt_failure_rolls_back_count_and_revision(client,route):
+    prepare(route,'start')
+    assert call(client,request(client,route,'start')).status_code==200
+    assert call(client,request(client,route,'next')).status_code==200
+    body=request(client,route,'next')
+    before=state(route)
+    local_sql(f"""CREATE FUNCTION public.test_fail_undo_receipt() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN IF NEW.session_id='{route[1]}'::uuid AND NEW.request->>'action'='undo'
+        THEN RAISE EXCEPTION 'injected'; END IF; RETURN NEW; END $$;
+      CREATE TRIGGER test_fail_undo_receipt BEFORE INSERT ON public.picking_operations
+      FOR EACH ROW EXECUTE FUNCTION public.test_fail_undo_receipt();""")
+    try:
+        refused=undo(client,body)
+        assert refused.status_code==503 and 'injected' not in refused.text
+        assert state(route)==before
+        assert context(client,route)['picking_revision']==body['expected_revision']
+    finally:
+        local_sql('DROP TRIGGER test_fail_undo_receipt ON public.picking_operations; DROP FUNCTION public.test_fail_undo_receipt();')
+    assert undo(client,body).status_code==200
+
+
+def test_undo_refuses_missing_item_without_mutation(client,route):
+    prepare(route,'start')
+    assert call(client,request(client,route,'start')).status_code==200
+    assert call(client,request(client,route,'next')).status_code==200
+    body=request(client,route,'next')
+    before=state(route)
+    route[0].table('items').delete().eq('machine_id',route[2][0]).eq('sequence',1).execute()
+    assert undo(client,body).status_code==503
+    assert state(route)==before
+
+
+def test_undo_refuses_missing_current_window_receipt_without_mutation(client,route):
+    prepare(route,'start')
+    assert call(client,request(client,route,'start')).status_code==200
+    assert call(client,request(client,route,'next')).status_code==200
+    body=request(client,route,'next')
+    before=state(route)
+    local_sql(f"DELETE FROM public.picking_operations WHERE session_id='{route[1]}'::uuid AND result->>'picking_revision'='{body['expected_revision']}';")
+    assert undo(client,body).status_code==409
+    assert state(route)==before
+
+
+@pytest.mark.parametrize('direction', ['forward','reverse'])
+def test_resume_after_undo_returns_the_same_item_and_confirmed_prefix(client,route,direction):
+    prepare(route,'start')
+    assert call(client,request(client,route,'start',direction=direction,count=2)).status_code==200
+    assert call(client,request(client,route,'next',direction=direction,count=2)).status_code==200
+    reversed_item=undo(client,request(client,route,'next'))
+    assert reversed_item.status_code==200,reversed_item.text
+    resumed=client.post('/api/resume-state',json={'resume_window_version':1,'user_id':FIXTURES.user_id})
+    assert resumed.status_code==200,resumed.text
+    snap=resumed.json()
+    assert snap['picking_revision']==reversed_item.json()['picking_revision']
+    assert snap['current_item']['product_name']==reversed_item.json()['item1']['product_name']
+    assert snap['current_item2'] is None
+    assert snap['confirmed_items']==1
+
+
 def test_browser_roles_cannot_execute_new_functions():
     for signature in ['picking_context(uuid,uuid[],uuid)',
-                      'transition_picking(uuid,uuid[],uuid,uuid,uuid,uuid,text,integer,text,jsonb)']:
+                      'transition_picking(uuid,uuid[],uuid,uuid,uuid,uuid,text,integer,text,jsonb)',
+                      'undo_picking_item(uuid,uuid,uuid,uuid,uuid,jsonb)']:
         assert local_sql(f"SELECT has_function_privilege('anon','public.{signature}','EXECUTE'), has_function_privilege('authenticated','public.{signature}','EXECUTE');")=='f|f'
 
 

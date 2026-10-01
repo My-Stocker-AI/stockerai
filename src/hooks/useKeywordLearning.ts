@@ -151,7 +151,7 @@ export function useKeywordLearning(): UseKeywordLearningReturn {
         return [];
       }
 
-      const keywords = data?.map((row: any) => row.keyword) || [];
+      const keywords = data?.map(row => row.keyword) || [];
       console.log('[KeywordLearning] Fetched', keywords.length, 'user keywords');
       return keywords;
     } catch (error) {

@@ -17,6 +17,7 @@ import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const distDir = resolve(__dirname, '..', 'dist');
+const publicOrigin = 'https://www.stocker-ai.com';
 
 // The 7 public routes — must match public/sitemap.xml and the spec terminals.
 const ROUTES = ['/', '/pricing', '/demo', '/guide', '/troubleshooting', '/privacy', '/terms'];
@@ -28,7 +29,11 @@ if (!existsSync(join(distDir, 'index.html'))) {
 
 const server = await preview({ preview: { port: 4183, strictPort: true } });
 const base = `http://localhost:4183`;
-const browser = await chromium.launch();
+// CI installs Playwright's pinned Chromium. Local validation may explicitly
+// point at an already installed Chromium-family browser without downloading or
+// committing a machine-specific path.
+const browserPath = process.env.STOCKER_PRERENDER_BROWSER;
+const browser = await chromium.launch(browserPath ? { executablePath: browserPath } : undefined);
 const page = await browser.newPage();
 
 let failures = 0;
@@ -39,8 +44,18 @@ for (const route of ROUTES) {
     // Wait until React has actually painted real content into #root.
     await page.waitForFunction(
       () => { const r = document.getElementById('root'); return r && r.innerText.trim().length > 50; },
+      undefined,
       { timeout: 15000 }
     );
+    // The shell has the home-page canonical. Each prerendered public route must
+    // identify its own production URL instead of making every page canonical to /.
+    const canonicalUrl = new URL(route, publicOrigin).href;
+    await page.evaluate((url) => {
+      const canonical = document.querySelector('link[rel="canonical"]');
+      if (canonical) canonical.setAttribute('href', url);
+      const openGraphUrl = document.querySelector('meta[property="og:url"]');
+      if (openGraphUrl) openGraphUrl.setAttribute('content', url);
+    }, canonicalUrl);
     const html = '<!DOCTYPE html>\n' + await page.evaluate(() => document.documentElement.outerHTML);
     const outPath = route === '/'
       ? join(distDir, 'index.html')

@@ -45,7 +45,7 @@ export type MachineStatus = 'pending' | 'in_progress' | 'completed' | 'skipped';
  * - total_items MUST equal count of items for this machine
  * - total_items NEVER changes
  * - completed_items starts at 0, increments per item (max = total_items)
- * - completed_items NEVER decrements
+ * - completed_items decrements only through a revision-bound durable undo
  * - completed_items NEVER carries over to next machine
  */
 export interface MachineContract {
@@ -117,6 +117,7 @@ export interface SessionContract {
 export type WorkflowAction =
   | 'machine_ready'
   | 'item_ready'
+  | 'undo_item'
   | 'next_machine'
   | 'route_complete'
   | 'route_switched'
@@ -381,8 +382,8 @@ export class ContractViolationError extends Error {
   constructor(
     public contractName: string,
     public rule: string,
-    public actual: any,
-    public expected?: any
+    public actual: unknown,
+    public expected?: unknown
   ) {
     super(`Contract violation in ${contractName}: ${rule}`);
     this.name = 'ContractViolationError';
@@ -444,6 +445,7 @@ export interface StateValidationRequirements {
 export const WORKFLOW_TEXT_ACTIONS: WorkflowAction[] = [
   'machine_ready',
   'item_ready',
+  'undo_item',
   'next_machine',
   'route_complete',
   'route_switched',

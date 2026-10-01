@@ -15,6 +15,18 @@ const demoLog = (type: string, data?: unknown) => {
   try { window.dispatchEvent(new CustomEvent('voice-diagnostic', { detail: { type, data } })); } catch { /* noop */ }
 };
 
+type WebkitAudioWindow = Window & typeof globalThis & {
+  webkitAudioContext?: typeof AudioContext;
+};
+
+const getAudioContextConstructor = () =>
+  window.AudioContext || (window as WebkitAudioWindow).webkitAudioContext;
+
+const errorMessage = (error: unknown, fallback: string) =>
+  error instanceof Error && error.message ? error.message : fallback;
+
+const errorName = (error: unknown) => error instanceof Error ? error.name : '';
+
 // Real command matcher — the demo used to hand-roll `lower.includes(...)`, which collided
 // "skip machine" with the "how many / inventory" responses (both contain "machine") and made
 // "how many left" unreliable. For the STOCKING phase we now route through the same
@@ -36,6 +48,7 @@ interface DemoItem {
   item_name: string;
   item_quantity: number;
   slot_number: string;
+  _completed?: boolean;
 }
 
 interface DemoUser {
@@ -115,7 +128,7 @@ export default function DemoLive() {
 
   // Refs
   const processingRef = useRef(false);
-  const voiceRef = useRef<any>(null);
+  const voiceRef = useRef<ReturnType<typeof useVoice> | null>(null);
   const discoveryShownRef = useRef<Set<string>>(new Set());
   // DYNAMIC COACHING: which teachable commands the driver has actually invoked. A command is
   // added here the moment its handler successfully fires, so the coaching picker never
@@ -199,7 +212,7 @@ export default function DemoLive() {
       mobile: /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent),
       secureContext: window.isSecureContext,
       hasGetUserMedia: !!navigator.mediaDevices?.getUserMedia,
-      hasAudioContext: !!(window.AudioContext || (window as any).webkitAudioContext),
+      hasAudioContext: !!getAudioContextConstructor(),
       hasWebSocket: typeof WebSocket !== 'undefined',
       hasWebLocks: 'locks' in navigator,
     });
@@ -214,9 +227,9 @@ export default function DemoLive() {
           setMicPermission('prompt');
           demoLog('demo-mic-permission', { state: 'prompt', note: 'permissions API unavailable' });
         }
-      } catch (e: any) {
+      } catch (e: unknown) {
         setMicPermission('prompt');
-        demoLog('demo-mic-permission', { state: 'prompt', error: String(e?.message || e) });
+        demoLog('demo-mic-permission', { state: 'prompt', error: errorMessage(e, String(e)) });
       }
     };
     checkMicPermission();
@@ -442,7 +455,7 @@ export default function DemoLive() {
 
     // Track this item as completed in current machine
     setCurrentMachineItems(prev => prev.map((item, i) =>
-      i === itemIdx ? { ...item, _completed: true } as any : item
+      i === itemIdx ? { ...item, _completed: true } : item
     ));
 
     v?.playSuccessBeep();
@@ -848,7 +861,7 @@ export default function DemoLive() {
           return;
       }
     }
-  }, [getUniqueRoutes, handleRouteSelection, handleDirectionSelection, handleNext, handleInventoryCount, handleHowManyLeft, handleSkipMachine, handleGoBack, speakResponse]);
+  }, [getMachineItems, getRouteMachines, getUniqueRoutes, handleDirectionSelection, handleGoBack, handleHowManyLeft, handleInventoryCount, handleNext, handleRouteSelection, handleSkipMachine, handleStartRoute2, speakResponse]);
 
   // Handle wake phrase
   const handleWakePhrase = useCallback(async (command: string | null) => {
@@ -1498,7 +1511,8 @@ function MicCheck({ firstName, onPass }: { firstName: string; onPass: (deviceLab
       setPhase('listening');
 
       // Build the analyser graph.
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      const AudioCtx = getAudioContextConstructor();
+      if (!AudioCtx) throw new Error('AudioContext is not supported');
       const ctx: AudioContext = new AudioCtx();
       audioCtxRef.current = ctx;
       const ctxStateBefore = ctx.state;
@@ -1594,8 +1608,8 @@ function MicCheck({ firstName, onPass }: { firstName: string; onPass: (deviceLab
         rafRef.current = requestAnimationFrame(tick);
       };
       rafRef.current = requestAnimationFrame(tick);
-    } catch (e: any) {
-      const name = e?.name || '';
+    } catch (e: unknown) {
+      const name = errorName(e);
       teardown();
       if (name === 'NotAllowedError' || name === 'SecurityError') {
         demoLog('demo-mic-check', { event: 'denied', error: name });
@@ -1604,8 +1618,8 @@ function MicCheck({ firstName, onPass }: { firstName: string; onPass: (deviceLab
         demoLog('demo-mic-check', { event: 'no-device', error: name });
         setPhase('no-device');
       } else {
-        demoLog('demo-mic-check', { event: 'error', error: String(e?.message || name || e) });
-        setErrorDetail(String(e?.message || 'Could not open the microphone.'));
+        demoLog('demo-mic-check', { event: 'error', error: errorMessage(e, name || String(e)) });
+        setErrorDetail(errorMessage(e, 'Could not open the microphone.'));
         setPhase('error');
       }
     }

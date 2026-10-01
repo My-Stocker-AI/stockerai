@@ -8,7 +8,6 @@ import {
   CreditCard,
   Settings,
   LogOut,
-  ExternalLink,
   Shield
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -102,25 +101,6 @@ const DashboardLayout = ({ children, title, breadcrumbs }: DashboardLayoutProps)
         {visibleNavItems.map((item) => {
           const isActive = location.pathname === item.href;
           const Icon = item.icon;
-          
-          if (item.external) {
-            return (
-              <a
-                key={item.href}
-                href={item.href}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={cn(
-                  "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
-                  "text-dashboard-text-secondary hover:text-dashboard-text hover:bg-dashboard-card"
-                )}
-              >
-                <Icon className="h-5 w-5" />
-                {item.label}
-                <ExternalLink className="h-3 w-3 ml-auto opacity-50" />
-              </a>
-            );
-          }
           
           return (
             <Link
