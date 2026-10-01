@@ -65,7 +65,6 @@ async function openRoute(two = false) {
 
 beforeEach(async () => {
   vi.resetModules(); vi.clearAllMocks(); localStorage.clear();
-  vi.stubEnv('VITE_API_BACKEND', 'python');
   vi.stubGlobal('fetch', vi.fn(() => { throw new Error('Live network forbidden'); }));
   vi.spyOn(Date, 'now').mockImplementation(() => clock);
   window.matchMedia = vi.fn(() => ({ matches: false } as MediaQueryList));

@@ -14,6 +14,9 @@ load_dotenv()
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
+INCIDENT_ALERT_TO = os.environ.get("INCIDENT_ALERT_TO", "")
+INCIDENT_FROM_EMAIL = os.environ.get("INCIDENT_FROM_EMAIL", "")
 
 
 def require_runtime_settings() -> None:

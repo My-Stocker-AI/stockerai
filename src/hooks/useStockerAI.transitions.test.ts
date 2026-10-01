@@ -12,7 +12,6 @@ const snapshot = { route_id: 'route', current_machine_id: 'machine', pick_direct
 const tool = (name: string, args = {}) => ({ id: 'test', function: { name, arguments: JSON.stringify(args) } });
 beforeEach(async () => {
   vi.resetModules(); vi.resetAllMocks(); localStorage.clear();
-  vi.stubEnv('VITE_API_BACKEND', 'python');
   ({ useStockerAI } = await import('./useStockerAI'));
 });
 afterEach(() => { cleanup(); vi.unstubAllEnvs(); });

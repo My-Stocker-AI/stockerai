@@ -12,6 +12,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
+import { fetchRoutePdfUrl } from "@/lib/routePdf";
 
 interface RouteData {
   id: string;
@@ -43,6 +44,7 @@ const MyRoutes = () => {
   const { user, userRole } = useAuth();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [routeToDelete, setRouteToDelete] = useState<RouteData | null>(null);
+  const [openingPdfId, setOpeningPdfId] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -164,6 +166,31 @@ const MyRoutes = () => {
   const handleDeleteClick = (route: RouteData) => {
     setRouteToDelete(route);
     setDeleteDialogOpen(true);
+  };
+
+  const handleOpenPdf = async (route: RouteData) => {
+    // Opening a blank tab synchronously preserves the user gesture on mobile Safari/PWAs.
+    // It receives no route URL until the authenticated API has authorized this exact route.
+    const pdfWindow = window.open('about:blank', '_blank');
+    if (pdfWindow) pdfWindow.opener = null;
+    setOpeningPdfId(route.id);
+    try {
+      const signedUrl = await fetchRoutePdfUrl(route.id);
+      if (pdfWindow) {
+        pdfWindow.location.replace(signedUrl);
+      } else {
+        window.location.assign(signedUrl);
+      }
+    } catch (error) {
+      pdfWindow?.close();
+      toast({
+        title: "PDF couldn't be opened",
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setOpeningPdfId(null);
+    }
   };
 
   // Delete route mutation — delete SUPERSEDES any active/paused/stocking session
@@ -312,13 +339,15 @@ const MyRoutes = () => {
 
             {route.pdf_url && (
               <Button
-                asChild
                 variant="outline"
                 className="bg-dashboard-bg hover:bg-dashboard-card border-dashboard-border text-dashboard-text"
+                disabled={openingPdfId === route.id}
+                aria-label={`Open PDF for ${route.route_name}`}
+                onClick={() => void handleOpenPdf(route)}
               >
-                <a href={route.pdf_url} target="_blank" rel="noopener noreferrer">
-                  <FileText className="h-4 w-4" />
-                </a>
+                {openingPdfId === route.id
+                  ? <Loader2 className="h-4 w-4 animate-spin" />
+                  : <FileText className="h-4 w-4" />}
               </Button>
             )}
           </div>

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, memo } from 'react';
 import { authFetch } from '@/lib/authFetch';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, CheckCircle, Mic, MicOff, Pause, Play, Square, AlertTriangle, RefreshCw, HelpCircle, Zap, MapPin, Package, Truck, RotateCcw, Settings } from 'lucide-react';
+import { ArrowLeft, Bug, CheckCircle, Mic, MicOff, Pause, Play, Square, AlertTriangle, RefreshCw, HelpCircle, Zap, MapPin, Package, Truck, RotateCcw, Settings } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import { useVoice } from '@/hooks/useVoice';
@@ -33,6 +33,7 @@ import { useEnvironmentDetection } from '@/hooks/useEnvironmentDetection';
 import { RouteSelectionCard } from '@/components/stocker/RouteSelectionCard';
 import { MachineListPanel } from '@/components/stocker/MachineListPanel';
 import { DiagnosticOverlay } from '@/components/DiagnosticOverlay';
+import { ReportProblemDialog } from '@/components/stocker/ReportProblemDialog';
 import { CommandRecognizer, PickingCommand } from '@/utils/commandRecognizer';
 import { validateTextSource, requiresWorkflowSpoken } from '@/utils/contractValidation';
 import type { WorkflowAction } from '@/types/contracts';
@@ -241,6 +242,7 @@ export default function StockerApp() {
   const [showHelpSheet, setShowHelpSheet] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [showProblemReport, setShowProblemReport] = useState(false);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [savedSession, setSavedSession] = useState<SessionData | null>(null);
   const [resumeLoadFailed, setResumeLoadFailed] = useState(false);
@@ -2722,6 +2724,16 @@ export default function StockerApp() {
               Machine {routeState.machines.filter(m => m.status === 'completed').length}/{routeState.totalMachines}
             </span>
           )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowProblemReport(true)}
+            title="Report a problem"
+            aria-label="Report a problem"
+            className="border-amber-700/70 px-2 text-amber-300 hover:bg-amber-950 hover:text-amber-200"
+          >
+            <Bug className="h-4 w-4" />
+          </Button>
           <Button variant="ghost" size="icon" onClick={() => setShowHelpSheet(true)} title="Voice Commands Help">
             <HelpCircle className="h-5 w-5 text-gray-400" />
           </Button>
@@ -2803,6 +2815,47 @@ export default function StockerApp() {
         isVisible={showDiagnostics}
         onClose={() => setShowDiagnostics(false)}
       />
+      {userId && (
+        <ReportProblemDialog
+          isOpen={showProblemReport}
+          onClose={() => setShowProblemReport(false)}
+          userId={userId}
+          sessionId={sessionId || null}
+          routeId={routeState.routeId || null}
+          context={{
+            route: {
+              id: routeState.routeId || null,
+              name: routeState.routeName || null,
+              date: routeState.routeDate || null,
+              picking_revision: routeState.pickingRevision ?? null,
+              machine_id: routeState.currentMachineId || null,
+              machine_name: routeState.currentMachineName || null,
+              machine_index: routeState.currentMachineIndex,
+              machine_total_items: routeState.currentMachineTotalItems,
+              machine_items_remaining: routeState.currentMachineItemsRemaining,
+              completed_items: routeState.completedItems.length,
+              current_item: routeState.currentItem
+                ? `${routeState.currentItem.quantity} ${routeState.currentItem.product}, ${routeState.currentItem.slot_spoken || routeState.currentItem.slot || 'slot not available'}`
+                : null,
+              current_item_2: routeState.currentItem2
+                ? `${routeState.currentItem2.quantity} ${routeState.currentItem2.product}, ${routeState.currentItem2.slot_spoken || routeState.currentItem2.slot || 'slot not available'}`
+                : null,
+              pending_transition: routeState.pendingMachineTransition,
+            },
+            voice: {
+              status: voice.status,
+              deepgram_connected: voice.isDeepgramConnected,
+              microphone_permission: micPermission,
+            },
+            device: {
+              online: !isOffline,
+              user_agent: navigator.userAgent,
+              standalone: isPWA,
+              ios: isIOS,
+            },
+          }}
+        />
+      )}
 
       <main className="flex-1 flex flex-col p-4 gap-4 overflow-hidden">
         {showRouteSelection && availableRoutes.length > 0 ? (

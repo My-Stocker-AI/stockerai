@@ -15,6 +15,7 @@ os.environ.setdefault("SUPABASE_SERVICE_KEY", "test-service-key")
 
 import io
 from unittest.mock import patch, MagicMock
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -30,11 +31,20 @@ def _mock_db():
     db = MagicMock()
     (db.table.return_value.select.return_value.eq.return_value
        .limit.return_value.execute.return_value.data) = [{"email": "operator@example.com"}]
+    (db.table.return_value.select.return_value.eq.return_value.eq.return_value
+       .limit.return_value.execute.return_value.data) = [
+           {"role": "primary_admin", "can_upload_routes": False}
+       ]
+    db.rpc.return_value.execute.return_value.data = {
+        "pending_id": "pending-1",
+        "created": True,
+        "status": "new",
+    }
     return db
 
 
-def _pending_rows(db):
-    return [c for c in db.table.call_args_list if c.args and c.args[0] == "pending_unrecognized_formats"]
+def _pending_calls(db):
+    return [c for c in db.rpc.call_args_list if c.args and c.args[0] == "record_pending_format_upload"]
 
 
 @pytest.fixture
@@ -49,7 +59,7 @@ def test_other_vendor_is_captured(client):
          patch("app.routes.upload.notify_russ") as notify:
         r = client.post(
             "/api/upload-pdf",
-            data={"date": "2026-07-02", "user_id": "u1", "vendor": "Other"},
+            data={"date": "2026-07-02", "user_id": "u1", "vendor": "Other", "operation_id": str(uuid4())},
             files={"pdf": _dummy_pdf()},
         )
     assert r.status_code == 200
@@ -57,7 +67,7 @@ def test_other_vendor_is_captured(client):
     assert body["status"] == "pending_format"
     assert body["vendor"] == "Other"
     assert "email" in body["message"].lower()
-    assert _pending_rows(db), "a row should be inserted into pending_unrecognized_formats"
+    assert _pending_calls(db), "the report should be recorded in the review queue"
     notify.assert_called_once()
 
 
@@ -69,13 +79,68 @@ def test_unrecognized_report_is_captured(client):
          patch("app.routes.upload.notify_russ") as notify:
         r = client.post(
             "/api/upload-pdf",
-            data={"date": "2026-07-02", "user_id": "u1", "vendor": "Parlevel"},
+            data={"date": "2026-07-02", "user_id": "u1", "vendor": "Parlevel", "operation_id": str(uuid4())},
             files={"pdf": _dummy_pdf()},
         )
     assert r.status_code == 200
     assert r.json()["status"] == "pending_format"
-    assert _pending_rows(db)
+    assert _pending_calls(db)
     notify.assert_called_once()
+
+
+def test_lost_response_retry_reuses_queue_item_without_duplicate_notification(client):
+    db = _mock_db()
+    operation_id = str(uuid4())
+    first = MagicMock()
+    first.data = {"pending_id": "pending-1", "created": True, "status": "new"}
+    retry = MagicMock()
+    retry.data = {"pending_id": "pending-1", "created": False, "status": "new"}
+    db.rpc.return_value.execute.side_effect = [first, retry]
+
+    with patch("app.routes.upload.get_client", return_value=db), \
+         patch("app.routes.upload.notify_russ") as notify:
+        responses = [
+            client.post(
+                "/api/upload-pdf",
+                data={
+                    "date": "2026-07-02",
+                    "user_id": "u1",
+                    "vendor": "Other",
+                    "operation_id": operation_id,
+                },
+                files={"pdf": _dummy_pdf()},
+            )
+            for _ in range(2)
+        ]
+
+    assert [response.status_code for response in responses] == [200, 200]
+    assert len(_pending_calls(db)) == 2
+    notify.assert_called_once()
+
+
+def test_unconfirmed_queue_response_does_not_claim_capture(client):
+    db = _mock_db()
+    db.rpc.return_value.execute.return_value.data = {
+        "pending_id": "pending-1",
+        "status": "new",
+    }
+
+    with patch("app.routes.upload.get_client", return_value=db), \
+         patch("app.routes.upload.notify_russ") as notify:
+        response = client.post(
+            "/api/upload-pdf",
+            data={
+                "date": "2026-07-02",
+                "user_id": "u1",
+                "vendor": "Other",
+                "operation_id": str(uuid4()),
+            },
+            files={"pdf": _dummy_pdf()},
+        )
+
+    assert response.status_code == 503
+    assert "could not be confirmed" in response.json()["detail"]
+    notify.assert_not_called()
 
 
 def test_recognized_report_is_not_diverted():
@@ -100,7 +165,7 @@ def test_recognized_report_is_not_diverted():
          patch("app.routes.upload.notify_russ"):
         client.post(
             "/api/upload-pdf",
-            data={"date": "2026-07-02", "user_id": "u1", "vendor": "Parlevel"},
+            data={"date": "2026-07-02", "user_id": "u1", "vendor": "Parlevel", "operation_id": str(uuid4())},
             files={"pdf": _dummy_pdf()},
         )
     cap.assert_not_called()

@@ -8,9 +8,9 @@ export default defineConfig({
     // playwright-tests/**: the browser-fixture logic that decides what a test route contains.
     // It is pure and belongs under unit test even though it serves the browser suite.
     include: [
-      'src/**/*.test.ts',
-      'playwright-tests/**/*.test.ts',
-      'supabase/functions/_shared/**/*.test.ts',
+      'src/**/*.test.{ts,tsx}',
+      'playwright-tests/**/*.test.{ts,tsx}',
+      'supabase/functions/_shared/**/*.test.{ts,tsx}',
     ],
   },
   resolve: {

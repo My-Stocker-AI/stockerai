@@ -1,6 +1,11 @@
 import { useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
+import {
+  authCallbackValue,
+  passwordFlowFromUrl,
+  rememberPasswordFlow,
+} from '@/lib/authRecovery';
 
 /**
  * Auth Callback Handler
@@ -18,12 +23,13 @@ export default function AuthCallback() {
   useEffect(() => {
     const handleAuthCallback = async () => {
       try {
-        // Get the type parameter from URL
-        const type = searchParams.get('type');
+        const search = window.location.search;
+        const hash = window.location.hash;
+        const passwordFlow = passwordFlowFromUrl(search, hash);
 
         // Check for error from Supabase
-        const error = searchParams.get('error');
-        const errorDescription = searchParams.get('error_description');
+        const error = authCallbackValue('error', search, hash);
+        const errorDescription = authCallbackValue('error_description', search, hash);
 
         if (error) {
           console.error('[AuthCallback] Supabase auth error:', error, errorDescription);
@@ -31,8 +37,16 @@ export default function AuthCallback() {
           return;
         }
 
-        // Get the session (handles hash-based tokens automatically)
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        // Implicit links are detected by the client. PKCE links carry a one-time code and
+        // require an explicit exchange when no session has been established yet.
+        let { data: { session }, error: sessionError } = await supabase.auth.getSession();
+
+        const code = searchParams.get('code');
+        if (!session && !sessionError && code) {
+          const exchanged = await supabase.auth.exchangeCodeForSession(code);
+          session = exchanged.data.session;
+          sessionError = exchanged.error;
+        }
 
         if (sessionError) {
           console.error('[AuthCallback] Session error:', sessionError);
@@ -40,12 +54,12 @@ export default function AuthCallback() {
           return;
         }
 
-        // Route based on type parameter
-        if (type === 'invite') {
-          console.log('[AuthCallback] Invite flow - redirecting to set-password');
-          navigate('/set-password', { replace: true });
-        } else if (type === 'recovery' || type === 'reset_password') {
-          console.log('[AuthCallback] Password recovery - redirecting to set-password');
+        if (passwordFlow) {
+          if (!session) {
+            navigate('/login?error=recovery_session_missing', { replace: true });
+            return;
+          }
+          rememberPasswordFlow(passwordFlow);
           navigate('/set-password', { replace: true });
         } else if (session) {
           // User is authenticated - go to dashboard

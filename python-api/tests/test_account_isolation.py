@@ -231,7 +231,31 @@ def test_all_commands_are_present():
         "/api/picking-context", "/api/picking-transition", "/api/undo-item", "/api/get-current-status",
         "/api/go-back-to-skipped", "/api/update-session", "/api/resume-state",
         "/api/upload-pdf", "/api/diag", "/api/openai-chat",
+        "/api/route-pdf-url", "/api/incidents",
     }, sorted(paths)
+
+
+def test_token_verification_allows_only_a_small_clock_skew(monkeypatch):
+    """A just-issued token must survive ordinary host/provider clock drift."""
+    from types import SimpleNamespace
+    from app.services import auth
+
+    monkeypatch.setattr(
+        auth,
+        "_get_jwk_client",
+        lambda: SimpleNamespace(get_signing_key_from_jwt=lambda _token: SimpleNamespace(key="key")),
+    )
+    captured = {}
+
+    def decode(_token, _key, **kwargs):
+        captured.update(kwargs)
+        return {"sub": "00000000-0000-0000-0000-000000000001"}
+
+    monkeypatch.setattr(auth.jwt, "decode", decode)
+    auth._verify_token("header.payload.signature")
+
+    assert captured["leeway"] == 30
+    assert captured["options"] == {"require": ["exp", "sub"]}
 
 
 # ── The one command that accepts a stranger, and what it must never do ────────────────────

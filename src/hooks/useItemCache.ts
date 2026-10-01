@@ -1,5 +1,7 @@
 import { useCallback, useRef } from 'react';
 import { authFetch } from '@/lib/authFetch';
+
+const API_BASE = 'https://stockerai-api.onrender.com/api';
 import type { WorkflowResult } from '@/hooks/useStockerSession';
 
 /**
@@ -66,8 +68,7 @@ export function useItemCache() {
   const prefetchNextItems = useCallback(async (
     sessionId: string,
     currentItemIndex: number,
-    userId: string,
-    N8N_BASE: string
+    userId: string
   ) => {
     console.log('[ItemCache] 🚀 Starting prefetch from index:', currentItemIndex + 1);
 
@@ -82,12 +83,10 @@ export function useItemCache() {
       }
 
       // Fire-and-forget fetch (don't await)
-      // Use /get-next-item for Python API, /next-item-optimized for n8n
-      const nextItemPath = N8N_BASE.includes('render.com') ? '/get-next-item' : '/next-item-optimized';
       // Carries the login exactly like the foreground call. Without it the prefetch would
       // be refused every time while the real call succeeded — a cache that silently never
       // fills, showing up only as the voice feeling slower than it should.
-      authFetch(`${N8N_BASE}${nextItemPath}`, {
+      authFetch(`${API_BASE}/get-next-item`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

@@ -3,7 +3,12 @@ PDF upload endpoint:
   POST /api/upload-pdf — replaces n8n PDF Upload workflow (7kO6o1wASKvbhc2U, 16 nodes)
 """
 
+import hashlib
+import re
+from uuid import UUID
+
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from app.config import SUPABASE_URL
 from app.services.auth import AuthCaller, Caller, resolve_target_user
 from app.services.database import get_client
 from app.services.pdf_parser import extract_text_from_pdf, parse_route_pdf
@@ -18,42 +23,89 @@ SUPPORTED_VENDORS = {
     "VendSoft", "VendSys", "Vagabond", "Vend-Trak", "VendMAX",
 }
 
-_SUPABASE_STORAGE_BASE = "https://wvtkuposrlvadyeixlke.supabase.co/storage/v1/object/public/route-pdfs"
+_SUPABASE_STORAGE_BASE = f"{SUPABASE_URL}/storage/v1/object/public/route-pdfs"
 
 
-def _ensure_route_assignment(db, route_id: str, driver_id: str, assigned_by: str) -> None:
-    """Persist the upload's selected driver before reporting success.
+def _safe_storage_name(value: str | None, fallback: str) -> str:
+    """Return a short, path-free ASCII object-name component."""
+    basename = (value or fallback).replace("\\", "/").split("/")[-1]
+    sanitized = re.sub(r"[^A-Za-z0-9._-]", "_", basename).strip(".")[:120]
+    return sanitized or fallback
 
-    Assignment is part of the upload result, not a best-effort browser follow-up. The
-    unique route/user key makes a retry converge on the same assignment.
+
+def _require_upload_capability(db, caller: Caller) -> None:
+    """Refuse before parsing or Storage side effects.
+
+    The transactional database function repeats this check as the authority for the
+    route mutation. This preflight exists because the PDF object must be uploaded before
+    that transaction receives its reference; a denied caller must not be able to create
+    orphaned Storage objects first.
     """
-    db.table("route_assignments").upsert(
-        {
-            "route_id": route_id,
-            "user_id": driver_id,
-            "assigned_by": assigned_by,
-        },
-        on_conflict="route_id,user_id",
-    ).execute()
-
-
-def _capture_pending(db, pdf_bytes: bytes, user_id: str, vendor, filename: str, reason: str) -> dict:
-    """Capture-and-wait: save an unparseable upload, log who sent it + which system,
-    alert Russ, and return a warm 'we'll email you' payload for the operator.
-
-    Every side-effect is best-effort — capture must never itself 500 the upload.
-    """
-    # Store the raw file so Russ can build a template from it.
-    pdf_url = None
     try:
-        safe = (filename or "upload.pdf").replace(" ", "_")
-        storage_path = f"pending/{user_id}/{safe}"
+        membership = (
+            db.table("account_users")
+            .select("role, can_upload_routes")
+            .eq("account_id", caller.account_id)
+            .eq("user_id", caller.user_id)
+            .limit(1)
+            .execute()
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=503,
+            detail="Could not verify route-upload access. Try again.",
+        ) from None
+
+    row = membership.data[0] if membership.data else {}
+    if row.get("role") != "primary_admin" and row.get("can_upload_routes") is not True:
+        raise HTTPException(status_code=403, detail="Not available on this account.")
+
+
+def _remove_uncommitted_pdf(db, storage_path: str) -> None:
+    """Best-effort cleanup only after a definite transaction refusal.
+
+    Unknown transport failures deliberately do not call this: the transaction might have
+    committed even if its response was lost, in which case deleting the object would break
+    the newly saved route.
+    """
+    try:
+        db.storage.from_("route-pdfs").remove([storage_path])
+    except Exception:
+        pass
+
+
+def _capture_pending(
+    db,
+    pdf_bytes: bytes,
+    user_id: str,
+    vendor,
+    filename: str,
+    reason: str,
+    operation_id: str,
+    caller: Caller,
+) -> dict:
+    """Durably and idempotently capture an unsupported format for review."""
+    safe_name = _safe_storage_name(filename, "upload.pdf")
+    request_hash = hashlib.sha256(
+        pdf_bytes
+        + b"\0"
+        + user_id.encode()
+        + b"\0"
+        + (vendor or "").encode()
+        + b"\0"
+        + reason.encode()
+    ).hexdigest()
+    storage_path = f"pending/{user_id}/{operation_id}-{request_hash}-{safe_name}"
+    try:
         db.storage.from_("route-pdfs").upload(
             storage_path, pdf_bytes, {"content-type": "application/pdf", "upsert": "true"}
         )
         pdf_url = f"{_SUPABASE_STORAGE_BASE}/{storage_path}"
     except Exception:
-        pass
+        raise HTTPException(
+            status_code=503,
+            detail="The report could not be saved for review. Please retry.",
+        ) from None
 
     # Look up the operator's email so Russ can follow up.
     account_email = None
@@ -64,27 +116,56 @@ def _capture_pending(db, pdf_bytes: bytes, user_id: str, vendor, filename: str, 
     except Exception:
         pass
 
-    # Drop it in the review queue.
+    # Record the queue item transactionally. The operation id makes a lost response retry
+    # return the existing row rather than creating a duplicate review request.
     try:
-        db.table("pending_unrecognized_formats").insert({
-            "user_id": user_id,
-            "account_email": account_email,
-            "vendor": vendor,
-            "filename": filename,
-            "pdf_url": pdf_url,
-            "reason": reason,
-        }).execute()
-    except Exception:
-        pass
+        queue_result = db.rpc("record_pending_format_upload", {
+            "p_operation_id": operation_id,
+            "p_caller_id": caller.user_id,
+            "p_account_id": caller.account_id,
+            "p_user_id": user_id,
+            "p_request_hash": request_hash,
+            "p_account_email": account_email,
+            "p_vendor": vendor,
+            "p_filename": filename,
+            "p_pdf_url": pdf_url,
+            "p_reason": reason,
+        }).execute().data
+    except Exception as exc:
+        code = getattr(exc, "code", None)
+        if code in {"22023", "42501", "55000"}:
+            _remove_uncommitted_pdf(db, storage_path)
+        if code == "42501":
+            raise HTTPException(status_code=403, detail="Not available on this account.") from None
+        if code in {"22023", "55000"}:
+            raise HTTPException(
+                status_code=409,
+                detail="The review upload could not be safely matched to this request. Please choose the file again.",
+            ) from None
+        raise HTTPException(
+            status_code=503,
+            detail="The report could not be added to the review queue. Please retry.",
+        ) from None
 
-    # Ping Russ (best-effort — never fails the upload).
-    notify_russ(
-        "New format to add — StockerAI\n"
-        f"System: {vendor or 'Unknown'}\n"
-        f"From: {account_email or user_id}\n"
-        f"File: {filename}\n"
-        f"Why: {reason}"
-    )
+    if (
+        not isinstance(queue_result, dict)
+        or not queue_result.get("pending_id")
+        or not isinstance(queue_result.get("created"), bool)
+    ):
+        raise HTTPException(
+            status_code=503,
+            detail="The report review request could not be confirmed. Please retry.",
+        )
+
+    # Ping Russ only for the first committed queue row. Notification remains best-effort.
+    if queue_result.get("created") is True:
+        notify_russ(
+            "New format to add — StockerAI\n"
+            f"System: {vendor or 'Unknown'}\n"
+            f"From: {account_email or user_id}\n"
+            f"File: {filename}\n"
+            f"Why: {reason}"
+        )
 
     return {
         "status": "pending_format",
@@ -103,6 +184,7 @@ async def upload_pdf(
     date: str = Form(...),
     for_user_id: str = Form(None, alias="user_id"),
     vendor: str = Form(None),
+    operation_id: UUID | None = Form(None),
     caller: Caller = AuthCaller,
 ):
     """
@@ -121,6 +203,16 @@ async def upload_pdf(
     # From here down, user_id is the driver the route will belong to: either the caller, or
     # a teammate they are allowed to act for. It is never simply whatever the body claimed.
     user_id = resolve_target_user(caller, for_user_id)
+    if operation_id is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Reload StockerAI before uploading so the route can be saved safely.",
+        )
+    request_operation_id = str(operation_id)
+
+    # Enforce capability before even reading or retaining the supplied file. The RPC repeats
+    # the check transactionally so a role change between these steps still fails closed.
+    _require_upload_capability(db, caller)
 
     # Step 1: Read PDF and extract text
     pdf_bytes = await pdf.read()
@@ -134,62 +226,67 @@ async def upload_pdf(
 
     # The operator told us their system isn't one we support yet → capture-and-wait.
     if vendor and vendor.strip().lower() == "other":
-        return _capture_pending(db, pdf_bytes, user_id, vendor, filename, "vendor_other")
+        return _capture_pending(
+            db, pdf_bytes, user_id, vendor, filename,
+            "vendor_other", request_operation_id, caller,
+        )
 
     # Try to read the report. A file we can't extract text from (scanned/image/corrupt)
     # is a format we don't handle — capture it rather than error out.
     try:
         text = extract_text_from_pdf(pdf_bytes)
     except Exception:
-        return _capture_pending(db, pdf_bytes, user_id, vendor, filename, "unreadable_pdf")
+        return _capture_pending(
+            db, pdf_bytes, user_id, vendor, filename,
+            "unreadable_pdf", request_operation_id, caller,
+        )
 
     if not text or len(text) < 50:
-        return _capture_pending(db, pdf_bytes, user_id, vendor, filename, "empty_or_unreadable")
+        return _capture_pending(
+            db, pdf_bytes, user_id, vendor, filename,
+            "empty_or_unreadable", request_operation_id, caller,
+        )
 
     # Step 2: Parse PDF text into structured data
     parsed = parse_route_pdf(text, date)
 
     # Recognized format but no route/machines found → treat as an unsupported layout.
     if not parsed["route_name"] or not parsed["locations"]:
-        return _capture_pending(db, pdf_bytes, user_id, vendor, filename, "unrecognized_format")
+        return _capture_pending(
+            db, pdf_bytes, user_id, vendor, filename,
+            "unrecognized_format", request_operation_id, caller,
+        )
 
     route_name = parsed["route_name"]
 
-    # Step 3: Delete existing route with same name+date for this user (if any)
-    existing_routes = (
-        db.table("routes")
-        .select("id")
-        .eq("account_id", caller.account_id)
-        .eq("user_id", user_id)
-        .eq("route_name", route_name)
-        .eq("delivery_date", date)
-        .execute()
+    request_hash = hashlib.sha256(
+        pdf_bytes + b"\0" + date.encode() + b"\0" + user_id.encode() + b"\0" +
+        (vendor or "").encode()
+    ).hexdigest()
+
+    # Upload to an operation-specific object before changing database state. A failed
+    # database transaction can leave an unreferenced private object, but it can no longer
+    # overwrite the PDF belonging to the still-valid old route.
+    storage_path = (
+        f"{user_id}/{date}/{request_operation_id}-{request_hash}-"
+        f"{_safe_storage_name(route_name, 'route')}.pdf"
     )
-
-    for existing in existing_routes.data or []:
-        # Cascade-delete children (the FK does NOT auto-cascade) so re-uploading a route
-        # doesn't orphan the old copy's machines/items.
-        old_mids = [m["id"] for m in (db.table("machines").select("id").eq("route_id", existing["id"]).execute().data or [])]
-        for mid in old_mids:
-            db.table("items").delete().eq("machine_id", mid).execute()
-        db.table("machines").delete().eq("route_id", existing["id"]).execute()
-        db.table("sessions").delete().eq("current_route_id", existing["id"]).execute()
-        db.table("routes").delete().eq("id", existing["id"]).execute()
-
-    # Step 4: Upload PDF to Supabase Storage and get URL
-    pdf_url = None
     try:
-        storage_path = f"{user_id}/{date}/{route_name.replace(' ', '_')}.pdf"
         db.storage.from_("route-pdfs").upload(storage_path, pdf_bytes, {
             "content-type": "application/pdf",
+            # The request hash makes this safe: a retry can replace only the byte-identical
+            # request's object, while a reused operation id with different content gets a
+            # different path and is rejected by the transaction below.
             "upsert": "true",
         })
-        pdf_url = f"https://wvtkuposrlvadyeixlke.supabase.co/storage/v1/object/public/route-pdfs/{storage_path}"
+        pdf_url = f"{_SUPABASE_STORAGE_BASE}/{storage_path}"
     except Exception:
-        # Storage upload is optional — don't fail the whole upload
-        pass
+        raise HTTPException(
+            status_code=503,
+            detail="The route report could not be stored. Your previous route is unchanged; please retry.",
+        ) from None
 
-    # Step 5: Get driver name from profile (optional — don't fail upload)
+    # Get driver name from profile (optional — don't fail upload)
     driver_name = None
     try:
         profile_result = (
@@ -207,27 +304,8 @@ async def upload_pdf(
     except Exception:
         pass
 
-    # Step 6: Insert route (with all schema columns)
-    route_insert = (
-        db.table("routes")
-        .insert({
-            "user_id": user_id,
-            "account_id": caller.account_id,
-            "route_name": route_name,
-            "delivery_date": date,
-            "pdf_url": pdf_url,
-            "driver_name": driver_name,
-        })
-        .execute()
-    )
-
-    if not route_insert.data:
-        raise HTTPException(status_code=500, detail="Failed to create route in database")
-    route_id = route_insert.data[0]["id"]
-
-    # Step 6: Insert machines and items (with denormalized fields)
-    total_machines = 0
-    total_items = 0
+    # Flatten the parser result into the exact payload accepted by the transactional RPC.
+    machines = []
     machine_sequence = 0
 
     for location in parsed["locations"]:
@@ -237,38 +315,10 @@ async def upload_pdf(
 
             # Combine ALL same-product items (matches n8n Flatten Data behavior)
             combined_items = _combine_same_product_items(raw_items)
-
             machine_name = machine_data["machine_name"]
-
-            # Insert machine (includes route_name for denormalized queries)
-            machine_insert = (
-                db.table("machines")
-                .insert({
-                    "route_id": route_id,
-                    "route_name": route_name,
-                    "machine_name": machine_name,
-                    "machine_number": machine_data.get("asset_number", 0),
-                    "location_name": location["location_name"],
-                    "sequence": machine_sequence,
-                    "total_items": len(combined_items),
-                    "completed_items": 0,
-                    "status": "pending",
-                })
-                .execute()
-            )
-
-            if not machine_insert.data:
-                db.table("routes").delete().eq("id", route_id).execute()  # don't strand a half-built route
-                raise HTTPException(status_code=500, detail=f"Upload failed on machine '{machine_name}'. No partial route was saved — please retry.")
-            machine_id = machine_insert.data[0]["id"]
-            total_machines += 1
-
-            # Insert items (includes machine_name for denormalized queries)
-            items_to_insert = []
+            items = []
             for idx, item in enumerate(combined_items, start=1):
-                items_to_insert.append({
-                    "machine_id": machine_id,
-                    "machine_name": machine_name,
+                items.append({
                     "product_name": item["product_name"],
                     "quantity": item["quantity"],
                     "slot": item["slot"],
@@ -277,46 +327,56 @@ async def upload_pdf(
                     "inventory_current": item.get("inventory_current", 0),
                     "inventory_parlevel": item.get("inventory_parlevel", 0),
                 })
+            machines.append({
+                "machine_name": machine_name,
+                "machine_number": machine_data.get("asset_number", 0),
+                "location_name": location["location_name"],
+                "sequence": machine_sequence,
+                "items": items,
+            })
 
-            if items_to_insert:
-                try:
-                    db.table("items").insert(items_to_insert).execute()
-                except Exception:
-                    db.table("routes").delete().eq("id", route_id).execute()  # don't strand a half-built route
-                    raise HTTPException(status_code=500, detail=f"Upload failed saving items for '{machine_name}'. No partial route was saved — please retry.")
-                total_items += len(items_to_insert)
-
-    # Guard: if every machine parsed empty, we'd otherwise leave a 0-machine route
-    # that the driver sees listed but errors on ("No machines found"). Reject cleanly.
-    if total_machines == 0:
-        db.table("routes").delete().eq("id", route_id).execute()
+    if not machines:
         raise HTTPException(status_code=400, detail="No machines with items found in PDF.")
 
-    # Step 7: Update route totals
-    db.table("routes").update({
-        "total_machines": total_machines,
-        "total_items": total_items,
-    }).eq("id", route_id).execute()
-
     try:
-        _ensure_route_assignment(db, route_id, user_id, caller.user_id)
+        result = db.rpc("replace_route_upload", {
+            "p_operation_id": request_operation_id,
+            "p_caller_id": caller.user_id,
+            "p_account_id": caller.account_id,
+            "p_driver_id": user_id,
+            "p_request_hash": request_hash,
+            "p_route_name": route_name,
+            "p_delivery_date": date,
+            "p_pdf_url": pdf_url,
+            "p_driver_name": driver_name,
+            "p_machines": machines,
+        }).execute().data
     except Exception as exc:
+        code = getattr(exc, "code", None)
+        message = getattr(exc, "message", "")
+        if code == "42501":
+            _remove_uncommitted_pdf(db, storage_path)
+            raise HTTPException(status_code=403, detail="Not available on this account.") from None
+        if message == "Cannot replace a route with an active session.":
+            _remove_uncommitted_pdf(db, storage_path)
+            raise HTTPException(status_code=409, detail=message) from None
+        if code in {"22023", "55000"}:
+            _remove_uncommitted_pdf(db, storage_path)
+            raise HTTPException(status_code=409, detail="The upload could not be safely matched to this request. Please choose the file again.") from None
         raise HTTPException(
-            status_code=500,
-            detail="Route uploaded, but its driver assignment could not be confirmed. Please retry the assignment from Routes.",
-        ) from exc
+            status_code=503,
+            detail="The route could not be saved safely. Your previous route is unchanged; please retry.",
+        ) from None
+
+    if not isinstance(result, dict) or not result.get("route_id") or result.get("assignment_confirmed") is not True:
+        raise HTTPException(status_code=503, detail="The route save could not be confirmed. Please refresh Routes before retrying.")
 
     warnings = parsed.get("warnings") or []
     response = {
-        "route_id": route_id,
-        "assignment_confirmed": True,
-        "route": route_name,
-        "machines": total_machines,
-        "items": total_items,
+        **result,
         # Surfaced as a first-class field so the driver SEES partial parses instead
         # of a silent short machine. The frontend can warn loudly when this is > 0.
         "items_dropped": len(warnings),
-        "date": date,
         "pdf_url": pdf_url,
         "warnings": warnings,
     }

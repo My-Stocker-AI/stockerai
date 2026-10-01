@@ -36,6 +36,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { uploadConnectionMessage, uploadResponseMessage } from "@/utils/userFacingErrors";
+import { requireConfirmedRouteUpload } from "@/utils/uploadResult";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -269,17 +270,18 @@ const UploadRoutes = () => {
       formData.append('date', format(deliveryDate, 'yyyy-MM-dd'));
       formData.append('user_id', driverId); // Use selected driver ID
       formData.append('vendor', vendor); // Which vending system the report is from
+      // Reuse this id across connection retries. If the first request committed but its
+      // response was lost, the API returns that exact committed result instead of replacing
+      // the route again.
+      formData.append('operation_id', crypto.randomUUID());
 
-      // Send to API (Python or n8n based on env var)
-      const uploadUrl = import.meta.env.VITE_API_BACKEND === 'python'
-        ? 'https://stockerai-api.onrender.com/api/upload-pdf'
-        : 'https://visionairy.app.n8n.cloud/webhook/upload';
+      const uploadUrl = 'https://stockerai-api.onrender.com/api/upload-pdf';
 
       // Mobile's FIRST request after the radio's been idle often fails to connect
       // (DNS/TLS/radio wake) and the retry succeeds — confirmed in the server logs:
       // a driver's first upload never arrived, the second returned 200. Auto-retry
       // the connection so that transient drop never surfaces as "Failed to fetch".
-      // Safe to retry: the backend de-dupes routes by name+date before inserting.
+      // Safe to retry: the backend transaction is bound to operation_id.
       let response: Response | null = null;
       let lastNetErr: unknown = null;
       for (let attempt = 1; attempt <= 4; attempt++) {
@@ -328,46 +330,10 @@ const UploadRoutes = () => {
         return;
       }
 
-      // The Python API returns the exact route and confirms its assignment. Keep the
-      // lookup only for the legacy n8n response during staged rollout.
-      let newRoute: { id: string } | null = result.route_id ? { id: result.route_id } : null;
-      const maxRetries = 5;
-      const deliveryDateStr = format(deliveryDate, 'yyyy-MM-dd');
-
-      for (let attempt = 1; !newRoute && attempt <= maxRetries; attempt++) {
-        // Wait with exponential backoff: 1s, 2s, 4s, 8s, 16s
-        await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, attempt - 1)));
-
-        const { data } = await supabase
-          .from('routes')
-          .select('id')
-          .eq('route_name', result.route)
-          .eq('delivery_date', deliveryDateStr)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .single();
-
-        if (data) {
-          newRoute = data;
-          break;
-        }
-
-        console.log(`[Upload] Route not found, attempt ${attempt}/${maxRetries}`);
-      }
-
-      if (newRoute && driverId && !result.assignment_confirmed) {
-        // Create route assignment for the selected driver
-        const { error: assignmentError } = await supabase
-          .from('route_assignments')
-          .insert({
-            route_id: newRoute.id,
-            user_id: driverId,
-            assigned_by: user.id,
-          });
-        if (assignmentError) throw assignmentError;
-      } else if (!newRoute) {
-        throw new Error('The route was uploaded, but its driver assignment could not be confirmed. Refresh the route list before retrying.');
-      }
+      // Upload success is atomic only when the authenticated API names the exact route and
+      // confirms its assignment. Never recover an ambiguous response with browser-side
+      // database writes or a route-name lookup.
+      requireConfirmedRouteUpload(result);
 
       const driverName = selectedDriverId === 'self' || !selectedDriverId
         ? 'yourself'
