@@ -61,15 +61,15 @@ function emitDiagnostic(type: string, data: unknown) {
   }
 }
 
-interface UseVoiceOptions {
+export interface UseVoiceOptions {
   onMicrophoneRecovered?: () => void;
   /** Discard non-input before queueing, interrupting audio, or acknowledging it. */
   shouldIgnoreTranscript?: (transcript: string) => boolean;
   /** Stable identity for the route/item state a deferred command would act on. */
   commandContextKey?: string;
-  onTranscript?: (transcript: string, isFinal: boolean) => void;
+  onTranscript?: (transcript: string, isFinal: boolean) => void | Promise<void>;
   onError?: (error: string) => void;
-  onWakePhrase?: (command: string | null) => void;
+  onWakePhrase?: (command: string | null) => void | Promise<void>;
   continuous?: boolean;
   keywords?: string[];  // Dynamic keywords for improved recognition (route names, commands)
   environmentEndpointing?: number;  // Deepgram endpointing from environment detection (ms)

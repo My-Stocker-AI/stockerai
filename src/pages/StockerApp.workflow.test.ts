@@ -6,9 +6,10 @@ import { act, cleanup, render } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { useStockerSession } from '@/hooks/useStockerSession';
 import type { useStockerAI } from '@/hooks/useStockerAI';
+import type { UseVoiceOptions, useVoice } from '@/hooks/useVoice';
 
 const fixture = vi.hoisted(() => ({
-  options: null as any, voice: null as any,
+  options: null as UseVoiceOptions | null, voice: null as Partial<ReturnType<typeof useVoice>> | null,
   session: null as ReturnType<typeof useStockerSession> | null,
   ai: null as ReturnType<typeof useStockerAI> | null,
   fetch: vi.fn(), speak: vi.fn(async (_text: string) => {}),
@@ -16,7 +17,7 @@ const fixture = vi.hoisted(() => ({
 vi.mock('react-router-dom', () => ({ useNavigate: () => vi.fn(), useSearchParams: () => [new URLSearchParams()] }));
 vi.mock('@tanstack/react-query', () => ({ useQueryClient: () => ({ invalidateQueries: vi.fn() }) }));
 vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ user: null, loading: true }) }));
-vi.mock('@/hooks/useVoice', () => ({ useVoice: (options: any) => { fixture.options = options; return fixture.voice; } }));
+vi.mock('@/hooks/useVoice', () => ({ useVoice: (options: UseVoiceOptions) => { fixture.options = options; return fixture.voice; } }));
 vi.mock('@/hooks/useStockerSession', async importOriginal => {
   const actual = await importOriginal<typeof import('@/hooks/useStockerSession')>();
   return { ...actual, useStockerSession: (userId: string | null) => {
@@ -44,7 +45,7 @@ const state = () => fixture.session!.routeState;
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 async function say(text: string) {
   clock += 2_000; // deliberate separate utterances, beyond the existing debounce
-  await act(async () => { await fixture.options.onTranscript(text, true); });
+  await act(async () => { await fixture.options!.onTranscript?.(text, true); });
 }
 async function openRoute(two = false) {
   localStorage.setItem('stocker-call-two-items', String(two));
@@ -67,7 +68,7 @@ beforeEach(async () => {
   vi.stubEnv('VITE_API_BACKEND', 'python');
   vi.stubGlobal('fetch', vi.fn(() => { throw new Error('Live network forbidden'); }));
   vi.spyOn(Date, 'now').mockImplementation(() => clock);
-  window.matchMedia = vi.fn(() => ({ matches: false })) as any;
+  window.matchMedia = vi.fn(() => ({ matches: false } as MediaQueryList));
   fixture.voice = {
     status: 'listening', getStatus: () => 'listening', speak: fixture.speak,
     stopListening: vi.fn(), stopAudio: vi.fn(), setAwaitingDirection: vi.fn(),
@@ -81,8 +82,8 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.uns
 it.each([[false, 'top'], [false, 'bottom'], [true, 'top'], [true, 'bottom']])(
   'finishes three machines with interleaved questions: two items=%s, direction=%s', async (two, direction) => {
     let machineIndex = 0, presented = 0, revision = 0;
-    const transitions: any[] = [], questions: any[] = [];
-    const questionRequests: any[] = [];
+    const transitions: Record<string, unknown>[] = [], questions: Record<string, unknown>[] = [];
+    const questionRequests: Record<string, unknown>[] = [];
     fixture.fetch.mockImplementation(async (url: string, options: RequestInit) => {
       const body = JSON.parse(options.body as string);
       if (url.endsWith('/openai-chat')) {
@@ -180,7 +181,7 @@ it('ignores a late conversational answer after the displayed item changes', asyn
   let finish!: (value: Response) => void;
   fixture.fetch.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
   let pending!: Promise<void>;
-  await act(async () => { pending = fixture.options.onTranscript('Is that the original flavor?', true); });
+  await act(async () => { pending = Promise.resolve(fixture.options!.onTranscript?.('Is that the original flavor?', true)).then(() => {}); });
   await act(async () => fixture.session!.setRouteState(previous => ({ ...previous,
     currentItem: { ...previous.currentItem!, product: 'New item' },
   })));
@@ -265,7 +266,7 @@ it('does not speak or restart listening when an answer arrives after leaving the
   let finish!: (value: Response) => void;
   fixture.fetch.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
   let pending!: Promise<void>;
-  await act(async () => { pending = fixture.options.onTranscript('Is that the original flavor?', true); });
+  await act(async () => { pending = Promise.resolve(fixture.options!.onTranscript?.('Is that the original flavor?', true)).then(() => {}); });
   view.unmount();
   await act(async () => { finish(response({ choices: [{ message: { content: 'Late answer' } }] })); await pending; });
   expect(fixture.speak).not.toHaveBeenCalled();

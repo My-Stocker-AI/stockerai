@@ -2,20 +2,48 @@
 import React from 'react';
 import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { UseVoiceOptions } from '@/hooks/useVoice';
+import type { WorkflowResult } from '@/hooks/useStockerSession';
+
+interface TestToolCall { id: string; function: { name: string; arguments: string } }
+interface TestToolResult { tool_call_id?: string; result: WorkflowResult }
+interface TestAIMessage { content: string; tool_calls?: TestToolCall[] }
+type ExecuteTools = (
+  calls: TestToolCall[],
+  onResult?: (name: string, result: WorkflowResult) => void,
+  routeCompleted?: boolean,
+  context?: unknown,
+  resetConfirmed?: boolean,
+) => Promise<TestToolResult[]>;
+interface TestRouteState {
+  routeId: string | null; routeName: string | null; routeDate: string | null;
+  totalMachines: number; currentMachineId: string | null; currentMachineName: string | null;
+  currentMachineIndex: number; currentMachineItemsRemaining: number;
+  machines: Array<{ id: string; name: string; status: string }>;
+  currentItem: { product: string; quantity: number; slot: string; slot_spoken?: string; item_index?: number } | null;
+  currentItem2: null; completedItems: WorkflowResult[]; pendingMachineTransition: { nextMachineId: string; nextMachineName: string; nextMachineIndex: number } | null;
+}
+interface TestVoice {
+  status: string; getStatus: () => string; speak: ReturnType<typeof vi.fn>;
+  stopListening: ReturnType<typeof vi.fn>; stopAudio: ReturnType<typeof vi.fn>;
+  setAwaitingDirection: ReturnType<typeof vi.fn>; setThinking: ReturnType<typeof vi.fn>;
+  resumeListening: ReturnType<typeof vi.fn>; playErrorBeep: ReturnType<typeof vi.fn>;
+  playSuccessBeep: ReturnType<typeof vi.fn>; prefetchTTS: ReturnType<typeof vi.fn>;
+}
 
 const mocks = vi.hoisted(() => ({
-  options: null as any,
-  execute: vi.fn(async (_calls: any[], _onResult?: (name: string, result: unknown) => void) => []), speak: vi.fn(async () => {}),
-  send: vi.fn(async () => ({ content: 'test reply' })),
-  state: null as any,
-  voice: null as any,
+  options: null as unknown as UseVoiceOptions,
+  execute: vi.fn<ExecuteTools>(async () => []), speak: vi.fn(async () => {}),
+  send: vi.fn<() => Promise<TestAIMessage>>(async () => ({ content: 'test reply' })),
+  state: null as unknown as TestRouteState,
+  voice: null as unknown as TestVoice,
   update: vi.fn(), track: vi.fn(),
   loading: true, clear: vi.fn(async () => {}),
 }));
 vi.mock('react-router-dom', () => ({ useNavigate: () => vi.fn(), useSearchParams: () => [new URLSearchParams()] }));
 vi.mock('@tanstack/react-query', () => ({ useQueryClient: () => ({ invalidateQueries: vi.fn() }) }));
 vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ user: null, loading: mocks.loading }) }));
-vi.mock('@/hooks/useVoice', () => ({ useVoice: (options: any) => { mocks.options = options; return mocks.voice; } }));
+vi.mock('@/hooks/useVoice', () => ({ useVoice: (options: UseVoiceOptions) => { mocks.options = options; return mocks.voice; } }));
 vi.mock('@/hooks/useStockerSession', () => ({ useStockerSession: () => ({
   routeState: mocks.state, sessionId: 'disposable-session', messages: [], messagesRef: { current: [] },
   updateFromTool: mocks.update, addMessage: vi.fn(), reset: vi.fn(), setRouteState: vi.fn(),
@@ -38,7 +66,7 @@ beforeEach(() => {
   mocks.execute.mockImplementation(async () => []);
   mocks.send.mockResolvedValue({ content: 'test reply' });
   vi.stubGlobal('fetch', vi.fn(() => { throw new Error('Network forbidden in this test'); }));
-  window.matchMedia = vi.fn(() => ({ matches: false })) as any;
+  window.matchMedia = vi.fn(() => ({ matches: false } as MediaQueryList));
   mocks.voice = {
     status: 'listening', getStatus: () => 'listening', speak: mocks.speak,
     stopListening: vi.fn(), stopAudio: vi.fn(), setAwaitingDirection: vi.fn(),
@@ -61,7 +89,7 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 async function say(text: string) {
-  await act(async () => { await mocks.options.onTranscript(text, true); });
+  await act(async () => { await mocks.options.onTranscript?.(text, true); });
 }
 
 describe('actual StockerApp transcript dispatch with mocked services', () => {
@@ -76,7 +104,7 @@ describe('actual StockerApp transcript dispatch with mocked services', () => {
   });
 
   it('blocks a model-invented mutation at the dispatch boundary', async () => {
-    mocks.send.mockResolvedValue({ content: 'Restarting.', tool_calls: [{ id: 'bad', function: { name: 'start_machine', arguments: '{}' } }] } as any);
+    mocks.send.mockResolvedValue({ content: 'Restarting.', tool_calls: [{ id: 'bad', function: { name: 'start_machine', arguments: '{}' } }] });
     render(React.createElement(StockerApp));
     await say('Is that the original flavor?');
     expect(mocks.send).toHaveBeenCalledOnce();
@@ -86,7 +114,7 @@ describe('actual StockerApp transcript dispatch with mocked services', () => {
 
   it('clears local progress only after the server confirms reset', async () => {
     mocks.loading=false;
-    let finish!: (value: any) => void;
+    let finish!: (value: TestToolResult[]) => void;
     mocks.execute.mockImplementation(() => new Promise(resolve => { finish=resolve; }));
     const view=render(React.createElement(StockerApp));
     fireEvent.click(view.getByRole('button',{name:'Reset Route'}));
@@ -98,7 +126,7 @@ describe('actual StockerApp transcript dispatch with mocked services', () => {
 
   it('a failed server reset keeps local progress and binds to the confirmed target', async () => {
     mocks.loading = false;
-    mocks.execute.mockResolvedValue([{result:{error:'conflict'}}] as any);
+    mocks.execute.mockResolvedValue([{result:{error:'conflict'}}]);
     const view=render(React.createElement(StockerApp));
     fireEvent.click(view.getByRole('button',{name:'Reset Route'}));
     const original=mocks.state;
@@ -106,8 +134,8 @@ describe('actual StockerApp transcript dispatch with mocked services', () => {
     view.rerender(React.createElement(StockerApp));
     await act(async () => {fireEvent.click(view.getAllByRole('button',{name:'Reset Route'})[0]);});
     expect(mocks.execute).toHaveBeenCalledOnce();
-    expect((mocks.execute.mock.calls[0] as any[])[3]).toBe(original);
-    expect((mocks.execute.mock.calls[0] as any[])[4]).toBe(true);
+    expect(mocks.execute.mock.calls[0][3]).toBe(original);
+    expect(mocks.execute.mock.calls[0][4]).toBe(true);
     expect(mocks.clear).not.toHaveBeenCalled();
     expect(view.getByText('Reset could not be confirmed. Reload your saved route before continuing.')).toBeTruthy();
   });
@@ -117,7 +145,7 @@ describe('actual StockerApp transcript dispatch with mocked services', () => {
     mocks.state.machines[0].status = 'skipped';
     mocks.state.pendingMachineTransition = { nextMachineId: 'machine-test', nextMachineName: 'Fixture machine', nextMachineIndex: 1 };
     const before = structuredClone(mocks.state);
-    mocks.execute.mockResolvedValue([{ result: { error: 'Request failed', user_message: 'This machine is still skipped. You can return to the unfinished work or pause for now.' } }] as any);
+    mocks.execute.mockResolvedValue([{ result: { error: 'Request failed', user_message: 'This machine is still skipped. You can return to the unfinished work or pause for now.' } }]);
     render(React.createElement(StockerApp));
     await say(text);
     expect(JSON.parse(mocks.execute.mock.calls[0][0][0].function.arguments).expected_machine_id).toBe('machine-test');
@@ -174,7 +202,7 @@ describe('actual StockerApp transcript dispatch with mocked services', () => {
   });
 
   it('a debounced duplicate is not reported as a speech failure', async () => {
-    mocks.execute.mockResolvedValue([{ result: { ignored: true } }] as any);
+    mocks.execute.mockResolvedValue([{ result: { ignored: true } }]);
     render(React.createElement(StockerApp));
     await say('skip it');
     expect(mocks.speak).not.toHaveBeenCalled();

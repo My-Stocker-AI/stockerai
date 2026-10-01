@@ -14,6 +14,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const getSession = vi.fn();
 const refreshSession = vi.fn();
+const fetchMock = vi.fn<typeof fetch>();
 
 vi.mock('@/integrations/supabase/client', () => ({
   supabase: { auth: { getSession: () => getSession(), refreshSession: () => refreshSession() } },
@@ -29,20 +30,21 @@ function response(status: number) {
 }
 
 function headerOn(call: number): string | undefined {
-  const init = (globalThis.fetch as any).mock.calls[call][1] as RequestInit;
+  const init = fetchMock.mock.calls[call][1] as RequestInit;
   return new Headers(init.headers).get('Authorization') ?? undefined;
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
   vi.spyOn(console, 'warn').mockImplementation(() => {});
-  globalThis.fetch = vi.fn();
+  fetchMock.mockReset();
+  globalThis.fetch = fetchMock;
 });
 
 describe('every call carries the driver login', () => {
   it('attaches the login it has', async () => {
     getSession.mockResolvedValue(withToken('tok-abc'));
-    (globalThis.fetch as any).mockResolvedValue(response(200));
+    fetchMock.mockResolvedValue(response(200));
 
     await authFetch('https://api/x', { method: 'POST' });
 
@@ -52,7 +54,7 @@ describe('every call carries the driver login', () => {
   it('leaves the request alone when nobody is signed in, so the server decides — not the app', async () => {
     getSession.mockResolvedValue(signedOut);
     refreshSession.mockResolvedValue(signedOut);
-    (globalThis.fetch as any).mockResolvedValue(response(401));
+    fetchMock.mockResolvedValue(response(401));
 
     const res = await authFetch('https://api/x');
 
@@ -64,7 +66,7 @@ describe('every call carries the driver login', () => {
     // A warehouse dead-spot is ordinary. Reading or renewing the login throws outright there,
     // and an escaping crash would look like a broken app rather than a lost signal.
     getSession.mockRejectedValue(new Error('Failed to fetch'));
-    (globalThis.fetch as any).mockResolvedValue(response(401));
+    fetchMock.mockResolvedValue(response(401));
 
     const res = await authFetch('https://api/x');
     expect(res.status).toBe(401);
@@ -73,16 +75,16 @@ describe('every call carries the driver login', () => {
   it('fails cleanly when the renewal itself throws mid-route', async () => {
     getSession.mockResolvedValue(withToken('stale-token'));
     refreshSession.mockRejectedValue(new Error('Failed to fetch'));
-    (globalThis.fetch as any).mockResolvedValue(response(401));
+    fetchMock.mockResolvedValue(response(401));
 
     const res = await authFetch('https://api/get-next-item', { method: 'POST', body: '{}' });
     expect(res.status).toBe(401);
-    expect((globalThis.fetch as any).mock.calls).toHaveLength(1);
+    expect(fetchMock.mock.calls).toHaveLength(1);
   });
 
   it('keeps the method, body and any other headers exactly as given', async () => {
     getSession.mockResolvedValue(withToken('tok-abc'));
-    (globalThis.fetch as any).mockResolvedValue(response(200));
+    fetchMock.mockResolvedValue(response(200));
 
     await authFetch('https://api/x', {
       method: 'POST',
@@ -90,7 +92,7 @@ describe('every call carries the driver login', () => {
       body: '{"session_id":"s1"}',
     });
 
-    const init = (globalThis.fetch as any).mock.calls[0][1] as RequestInit;
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
     expect(init.method).toBe('POST');
     expect(init.body).toBe('{"session_id":"s1"}');
     expect(new Headers(init.headers).get('X-Trace')).toBe('keep-me');
@@ -99,11 +101,11 @@ describe('every call carries the driver login', () => {
 
   it('never sets a content type of its own, so a PDF upload keeps its own boundary', async () => {
     getSession.mockResolvedValue(withToken('tok-abc'));
-    (globalThis.fetch as any).mockResolvedValue(response(200));
+    fetchMock.mockResolvedValue(response(200));
 
     await authFetch('https://api/upload-pdf', { method: 'POST', body: new FormData() });
 
-    const init = (globalThis.fetch as any).mock.calls[0][1] as RequestInit;
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
     expect(new Headers(init.headers).get('Content-Type')).toBeNull();
   });
 });
@@ -112,14 +114,14 @@ describe('a login that expires halfway down a machine', () => {
   it('renews it and retries once, so the stocker hears the next item instead of an error', async () => {
     getSession.mockResolvedValue(withToken('stale-token'));
     refreshSession.mockResolvedValue(withToken('fresh-token'));
-    (globalThis.fetch as any)
+    fetchMock
       .mockResolvedValueOnce(response(401))
       .mockResolvedValueOnce(response(200));
 
     const res = await authFetch('https://api/get-next-item', { method: 'POST', body: '{}' });
 
     expect(res.status).toBe(200);
-    expect((globalThis.fetch as any).mock.calls).toHaveLength(2);
+    expect(fetchMock.mock.calls).toHaveLength(2);
     expect(headerOn(0)).toBe('Bearer stale-token');
     expect(headerOn(1)).toBe('Bearer fresh-token');
   });
@@ -127,14 +129,14 @@ describe('a login that expires halfway down a machine', () => {
   it('sends the same body on the retry — the command must not be lost', async () => {
     getSession.mockResolvedValue(withToken('stale-token'));
     refreshSession.mockResolvedValue(withToken('fresh-token'));
-    (globalThis.fetch as any)
+    fetchMock
       .mockResolvedValueOnce(response(401))
       .mockResolvedValueOnce(response(200));
 
     await authFetch('https://api/skip-machine', { method: 'POST', body: '{"session_id":"s1"}' });
 
-    const [, first] = (globalThis.fetch as any).mock.calls[0];
-    const [, second] = (globalThis.fetch as any).mock.calls[1];
+    const [, first] = fetchMock.mock.calls[0];
+    const [, second] = fetchMock.mock.calls[1];
     expect(second.body).toBe(first.body);
     expect(second.method).toBe('POST');
   });
@@ -142,40 +144,40 @@ describe('a login that expires halfway down a machine', () => {
   it('tries exactly once more and then stops, so a signed-out driver fails fast instead of hammering', async () => {
     getSession.mockResolvedValue(withToken('stale-token'));
     refreshSession.mockResolvedValue(withToken('fresh-token'));
-    (globalThis.fetch as any).mockResolvedValue(response(401));
+    fetchMock.mockResolvedValue(response(401));
 
     const res = await authFetch('https://api/x');
 
     expect(res.status).toBe(401);
-    expect((globalThis.fetch as any).mock.calls).toHaveLength(2);
+    expect(fetchMock.mock.calls).toHaveLength(2);
     expect(refreshSession).toHaveBeenCalledTimes(1);
   });
 
   it('gives back the original refusal when the login cannot be renewed at all', async () => {
     getSession.mockResolvedValue(withToken('stale-token'));
     refreshSession.mockResolvedValue({ data: { session: null }, error: { message: 'refresh failed' } });
-    (globalThis.fetch as any).mockResolvedValue(response(401));
+    fetchMock.mockResolvedValue(response(401));
 
     const res = await authFetch('https://api/x');
 
     expect(res.status).toBe(401);
-    expect((globalThis.fetch as any).mock.calls).toHaveLength(1);
+    expect(fetchMock.mock.calls).toHaveLength(1);
   });
 
   it('does not renew on any other failure — a server error is not a login problem', async () => {
     getSession.mockResolvedValue(withToken('tok-abc'));
-    (globalThis.fetch as any).mockResolvedValue(response(500));
+    fetchMock.mockResolvedValue(response(500));
 
     const res = await authFetch('https://api/x');
 
     expect(res.status).toBe(500);
     expect(refreshSession).not.toHaveBeenCalled();
-    expect((globalThis.fetch as any).mock.calls).toHaveLength(1);
+    expect(fetchMock.mock.calls).toHaveLength(1);
   });
 
   it('does not renew on a refusal that means "not your account" — retrying cannot fix that', async () => {
     getSession.mockResolvedValue(withToken('tok-abc'));
-    (globalThis.fetch as any).mockResolvedValue(response(403));
+    fetchMock.mockResolvedValue(response(403));
 
     const res = await authFetch('https://api/x');
 

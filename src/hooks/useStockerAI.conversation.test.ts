@@ -52,5 +52,5 @@ it('retains route-selection tools before a route is selected', async () => {
     { availableRoutes: ['Fixture route'], date: '2099-01-01' });
   const request = JSON.parse(mocks.fetch.mock.calls[0][1].body);
   expect(request.messages[0].content).toContain('ROUTE SELECTION MODE');
-  expect(request.tools.some((t: any) => t.function.name === 'set_route_sequence')).toBe(true);
+  expect(request.tools.some((tool: { function: { name: string } }) => tool.function.name === 'set_route_sequence')).toBe(true);
 });
