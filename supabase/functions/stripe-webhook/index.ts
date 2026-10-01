@@ -1,8 +1,8 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
+import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 
-const logStep = (step: string, details?: any) => {
+const logStep = (step: string, details?: unknown) => {
   const detailsStr = details ? ` - ${JSON.stringify(details)}` : '';
   console.log(`[STRIPE-WEBHOOK] ${step}${detailsStr}`);
 };
@@ -91,7 +91,7 @@ serve(async (req) => {
 });
 
 async function handleSubscriptionChange(
-  supabase: any,
+  supabase: SupabaseClient,
   stripe: Stripe,
   subscription: Stripe.Subscription
 ) {
@@ -200,7 +200,7 @@ async function handleSubscriptionChange(
 }
 
 async function handleSubscriptionDeleted(
-  supabase: any,
+  supabase: SupabaseClient,
   stripe: Stripe,
   subscription: Stripe.Subscription
 ) {
@@ -228,7 +228,7 @@ async function handleSubscriptionDeleted(
   }
 }
 
-async function handlePaymentSucceeded(supabase: any, invoice: Stripe.Invoice) {
+async function handlePaymentSucceeded(supabase: SupabaseClient, invoice: Stripe.Invoice) {
   logStep("Payment succeeded", {
     invoiceId: invoice.id,
     customerId: invoice.customer,
@@ -254,7 +254,7 @@ async function handlePaymentSucceeded(supabase: any, invoice: Stripe.Invoice) {
   }
 }
 
-async function handlePaymentFailed(supabase: any, invoice: Stripe.Invoice) {
+async function handlePaymentFailed(supabase: SupabaseClient, invoice: Stripe.Invoice) {
   logStep("Payment failed", {
     invoiceId: invoice.id,
     customerId: invoice.customer,
@@ -282,7 +282,7 @@ async function handlePaymentFailed(supabase: any, invoice: Stripe.Invoice) {
 }
 
 async function handleCheckoutCompleted(
-  supabase: any,
+  supabase: SupabaseClient,
   stripe: Stripe,
   session: Stripe.Checkout.Session
 ) {

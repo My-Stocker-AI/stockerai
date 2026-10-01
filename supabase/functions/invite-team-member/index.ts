@@ -1,23 +1,23 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
+import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const logStep = (step: string, details?: any) => {
+const logStep = (step: string, details?: unknown) => {
   const detailsStr = details ? ` - ${JSON.stringify(details)}` : '';
   console.log(`[INVITE-TEAM-MEMBER] ${step}${detailsStr}`);
 };
 
 // Retry helper for email send (handles transient failures)
 async function sendInviteWithRetry(
-  supabaseClient: any,
+  supabaseClient: SupabaseClient,
   email: string,
-  inviteData: any,
+  inviteData: Parameters<SupabaseClient["auth"]["admin"]["inviteUserByEmail"]>[1],
   maxRetries = 3
-): Promise<{ success: boolean; error?: any }> {
+): Promise<{ success: boolean; error?: { message: string } }> {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     logStep(`Email send attempt ${attempt}/${maxRetries}`, { email });
 
@@ -622,7 +622,28 @@ serve(async (req) => {
     }
 
     // Success response
-    const response: any = {
+    const response: {
+      success: boolean;
+      message: string;
+      emailSent: boolean;
+      chargeApplied: boolean;
+      user: {
+        id: string;
+        email: string;
+        first_name: string;
+        last_name: string;
+        role: string;
+        is_new_user: boolean;
+      };
+      seat_info: {
+        total_seats: number;
+        used_seats: number;
+        available_seats: number;
+      };
+      billing_sync_failed?: boolean;
+      billing_sync_error?: string;
+      warning?: string;
+    } = {
       success: true,
       message: isNewUser ? "Team member invited successfully" : "Team member updated and re-invited",
       emailSent: true,
