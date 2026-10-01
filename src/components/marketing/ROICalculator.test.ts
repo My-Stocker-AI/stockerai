@@ -11,14 +11,15 @@ test('the calculator starts with no unverified time-saving claim', () => {
   show();
   expect(screen.getByText('$0.00')).toBeTruthy();
   expect(screen.getByText('$100.00/mo')).toBeTruthy();
-  expect(screen.getByText('-$100.00')).toBeTruthy();
+  expect(screen.getByText('Enter a reduction estimate')).toBeTruthy();
+  expect(screen.queryByText('-$100.00')).toBeNull();
   expect((screen.getByLabelText('Your estimated picking-time reduction (%)') as HTMLInputElement).value).toBe('0');
 });
 test('zero picking time has no labor benefit and still includes subscription', () => {
   show();
   fireEvent.change(screen.getByLabelText('Picking hours per route per workday'), {target:{value:'0'}});
   expect(screen.getByText('$0.00')).toBeTruthy();
-  expect(screen.getByText('-$100.00')).toBeTruthy();
+  expect(screen.getByText('Enter a reduction estimate')).toBeTruthy();
 });
 test('driver slider updates savings and applies six-driver pricing', () => {
   show();
@@ -27,7 +28,13 @@ test('driver slider updates savings and applies six-driver pricing', () => {
   fireEvent.keyDown(screen.getByRole('slider'), {key:'ArrowRight'});
   expect(screen.getByText('$0.00')).toBeTruthy();
   expect(screen.getByText('$108.00/mo')).toBeTruthy();
-  expect(screen.getByText('-$108.00')).toBeTruthy();
+  expect(screen.getByText('Enter a reduction estimate')).toBeTruthy();
+});
+test('a below-break-even estimate is described as additional cost, not negative savings', () => {
+  show();
+  fireEvent.change(screen.getByLabelText('Your estimated picking-time reduction (%)'), {target:{value:'1'}});
+  expect(screen.getByText('$65.88 additional monthly cost')).toBeTruthy();
+  expect(screen.queryByText('-$65.88')).toBeNull();
 });
 test('picking time remains adjustable with five workdays assumed', () => {
   show();

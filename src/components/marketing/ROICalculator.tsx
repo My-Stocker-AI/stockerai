@@ -33,6 +33,9 @@ const ROICalculator = () => {
     };
   }, [drivers, hourlyWage, pickingHours, reduction]);
 
+  const hasTimeReductionEstimate = reduction > 0;
+  const hasPositiveNetValue = calculations.netSavings >= 0;
+
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("en-US", {
       style: "currency",
@@ -112,10 +115,24 @@ const ROICalculator = () => {
             </span>
           </div>
           <div className="flex justify-between items-center py-2">
-            <span className="text-lg font-medium text-foreground">Monthly value after subscription</span>
-            <span className="text-2xl font-bold text-primary">
-              {formatCurrency(calculations.netSavings)}
+            <span className="text-lg font-medium text-foreground">
+              {hasTimeReductionEstimate && hasPositiveNetValue
+                ? "Estimated monthly value after subscription"
+                : "Estimated monthly result"}
             </span>
+            {!hasTimeReductionEstimate ? (
+              <span className="text-base font-semibold text-muted-foreground text-right">
+                Enter a reduction estimate
+              </span>
+            ) : hasPositiveNetValue ? (
+              <span className="text-2xl font-bold text-primary">
+                {formatCurrency(calculations.netSavings)}
+              </span>
+            ) : (
+              <span className="text-base font-semibold text-foreground text-right">
+                {formatCurrency(Math.abs(calculations.netSavings))} additional monthly cost
+              </span>
+            )}
           </div>
         </div>
 
