@@ -14,8 +14,11 @@ SHA-256: `AB1701529CDD5AC484DF489A782787D1BAB35B376329BAECA280C2BD1AA5AAFB`
    production application/database versions. Do not infer migration history from GitHub.
 2. Apply only `20260930000000_durable_item_undo.sql` to production Supabase. The function
    is additive and unused by the currently released client.
-3. Verify the exact function definition, service-role execute grant, and denial for
-   `anon` and `authenticated`. Do not run an undo against driver data as a verification.
+3. Run the read-only `docs/operations/durable-undo-verify.sql` catalog query. Require
+   exactly one exact-signature row, `security_definer=true`, the pinned
+   `search_path=public, pg_temp`, `service_role=true`, and `anon/authenticated=false`.
+   Save the returned definition/hash with the release evidence and compare the definition
+   with the reviewed migration. Do not run an undo against driver data as verification.
 4. Merge/deploy the API and frontend only after their independent CI passes. During a
    mixed-version rollout, an old API can refuse the new endpoint without changing progress;
    it must not fall back to browser-only undo.
