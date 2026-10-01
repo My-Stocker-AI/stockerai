@@ -36,6 +36,7 @@ foreach ($container in $containers) {
 $env:STOCKERAI_DB_TESTS = '1'
 $env:STOCKERAI_TEST_SUPABASE_URL = $status.API_URL
 $env:STOCKERAI_TEST_SERVICE_KEY = $status.SERVICE_ROLE_KEY
+$env:STOCKERAI_TEST_ANON_KEY = $status.ANON_KEY
 $env:OPENAI_API_KEY = ''
 Push-Location (Join-Path $repoRoot 'python-api')
 try {
@@ -44,6 +45,7 @@ try {
 } finally {
     Pop-Location
     Remove-Item Env:STOCKERAI_TEST_SERVICE_KEY -ErrorAction SilentlyContinue
+    Remove-Item Env:STOCKERAI_TEST_ANON_KEY -ErrorAction SilentlyContinue
     Remove-Item Env:STOCKERAI_DB_TESTS -ErrorAction SilentlyContinue
     Remove-Item Env:STOCKERAI_TEST_SUPABASE_URL -ErrorAction SilentlyContinue
 }
