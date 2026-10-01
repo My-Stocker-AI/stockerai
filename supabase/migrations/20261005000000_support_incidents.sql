@@ -41,7 +41,7 @@ CREATE POLICY support_incidents_select_own_account ON public.support_incidents
     )
   );
 
-REVOKE ALL ON public.support_incidents FROM anon;
+REVOKE ALL ON public.support_incidents FROM PUBLIC, anon, authenticated;
 GRANT INSERT, SELECT ON public.support_incidents TO authenticated;
 GRANT ALL ON public.support_incidents TO service_role;
 

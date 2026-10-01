@@ -6,7 +6,7 @@ This release adds a driver-facing problem report that stores a bounded, account-
 
 1. Run the backend and frontend tests with no production credentials loaded.
 2. Apply only `20261005000000_support_incidents.sql` to production after confirming the `accounts`, `routes`, `get_user_account_id` and `has_role` prerequisites.
-3. Verify the table, indexes, row-level security, policies and grants through catalog-only queries. Do not insert a report into a customer account as a migration smoke test.
+3. Verify the table, indexes, row-level security, policies and grants through catalog-only queries. Authenticated callers must have only `INSERT` and `SELECT`; `UPDATE` and `DELETE` must remain revoked. Do not insert a report into a customer account as a migration smoke test.
 4. Deploy the exact reviewed backend and frontend commit through the gated release jobs.
 5. Confirm the API health endpoint and exact public frontend assets.
 6. With an explicitly disposable signed-in user and route, submit one report, confirm that route progress does not change, confirm the incident belongs to that user's account, then remove the disposable fixture.
