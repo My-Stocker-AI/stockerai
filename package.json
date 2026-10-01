@@ -12,6 +12,7 @@
     "typecheck": "tsc -p tsconfig.app.json --noEmit",
     "lint": "eslint .",
     "lint:src": "eslint src",
+    "lint:active": "eslint src playwright-tests supabase/functions tailwind.config.ts",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",

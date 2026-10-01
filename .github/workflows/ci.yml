@@ -23,11 +23,11 @@ jobs:
       - name: Type-check
         run: npm run typecheck
 
-      # BLOCKING — shipped frontend source and its unit fixtures must have no lint errors.
-      # Fast Refresh export-shape notices remain visible as warnings while shared UI helpers
-      # are separated deliberately; warnings do not hide runtime/type errors.
-      - name: Lint frontend source
-        run: npm run lint:src
+      # BLOCKING — active frontend, browser-test, Edge-function and build-config code must
+      # have no lint errors. Fast Refresh export-shape notices remain visible as warnings
+      # while shared UI helpers are separated deliberately.
+      - name: Lint active TypeScript
+        run: npm run lint:active
 
       # BLOCKING — a broken build (missing import, syntax error) fails here.
       # This is what would have caught the missing `Settings` import crash.
