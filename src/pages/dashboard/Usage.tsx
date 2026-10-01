@@ -566,7 +566,7 @@ const Usage = () => {
               </table>
             </div>
             <p className="text-xs text-dashboard-text-secondary mt-4">
-              * Each driver can service up to 10 machines per day. Plans automatically adjust to match your usage.
+              * Each driver can service up to 10 machines per day. An account administrator must authorize subscription changes.
             </p>
           </CardContent>
         </Card>

@@ -14,7 +14,7 @@ const Privacy = () => {
       <main className="container mx-auto px-4 py-16 max-w-4xl">
         <div className="bg-white/5 backdrop-blur-sm rounded-lg border border-white/10 p-8 md:p-12">
           <h1 className="text-4xl md:text-5xl font-bold text-white mb-4">Privacy Policy</h1>
-          <p className="text-gray-400 mb-8">Last Updated: January 7, 2025</p>
+          <p className="text-gray-400 mb-8">Last Updated: October 1, 2026</p>
 
           <div className="prose prose-invert prose-lg max-w-none space-y-8 text-gray-300">
 
@@ -45,20 +45,19 @@ const Privacy = () => {
 
               <h3 className="text-xl font-semibold text-white mb-3 mt-6">Voice Audio (Sensory Data)</h3>
               <p>
-                Our application uses voice commands for hands-free picking operations. <strong>Voice audio is
-                processed in real-time and immediately discarded after transcription.</strong> We do not store,
-                record, or retain voice audio data. Audio processing is handled by Deepgram's secure transcription
-                service and is used solely for converting speech to commands.
+                Our application uses voice commands for hands-free picking operations. Voice audio is streamed to
+                Deepgram for real-time transcription. Stocker AI does not intentionally record or store the audio
+                stream. We may retain text transcripts and technical diagnostics when needed to operate, support,
+                secure, and improve the service. Deepgram processes data under its own terms and privacy policy.
               </p>
 
               <h3 className="text-xl font-semibold text-white mb-3 mt-6">Cookies and Tracking Technologies</h3>
               <p>
-                We use cookies and similar tracking technologies to enhance user experience and analyze site traffic:
+                We use browser storage and similar technologies needed to provide the service:
               </p>
               <ul className="list-disc pl-6 space-y-2 mt-3">
-                <li><strong>Essential Cookies:</strong> Required for authentication and core functionality</li>
-                <li><strong>Analytics Cookies:</strong> Google Analytics for visitor behavior and site performance</li>
-                <li><strong>Marketing Cookies:</strong> Only with your consent, for retargeting and conversion tracking</li>
+                <li><strong>Essential storage:</strong> Required for authentication, preferences, recovery, and core functionality</li>
+                <li><strong>No advertising trackers:</strong> The current application does not install advertising or retargeting cookies</li>
               </ul>
             </section>
 
@@ -83,22 +82,17 @@ const Privacy = () => {
 
               <div className="space-y-4 mt-4">
                 <div className="border-l-4 border-teal-500 pl-4">
-                  <p><strong>Google Analytics</strong> - Website analytics and visitor behavior tracking</p>
-                  <p className="text-sm text-gray-400 mt-1">Privacy Policy: <a href="https://policies.google.com/privacy" className="text-teal-400 hover:underline" target="_blank" rel="noopener noreferrer">https://policies.google.com/privacy</a></p>
-                </div>
-
-                <div className="border-l-4 border-teal-500 pl-4">
                   <p><strong>Stripe</strong> - Payment processing and subscription management</p>
                   <p className="text-sm text-gray-400 mt-1">Privacy Policy: <a href="https://stripe.com/privacy" className="text-teal-400 hover:underline" target="_blank" rel="noopener noreferrer">https://stripe.com/privacy</a></p>
                 </div>
 
                 <div className="border-l-4 border-teal-500 pl-4">
-                  <p><strong>OpenAI</strong> - AI-powered route optimization and natural language processing</p>
+                  <p><strong>OpenAI</strong> - Natural-language assistance within the application</p>
                   <p className="text-sm text-gray-400 mt-1">Privacy Policy: <a href="https://openai.com/privacy" className="text-teal-400 hover:underline" target="_blank" rel="noopener noreferrer">https://openai.com/privacy</a></p>
                 </div>
 
                 <div className="border-l-4 border-teal-500 pl-4">
-                  <p><strong>Deepgram</strong> - Voice transcription (real-time processing, no data storage)</p>
+                  <p><strong>Deepgram</strong> - Real-time voice transcription</p>
                   <p className="text-sm text-gray-400 mt-1">Privacy Policy: <a href="https://deepgram.com/privacy" className="text-teal-400 hover:underline" target="_blank" rel="noopener noreferrer">https://deepgram.com/privacy</a></p>
                 </div>
 
@@ -111,13 +105,14 @@ const Privacy = () => {
 
             <section>
               <h2 className="text-2xl font-semibold text-white mb-4">Data Retention</h2>
-              <ul className="list-disc pl-6 space-y-2">
-                <li><strong>Account Information:</strong> Retained while your account is active, plus 90 days after cancellation</li>
-                <li><strong>Route Data:</strong> Retained for 1 year or until you delete it</li>
-                <li><strong>Usage Analytics:</strong> Aggregated data retained for 2 years</li>
-                <li><strong>Voice Audio:</strong> Not stored - processed in real-time and immediately discarded</li>
-                <li><strong>Payment Records:</strong> Retained for 7 years for tax compliance</li>
-              </ul>
+              <p>
+                We retain account, route, usage, support, and diagnostic data for as long as reasonably necessary to
+                provide and secure the service, meet legal obligations, resolve disputes, and enforce agreements.
+                Retention varies by data type and operational need. Stocker AI does not intentionally retain the live
+                voice-audio stream. Stripe maintains payment records under its own retention and legal obligations.
+                You may request deletion by contacting us; limited records may remain where required by law, fraud
+                prevention, security, backup, or legitimate business needs.
+              </p>
             </section>
 
             <section>
@@ -125,11 +120,10 @@ const Privacy = () => {
 
               <h3 className="text-xl font-semibold text-white mb-3 mt-6">All Users</h3>
               <ul className="list-disc pl-6 space-y-2">
-                <li>Access and download your personal data</li>
+                <li>Request access to your personal data</li>
                 <li>Correct inaccurate information</li>
-                <li>Delete your account and associated data</li>
+                <li>Request deletion of your account and associated data, subject to legal exceptions</li>
                 <li>Opt-out of marketing communications</li>
-                <li>Manage cookie preferences</li>
               </ul>
 
               <h3 className="text-xl font-semibold text-white mb-3 mt-6">California Residents (CCPA/CPRA)</h3>
@@ -160,14 +154,12 @@ const Privacy = () => {
             <section>
               <h2 className="text-2xl font-semibold text-white mb-4">Data Security</h2>
               <p>
-                We implement industry-standard security measures to protect your information:
+                We use administrative, technical, and organizational safeguards designed to protect your information:
               </p>
               <ul className="list-disc pl-6 space-y-2 mt-3">
-                <li>End-to-end encryption for data transmission (SSL/TLS)</li>
-                <li>Encrypted storage for sensitive data at rest</li>
-                <li>Regular security audits and penetration testing</li>
-                <li>Multi-factor authentication support</li>
-                <li>Role-based access controls</li>
+                <li>TLS encryption for data transmitted between supported clients and our services</li>
+                <li>Access controls designed to separate customer accounts and user roles</li>
+                <li>Authentication and managed infrastructure provided by established service providers</li>
                 <li>Secure payment processing via PCI-compliant Stripe</li>
               </ul>
               <p className="mt-4">
