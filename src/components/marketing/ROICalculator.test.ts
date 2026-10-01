@@ -7,28 +7,28 @@ import ROICalculator from './ROICalculator';
 beforeEach(() => vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} }));
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const show = () => render(createElement(MemoryRouter, null, createElement(ROICalculator)));
-test('the calculator starts with no unverified time-saving claim', () => {
+test('the calculator starts with the 35% illustrative estimate and correct five-driver math', () => {
   show();
-  expect(screen.getByText('$0.00')).toBeTruthy();
+  expect(screen.getByText('$1,194.38')).toBeTruthy();
   expect(screen.getByText('$100.00/mo')).toBeTruthy();
-  expect(screen.getByText('Enter a reduction estimate')).toBeTruthy();
-  expect(screen.queryByText('-$100.00')).toBeNull();
-  expect((screen.getByLabelText('Your estimated picking-time reduction (%)') as HTMLInputElement).value).toBe('0');
+  expect(screen.getByText('$1,094.38')).toBeTruthy();
+  expect(screen.getByText('Estimated monthly value after subscription')).toBeTruthy();
+  expect((screen.getByLabelText('Your estimated picking-time reduction (%)') as HTMLInputElement).value).toBe('35');
 });
 test('zero picking time has no labor benefit and still includes subscription', () => {
   show();
   fireEvent.change(screen.getByLabelText('Picking hours per route per workday'), {target:{value:'0'}});
   expect(screen.getByText('$0.00')).toBeTruthy();
-  expect(screen.getByText('Enter a reduction estimate')).toBeTruthy();
+  expect(screen.getByText('$100.00 additional monthly cost')).toBeTruthy();
 });
-test('driver slider updates savings and applies six-driver pricing', () => {
+test('driver slider recalculates labor value and applies six-driver pricing', () => {
   show();
   expect(screen.queryByLabelText('Routes picked per workday')).toBeNull();
   expect(screen.queryByLabelText('Picking days per week')).toBeNull();
   fireEvent.keyDown(screen.getByRole('slider'), {key:'ArrowRight'});
-  expect(screen.getByText('$0.00')).toBeTruthy();
+  expect(screen.getByText('$1,433.25')).toBeTruthy();
   expect(screen.getByText('$108.00/mo')).toBeTruthy();
-  expect(screen.getByText('Enter a reduction estimate')).toBeTruthy();
+  expect(screen.getByText('$1,325.25')).toBeTruthy();
 });
 test('a below-break-even estimate is described as additional cost, not negative savings', () => {
   show();
@@ -51,6 +51,7 @@ test('the user controls the assumption from zero to one hundred percent', () => 
   expect(screen.getByText('$853.13')).toBeTruthy();
   fireEvent.change(reduction, {target:{value:'-10'}});
   expect((reduction as HTMLInputElement).value).toBe('0');
+  expect(screen.getByText('Enter a reduction estimate')).toBeTruthy();
   fireEvent.change(reduction, {target:{value:'120'}});
   expect((reduction as HTMLInputElement).value).toBe('100');
   expect(screen.getByText('$3,412.50')).toBeTruthy();
