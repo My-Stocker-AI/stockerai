@@ -87,8 +87,34 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: npx wrangler pages deploy dist --project-name stockerai --branch main --commit-hash "$TARGET_SHA"
 
-      - name: Verify public entry points
+      - name: Verify exact public release
         run: |
-          curl --fail --silent --show-error --retry 6 --retry-all-errors --retry-delay 10 https://www.stocker-ai.com/ > /dev/null
-          curl --fail --silent --show-error --retry 6 --retry-all-errors --retry-delay 10 https://stockerai.pages.dev/ > /dev/null
-          curl --fail --silent --show-error --retry 6 --retry-all-errors --retry-delay 10 https://www.stocker-ai.com/service-worker.js > /dev/null
+          expected_asset="$(grep -oE '/assets/index-[^"]+\.js' dist/index.html | head -n 1)"
+          expected_worker_sha="$(sha256sum dist/sw.js | awk '{print $1}')"
+          [[ -n "$expected_asset" && -n "$expected_worker_sha" ]] || {
+            echo "Could not identify the exact built frontend artifacts" >&2
+            exit 1
+          }
+
+          for origin in https://www.stocker-ai.com https://stockerai.pages.dev; do
+            matched=false
+            for attempt in {1..30}; do
+              curl --fail --silent --show-error --retry 3 --retry-all-errors --retry-delay 5 \
+                "$origin/" -o deployed-index.html
+              curl --fail --silent --show-error --retry 3 --retry-all-errors --retry-delay 5 \
+                "$origin/sw.js" -o deployed-sw.js
+
+              deployed_worker_sha="$(sha256sum deployed-sw.js | awk '{print $1}')"
+              if grep -Fq "$expected_asset" deployed-index.html \
+                  && [[ "$deployed_worker_sha" == "$expected_worker_sha" ]]; then
+                matched=true
+                break
+              fi
+              sleep 10
+            done
+
+            [[ "$matched" == true ]] || {
+              echo "$origin did not publish the exact requested frontend within five minutes" >&2
+              exit 1
+            }
+          done
