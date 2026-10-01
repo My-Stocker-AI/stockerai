@@ -86,7 +86,7 @@ const Pricing = () => {
     {
       question: "What if we exceed our machine limit?",
       answer:
-        "We never interrupt your work. If usage exceeds your plan, we'll adjust your driver count at the next billing cycle.",
+        "We show when your usage exceeds your current driver capacity so an account administrator can add drivers. We do not automatically increase your paid subscription without an authorized change.",
     },
     {
       question: "Can I reduce my driver count?",
@@ -192,7 +192,7 @@ const Pricing = () => {
             <p className="text-sm text-muted-foreground mt-4">
               *Each driver can service up to 10 machines per day.
               <br />
-              Plans automatically adjust to match your usage.
+              Usage reporting helps you identify when your plan needs to change.
             </p>
             <p className="text-xs text-muted-foreground mt-6 max-w-lg mx-auto">
               After signup, you'll select your driver count and add payment info in your dashboard.

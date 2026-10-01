@@ -14,7 +14,7 @@ const Terms = () => {
       <main className="container mx-auto px-4 py-16 max-w-4xl">
         <div className="bg-white/5 backdrop-blur-sm rounded-lg border border-white/10 p-8 md:p-12">
           <h1 className="text-4xl md:text-5xl font-bold text-white mb-4">Terms and Conditions</h1>
-          <p className="text-gray-400 mb-8">Last Updated: January 7, 2025</p>
+          <p className="text-gray-400 mb-8">Last Updated: October 1, 2026</p>
 
           <div className="prose prose-invert prose-lg max-w-none space-y-8 text-gray-300">
 
@@ -34,13 +34,13 @@ const Terms = () => {
               <h2 className="text-2xl font-semibold text-white mb-4">2. Subscription and Billing</h2>
               <p>Pricing based on number of drivers:</p>
               <ul className="list-disc pl-6 space-y-2 mt-3">
-                <li><strong>Starter (1-5 drivers):</strong> $20/driver/month</li>
+                <li><strong>Starter (2-5 drivers):</strong> $20/driver/month</li>
                 <li><strong>Growth (6-20 drivers):</strong> $18/driver/month</li>
                 <li><strong>Scale (21-50 drivers):</strong> $15/driver/month</li>
                 <li><strong>Enterprise (51+ drivers):</strong> Custom pricing</li>
               </ul>
               <p className="mt-4">
-                All subscriptions are billed monthly in advance. Payment processing is handled securely by Stripe.
+                A two-driver minimum applies. All subscriptions are billed monthly in advance. Payment processing is handled securely by Stripe.
               </p>
             </section>
 
