@@ -33,7 +33,6 @@ const ROICalculator = () => {
     };
   }, [drivers, hourlyWage, pickingHours, reduction]);
 
-  const hasTimeReductionEstimate = reduction > 0;
   const hasPositiveNetValue = calculations.netSavings >= 0;
 
   const formatCurrency = (amount: number) => {
@@ -75,7 +74,6 @@ const ROICalculator = () => {
 
           {[
             { id: "picking-hours", label: "Picking hours per route per workday", value: pickingHours, set: setPickingHours, min: 0, max: 24, step: 0.25 },
-            { id: "time-reduction", label: "Your estimated picking-time reduction (%)", value: reduction, set: setReduction, min: 0, max: 100, step: 1 },
           ].map(({ id, label, value, set, min, max, step }) => (
             <div key={id} className="space-y-2">
               <Label htmlFor={id}>{label}</Label>
@@ -84,6 +82,19 @@ const ROICalculator = () => {
                 className="max-w-[120px]" />
             </div>
           ))}
+          <div className="space-y-2">
+            <Label htmlFor="time-reduction">Estimated picking-time reduction</Label>
+            <select
+              id="time-reduction"
+              value={reduction}
+              onChange={(event) => setReduction(Number(event.target.value))}
+              className="flex h-10 w-full max-w-[120px] rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+            >
+              <option value={25}>25%</option>
+              <option value={30}>30%</option>
+              <option value={35}>35%</option>
+            </select>
+          </div>
           {/* Hourly wage input */}
           <div className="space-y-2">
             <Label htmlFor="wage" className="text-base font-medium">
@@ -116,15 +127,11 @@ const ROICalculator = () => {
           </div>
           <div className="flex justify-between items-center py-2">
             <span className="text-lg font-medium text-foreground">
-              {hasTimeReductionEstimate && hasPositiveNetValue
+              {hasPositiveNetValue
                 ? "Estimated monthly value after subscription"
                 : "Estimated monthly result"}
             </span>
-            {!hasTimeReductionEstimate ? (
-              <span className="text-base font-semibold text-muted-foreground text-right">
-                Enter a reduction estimate
-              </span>
-            ) : hasPositiveNetValue ? (
+            {hasPositiveNetValue ? (
               <span className="text-2xl font-bold text-primary">
                 {formatCurrency(calculations.netSavings)}
               </span>
@@ -145,7 +152,7 @@ const ROICalculator = () => {
 
         {/* Footnote */}
         <p className="text-sm text-muted-foreground text-center">
-          Assumes one route per driver per workday, five workdays per week, and 52 working weeks per year. The calculator starts with an illustrative 35% picking-time reduction; adjust it to match your own measured results. Results are not guaranteed, and time freed up is not necessarily a reduction in payroll. Subscription pricing includes a two-driver minimum.
+          Assumes one route per driver per workday, five workdays per week, and 52 working weeks per year. Choose an illustrative 25%, 30%, or 35% picking-time reduction; 35% is selected by default. Results are not guaranteed, and time freed up is not necessarily a reduction in payroll. Subscription pricing includes a two-driver minimum.
         </p>
       </div>
     </div>

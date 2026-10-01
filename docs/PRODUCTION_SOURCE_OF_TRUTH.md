@@ -47,7 +47,7 @@ Last reconciled: 2026-09-30. This document describes the supported product and t
 
 Public pricing currently displayed by the application is $20 per driver/month for 1–5 drivers, $18 for 6–20, $15 for 21–50, and contact sales for 51+, with a two-driver minimum and a 14-day trial. This describes public product copy; complete Stripe entitlement, webhook, and billing reconciliation remains open under findings 13–17.
 
-The ROI calculator is illustrative. It starts with a **35% picking-time reduction** example and allows the operator to adjust that assumption to match measured results. It assumes one route per driver per workday, five workdays per week, and 52 working weeks per year. The driver slider covers 2–50 drivers and applies the displayed per-driver price tier. Time freed is not necessarily payroll savings, and the illustrated result is not a guarantee of speed, accuracy, training time, completion, or payroll reduction.
+The ROI calculator is illustrative. It offers exactly **25%, 30%, and 35% picking-time reduction** choices, with **35% selected by default**. It assumes one route per driver per workday, five workdays per week, and 52 working weeks per year. The driver slider covers 2–50 drivers and applies the displayed per-driver price tier. Time freed is not necessarily payroll savings, and the illustrated result is not a guarantee of speed, accuracy, training time, completion, or payroll reduction.
 
 ## Runtime configuration names
 
