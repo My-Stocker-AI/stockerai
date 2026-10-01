@@ -62,6 +62,9 @@ export type Database = {
           min_drivers_required: number | null
           name: string
           stripe_customer_id: string | null
+          stripe_state_event_created_at: string | null
+          stripe_subscription_id: string | null
+          subscription_current_period_end: string | null
           subscription_status: string | null
           trial_ends_at: string | null
         }
@@ -74,6 +77,9 @@ export type Database = {
           min_drivers_required?: number | null
           name: string
           stripe_customer_id?: string | null
+          stripe_state_event_created_at?: string | null
+          stripe_subscription_id?: string | null
+          subscription_current_period_end?: string | null
           subscription_status?: string | null
           trial_ends_at?: string | null
         }
@@ -86,10 +92,54 @@ export type Database = {
           min_drivers_required?: number | null
           name?: string
           stripe_customer_id?: string | null
+          stripe_state_event_created_at?: string | null
+          stripe_subscription_id?: string | null
+          subscription_current_period_end?: string | null
           subscription_status?: string | null
           trial_ends_at?: string | null
         }
         Relationships: []
+      }
+      billing_checkout_intents: {
+        Row: {
+          account_id: string
+          created_at: string
+          driver_count: number
+          operation_id: string
+          status: string
+          stripe_checkout_session_id: string | null
+          stripe_checkout_url: string | null
+          updated_at: string
+        }
+        Insert: {
+          account_id: string
+          created_at?: string
+          driver_count: number
+          operation_id: string
+          status?: string
+          stripe_checkout_session_id?: string | null
+          stripe_checkout_url?: string | null
+          updated_at?: string
+        }
+        Update: {
+          account_id?: string
+          created_at?: string
+          driver_count?: number
+          operation_id?: string
+          status?: string
+          stripe_checkout_session_id?: string | null
+          stripe_checkout_url?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_checkout_intents_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: true
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       demo_leads: {
         Row: {
@@ -634,6 +684,39 @@ export type Database = {
           },
         ]
       }
+      stripe_webhook_events: {
+        Row: {
+          attempts: number
+          event_created_at: string
+          event_id: string
+          event_type: string
+          last_error: string | null
+          processed_at: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          event_created_at: string
+          event_id: string
+          event_type: string
+          last_error?: string | null
+          processed_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          event_created_at?: string
+          event_id?: string
+          event_type?: string
+          last_error?: string | null
+          processed_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       account_users_view: {
@@ -661,6 +744,18 @@ export type Database = {
       }
     }
     Functions: {
+      apply_stripe_account_state: {
+        Args: {
+          p_account_id: string
+          p_customer_id: string
+          p_driver_count: number
+          p_event_created_at: string
+          p_period_end: string | null
+          p_subscription_id: string
+          p_subscription_status: string
+        }
+        Returns: boolean
+      }
       admin_update_account_access: {
         Args: {
           p_account_id: string
@@ -671,6 +766,31 @@ export type Database = {
         Returns: Database["public"]["Tables"]["accounts"]["Row"]
       }
       can_view_all_routes: { Args: { _user_id: string }; Returns: boolean }
+      claim_stripe_webhook_event: {
+        Args: {
+          p_event_created_at: string
+          p_event_id: string
+          p_event_type: string
+        }
+        Returns: string
+      }
+      complete_billing_checkout: {
+        Args: {
+          p_account_id: string
+          p_operation_id: string
+          p_session_id: string
+          p_session_url: string
+        }
+        Returns: undefined
+      }
+      expire_billing_checkout: {
+        Args: { p_account_id: string; p_operation_id: string }
+        Returns: undefined
+      }
+      finish_stripe_webhook_event: {
+        Args: { p_error?: string | null; p_event_id: string }
+        Returns: undefined
+      }
       generate_demo_discount_code: { Args: never; Returns: string }
       get_top_user_keywords: {
         Args: {
@@ -719,6 +839,20 @@ export type Database = {
           user_uuid: string
         }
         Returns: boolean
+      }
+      reserve_billing_checkout: {
+        Args: {
+          p_account_id: string
+          p_driver_count: number
+          p_operation_id: string
+        }
+        Returns: {
+          driver_count: number
+          operation_id: string
+          status: string
+          stripe_checkout_session_id: string | null
+          stripe_checkout_url: string | null
+        }[]
       }
       update_demo_progress: {
         Args: {

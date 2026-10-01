@@ -61,7 +61,7 @@ const Billing = () => {
         title: "Subscription activated!", 
         description: "Welcome to Stocker AI. Your subscription is now active." 
       });
-      queryClient.invalidateQueries({ queryKey: ['subscription'] });
+      queryClient.invalidateQueries({ queryKey: ['subscription', userRole?.account_id] });
       queryClient.invalidateQueries({ queryKey: ['account'] });
     }
     if (searchParams.get('canceled') === 'true') {
@@ -71,7 +71,7 @@ const Billing = () => {
         variant: "destructive"
       });
     }
-  }, [searchParams, toast, queryClient]);
+  }, [searchParams, toast, queryClient, userRole?.account_id]);
 
   // Fetch account from database
   const { data: account, isLoading: accountLoading } = useQuery({
@@ -92,7 +92,7 @@ const Billing = () => {
 
   // Fetch subscription status from Stripe
   const { data: subscription, isLoading: subscriptionLoading, refetch: refetchSubscription } = useQuery({
-    queryKey: ['subscription'],
+    queryKey: ['subscription', userRole?.account_id],
     queryFn: async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return null;
@@ -111,6 +111,7 @@ const Billing = () => {
 
       return data as SubscriptionData;
     },
+    enabled: !!userRole?.account_id,
     refetchInterval: 60000, // Refresh every minute
   });
 
@@ -160,11 +161,19 @@ const Billing = () => {
         return;
       }
 
+      if (!userRole?.account_id) throw new Error("Company account is not available.");
+      const operationKey = `stockerai-checkout:${userRole.account_id}:${driverCount}`;
+      let operationId = sessionStorage.getItem(operationKey);
+      if (!operationId) {
+        operationId = crypto.randomUUID();
+        sessionStorage.setItem(operationKey, operationId);
+      }
+
       const { data, error } = await supabase.functions.invoke('create-checkout', {
         headers: {
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: { driver_count: driverCount },
+        body: { driver_count: driverCount, operation_id: operationId },
       });
 
       if (error) throw error;
