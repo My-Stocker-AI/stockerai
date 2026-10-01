@@ -6,6 +6,15 @@ const mocks = vi.hoisted(() => ({ fetch: vi.fn() }));
 vi.mock('@/lib/authFetch', () => ({ authFetch: mocks.fetch }));
 import { useStockerAI } from './useStockerAI';
 
+const SESSION_ID = '11111111-1111-4111-8111-111111111111';
+const PICKING_CONTEXT = {
+  routeId: 'route-1',
+  currentMachineId: 'm1',
+  pickDirection: 'forward',
+  pickingRevision: 'revision-1',
+  machines: [{ id: 'm1', completedItems: 1, status: 'in_progress' }],
+};
+
 beforeEach(() => {
   vi.resetAllMocks();
   localStorage.clear();
@@ -14,16 +23,22 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 function tool(name = 'skip_current_machine') {
-  return { id: `test-${name}`, function: { name, arguments: JSON.stringify({ expected_machine_id: 'm1' }) } };
+  const args = {
+    expected_machine_id: 'm1',
+    ...(name === 'start_machine' ? { direction: 'beginning' } : {}),
+  };
+  return { id: `test-${name}`, function: { name, arguments: JSON.stringify(args) } };
 }
 
 it.each([400, 401, 403, 409, 429, 500])('handles HTTP %s without replaying or reporting success', async status => {
   mocks.fetch.mockResolvedValue(new Response(JSON.stringify({ detail: 'Machine is already skipped' }), { status }));
   const { result } = renderHook(() => useStockerAI());
-  result.current.setSession('session', 'test-user');
+  result.current.setSession(SESSION_ID, 'test-user');
   const success = vi.fn();
   let replies: Awaited<ReturnType<typeof result.current.executeToolCalls>> = [];
-  await act(async () => { replies = await result.current.executeToolCalls([tool(), tool('start_machine')], success); });
+  await act(async () => {
+    replies = await result.current.executeToolCalls([tool(), tool('start_machine')], success, false, PICKING_CONTEXT);
+  });
   expect(mocks.fetch).toHaveBeenCalledTimes(1);
   expect(success).not.toHaveBeenCalled();
   expect(replies[0].result.error).toBeTruthy();
@@ -37,9 +52,9 @@ it.each([400, 401, 403, 409, 429, 500])('handles HTTP %s without replaying or re
 it('does not report an HTTP-200 error envelope as success', async () => {
   mocks.fetch.mockResolvedValue(new Response(JSON.stringify({ error: 'internal failure' })));
   const { result } = renderHook(() => useStockerAI());
-  result.current.setSession('session', 'test-user');
+  result.current.setSession(SESSION_ID, 'test-user');
   const success = vi.fn();
-  const replies = await result.current.executeToolCalls([tool()], success);
+  const replies = await result.current.executeToolCalls([tool()], success, false, PICKING_CONTEXT);
   expect(success).not.toHaveBeenCalled();
   expect(replies[0].result.error).toBeTruthy();
 });
@@ -47,9 +62,11 @@ it('does not report an HTTP-200 error envelope as success', async () => {
 it.each(['get_next_item', 'skip_current_machine', 'start_machine'])('does not replay %s after response loss', async name => {
   mocks.fetch.mockRejectedValue(new TypeError('Network response lost after commit'));
   const { result } = renderHook(() => useStockerAI());
-  result.current.setSession('session', 'test-user');
+  result.current.setSession(SESSION_ID, 'test-user');
   let replies: Awaited<ReturnType<typeof result.current.executeToolCalls>> = [];
-  await act(async () => { replies = await result.current.executeToolCalls([tool(name)]); });
+  await act(async () => {
+    replies = await result.current.executeToolCalls([tool(name)], undefined, false, PICKING_CONTEXT);
+  });
   expect(mocks.fetch).toHaveBeenCalledTimes(1);
   expect(replies[0].result.user_message).toContain('Check your saved route');
 });
@@ -57,8 +74,8 @@ it.each(['get_next_item', 'skip_current_machine', 'start_machine'])('does not re
 it('never exposes raw server diagnostics to voice', async () => {
   mocks.fetch.mockResolvedValue(new Response(JSON.stringify({ detail: 'SQL secret database error' }), { status: 500 }));
   const { result } = renderHook(() => useStockerAI());
-  result.current.setSession('session', 'test-user');
-  const replies = await result.current.executeToolCalls([tool()]);
+  result.current.setSession(SESSION_ID, 'test-user');
+  const replies = await result.current.executeToolCalls([tool()], undefined, false, PICKING_CONTEXT);
   expect(JSON.stringify(replies)).not.toContain('SQL secret');
 });
 
@@ -66,13 +83,13 @@ it('passes a successful offer through once with its original target', async () =
   const response = { action: 'offer_go_back', spoken: 'One skipped machine remains.' };
   mocks.fetch.mockResolvedValue(new Response(JSON.stringify(response)));
   const { result } = renderHook(() => useStockerAI());
-  result.current.setSession('session', 'test-user');
+  result.current.setSession(SESSION_ID, 'test-user');
   const success = vi.fn();
-  const replies = await result.current.executeToolCalls([tool()], success);
+  const replies = await result.current.executeToolCalls([tool()], success, false, PICKING_CONTEXT);
   expect(success).toHaveBeenCalledWith('skip_current_machine', response);
   expect(replies[0].result).toEqual(response);
   expect(JSON.parse(mocks.fetch.mock.calls[0][1].body).expected_machine_id).toBe('m1');
-  const duplicate = await result.current.executeToolCalls([tool()], success);
+  const duplicate = await result.current.executeToolCalls([tool()], success, false, PICKING_CONTEXT);
   expect(duplicate[0].result.ignored).toBe(true);
   expect(mocks.fetch).toHaveBeenCalledTimes(1);
   expect(success).toHaveBeenCalledTimes(1);

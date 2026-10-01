@@ -231,6 +231,7 @@ def test_all_commands_are_present():
         "/api/picking-context", "/api/picking-transition", "/api/undo-item", "/api/get-current-status",
         "/api/go-back-to-skipped", "/api/update-session", "/api/resume-state",
         "/api/upload-pdf", "/api/diag", "/api/openai-chat",
+        "/api/route-pdf-url",
     }, sorted(paths)
 
 

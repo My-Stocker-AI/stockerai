@@ -37,7 +37,6 @@ async function say(text: string) {
 }
 beforeEach(async () => {
   vi.resetModules(); vi.clearAllMocks(); localStorage.clear();
-  vi.stubEnv('VITE_API_BACKEND', 'python');
   vi.spyOn(Date, 'now').mockImplementation(() => now);
   vi.stubGlobal('fetch', vi.fn(() => { throw new Error('Live network forbidden'); }));
   window.matchMedia = vi.fn(() => ({ matches: false } as MediaQueryList));

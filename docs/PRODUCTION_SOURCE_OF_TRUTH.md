@@ -7,10 +7,10 @@ Last reconciled: 2026-09-30. This document describes the supported product and t
 | Area | Current fact | Evidence boundary |
 | --- | --- | --- |
 | Primary website | `https://www.stocker-ai.com/` | Intended production identity. The apex, `my-stocker-ai.com`, and `stockerai.pages.dev` currently remain reachable aliases. Redirect behavior is a Cloudflare configuration decision and is not changed by this document. |
-| Frontend | React/TypeScript/Vite PWA on Cloudflare Pages | Remote `main` and last deployed baseline are `5aecfd13d9fc7fd1dff0e06522c657a719c12a1e`; public service worker is `stocker-ai-v12-pair-recovery`. Local review candidates are not production. |
+| Frontend | React/TypeScript/Vite PWA on Cloudflare Pages | Remote `main` and last deployed application baseline are `0e4b8f0cafab6e07ca3ca7e370a153b11ba6d885`; public service worker is `stocker-ai-v13-durable-undo`. Local review candidates and production-only database changes are not deployed application code. |
 | API | FastAPI service `stockerai-api` on Render | Public `/health` returned `status: ok` on 2026-09-30. Exact-commit rollout evidence remains release-specific in the remediation register. |
 | Database/auth | Supabase project `wvtkuposrlvadyeixlke` | Production migration ledger remains unreconciled; never infer that every repository migration was applied. Apply only reviewed migrations in their documented order. |
-| Picking path | Frontend uses the Python API when `VITE_API_BACKEND=python` | Direct Python paths are current. Restricted legacy Edge/n8n compatibility remains operational history, not the primary picking architecture. |
+| Picking path | Frontend uses the authenticated Python API exclusively | Direct Python paths are current. Legacy Edge/n8n material is operational history, not a selectable browser runtime. |
 | Language model | Direct OpenAI chat through the Python API; current configured model is `gpt-4o-mini` | Deterministic commands bypass the model. The model must not invent progress-changing targets. |
 | Speech recognition | Deepgram streaming through the token worker | Browser microphone/device behavior still requires separate physical iOS and Android acceptance. |
 | Text to speech | TTS worker with browser speech fallback | Provider configuration and physical audio routing are release/environment evidence, not guaranteed by source alone. |
@@ -53,7 +53,7 @@ The ROI calculator is illustrative. It starts with **0% assumed time reduction**
 
 Secret values never belong in documentation. Required/used names are:
 
-- Frontend build: `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, `VITE_SUPABASE_PROJECT_ID`, `VITE_API_BACKEND`.
+- Frontend build: `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, `VITE_SUPABASE_PROJECT_ID`.
 - FastAPI runtime: `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`; `OPENAI_API_KEY` is required for conversational chat paths.
 - Optional unsupported-format notifications: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`.
 - Provider workers and Supabase/Stripe functions have separately managed secrets; their values and live presence must be verified in their service consoles without disclosure.

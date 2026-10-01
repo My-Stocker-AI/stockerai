@@ -4,10 +4,7 @@ import { toolFailureMessage } from '@/utils/toolFailure';
 import type { ConversationMessage, CurrentItem, WorkflowResult } from '@/hooks/useStockerSession';
 import { pickingQuestionPrompt, pickingQuestionFallback, type ConversationContext } from '@/utils/pickingConversation';
 
-const PYTHON_API_BASE = 'https://stockerai-api.onrender.com/api';
-const N8N_BASE_URL = 'https://visionairy.app.n8n.cloud/webhook';
-const USE_PYTHON = import.meta.env.VITE_API_BACKEND === 'python';
-const N8N_BASE = USE_PYTHON ? PYTHON_API_BASE : N8N_BASE_URL;
+const API_BASE = 'https://stockerai-api.onrender.com/api';
 
 interface StockerToolCall {
   id: string;
@@ -237,7 +234,7 @@ const TOOLS = [
   }
 ];
 
-const WEBHOOK_MAP: Record<string, string> = USE_PYTHON ? {
+const API_PATHS: Record<string, string> = {
   'get_routes_for_date': '/get-routes',
   'set_route_sequence': '/set-route-sequence',
   'get_next_item': '/get-next-item',
@@ -246,16 +243,8 @@ const WEBHOOK_MAP: Record<string, string> = USE_PYTHON ? {
   'start_machine': '/start-machine',
   'skip_current_machine': '/skip-machine',
   'go_back_to_skipped': '/go-back-to-skipped',
-  'undo_last_item': '/undo-item'
-} : {
-  'get_routes_for_date': '/get-routes',
-  'set_route_sequence': '/set-sequence',
-  'get_next_item': '/next-item-optimized',
-  'get_current_status': 'https://wvtkuposrlvadyeixlke.supabase.co/functions/v1/get-current-status-optimized',
-  'update_session_state': '/update-state',
-  'start_machine': '/start-machine',
-  'skip_current_machine': '/skip-machine',
-  'go_back_to_skipped': '/back-to-skipped'
+  'undo_last_item': '/undo-item',
+  'reset_route': '/picking-transition',
 };
 
 export interface PickingContext {
@@ -788,7 +777,7 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
       ? messages.filter(message => message.role === 'user').slice(-1).map(message => ({ role: 'user', content: message.content }))
       : messages;
     // PRIORITY 1.3 & 1.4: Use retry logic with rate limit detection
-    const response = await fetchWithRetry(`${N8N_BASE}/openai-chat`, {
+    const response = await fetchWithRetry(`${API_BASE}/openai-chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -865,7 +854,7 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
         results.push({ tool_call_id: tc.id, result: { error: 'Reset requires explicit confirmation' } });
         break;
       }
-      const path = name === 'reset_route' && USE_PYTHON ? '/picking-transition' : WEBHOOK_MAP[name];
+      const path = API_PATHS[name];
 
       if (!path) {
         console.error('[Tools] Unknown tool:', name);
@@ -890,13 +879,12 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
       try {
         let requestSession = sessionIdRef.current;
         const requestUser = userIdRef.current;
-        // Construct endpoint URL (full URL if path starts with http, otherwise prepend N8N_BASE)
-        let endpoint = path.startsWith('http') ? path : `${N8N_BASE}${path}`;
+        let endpoint = `${API_BASE}${path}`;
         let progressTarget: Record<string, unknown> = {};
         const transitionAction = ({ get_next_item: 'next', start_machine: 'start',
           skip_current_machine: 'skip', go_back_to_skipped: 'back', reset_route: 'reset',
           undo_last_item: 'undo' } as Record<string, string>)[name];
-        if (transitionAction && USE_PYTHON) {
+        if (transitionAction) {
           const machine = pickingContext?.machines.find(m => m.id === pickingContext.currentMachineId);
           if (!pickingContext || !machine || !Number.isInteger(machine.completedItems) ||
               !['pending', 'in_progress', 'skipped', 'completed'].includes(machine.status || '') ||
@@ -906,7 +894,7 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
           // Old installations saved a browser-generated session ID. Resolve it
           // read-only, only when the entire displayed target matches the server.
           if (!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(requestSession)) {
-            const resumed = await fetchWithTimeout(`${PYTHON_API_BASE}/resume-state`, {
+            const resumed = await fetchWithTimeout(`${API_BASE}/resume-state`, {
               method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
             });
             if (!resumed.ok) throw new Error('Could not resolve saved session');
@@ -924,7 +912,7 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
           let revision = pickingContext.pickingRevision ||
             (bootstrapRevisionRef.current?.session === requestSession ? bootstrapRevisionRef.current.revision : undefined);
           if (!revision) {
-            const contextResponse = await fetchWithTimeout(`${PYTHON_API_BASE}/picking-context`, {
+            const contextResponse = await fetchWithTimeout(`${API_BASE}/picking-context`, {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ session_id: requestSession }),
             });
@@ -944,7 +932,7 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
           if (name === 'start_machine' && (typeof args.direction !== 'string' || !['beginning', 'end'].includes(args.direction))) {
             throw new Error('Invalid start direction');
           }
-          endpoint = `${PYTHON_API_BASE}${name === 'undo_last_item' ? '/undo-item' : '/picking-transition'}`;
+          endpoint = `${API_BASE}${name === 'undo_last_item' ? '/undo-item' : '/picking-transition'}`;
           progressTarget = {
             operation_id: crypto.randomUUID(),
             expected_machine_id: machine.id,
@@ -1063,7 +1051,7 @@ Today's date: ${today}${currentRouteStatus}${routeStateContext}${itemContext}${r
       throw new Error("Hold on, I'm still getting ready. Give me a second to load your route data.");
     }
 
-    const resp = await fetchWithTimeout(`${N8N_BASE}/get-routes`, {
+    const resp = await fetchWithTimeout(`${API_BASE}/get-routes`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

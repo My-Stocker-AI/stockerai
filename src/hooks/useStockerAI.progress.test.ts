@@ -12,7 +12,6 @@ const tool = (name = 'get_next_item', args = {}) => ({ id: 'tool-1', function: {
 
 beforeEach(async () => {
   vi.resetModules(); vi.resetAllMocks(); localStorage.clear();
-  vi.stubEnv('VITE_API_BACKEND', 'python');
   ({ useStockerAI } = await import('./useStockerAI'));
 });
 afterEach(() => { cleanup(); vi.unstubAllEnvs(); });

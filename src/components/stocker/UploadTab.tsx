@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { uploadConnectionMessage, uploadResponseMessage } from "@/utils/userFacingErrors";
+import { requireConfirmedRouteUpload } from "@/utils/uploadResult";
 import { supabase } from "@/integrations/supabase/client";
 import { format, addDays } from "date-fns";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
@@ -120,10 +121,7 @@ export function UploadTab() {
       formData.append('date', format(deliveryDate, 'yyyy-MM-dd'));
       formData.append('user_id', driverId);
 
-      // Send to API (Python or n8n based on env var)
-      const uploadUrl = import.meta.env.VITE_API_BACKEND === 'python'
-        ? 'https://stockerai-api.onrender.com/api/upload-pdf'
-        : 'https://visionairy.app.n8n.cloud/webhook/upload';
+      const uploadUrl = 'https://stockerai-api.onrender.com/api/upload-pdf';
       // Mobile's FIRST request after the radio's been idle often fails to connect
       // (DNS/TLS/radio wake), and the retry succeeds — confirmed in the server logs:
       // the first upload never arrived, the second returned 200. So auto-retry the
@@ -163,42 +161,7 @@ export function UploadTab() {
 
       const result = await response.json();
 
-      // Retry logic to find the newly created route (n8n may take time to insert)
-      let newRoute: { id: string } | null = result.route_id ? { id: result.route_id } : null;
-      const maxRetries = 5;
-      const deliveryDateStr = format(deliveryDate, 'yyyy-MM-dd');
-
-      for (let attempt = 1; !newRoute && attempt <= maxRetries; attempt++) {
-        // Wait with exponential backoff: 1s, 2s, 4s, 8s, 16s
-        await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, attempt - 1)));
-
-        const { data } = await supabase
-          .from('routes')
-          .select('id')
-          .eq('route_name', result.route)
-          .eq('delivery_date', deliveryDateStr)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .single();
-
-        if (data) {
-          newRoute = data;
-          break;
-        }
-      }
-
-      if (newRoute && !result.assignment_confirmed) {
-        const { error: assignmentError } = await supabase
-          .from('route_assignments')
-          .insert({
-            route_id: newRoute.id,
-            user_id: driverId,
-            assigned_by: user.id,
-          });
-        if (assignmentError) throw assignmentError;
-      } else if (!newRoute) {
-        throw new Error('The route was uploaded, but its driver assignment could not be confirmed. Refresh the route list before retrying.');
-      }
+      requireConfirmedRouteUpload(result);
 
       const driverName = selectedDriverId === 'self'
         ? 'yourself'

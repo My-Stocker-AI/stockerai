@@ -4,6 +4,7 @@ PDF upload endpoint:
 """
 
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from app.config import SUPABASE_URL
 from app.services.auth import AuthCaller, Caller, resolve_target_user
 from app.services.database import get_client
 from app.services.pdf_parser import extract_text_from_pdf, parse_route_pdf
@@ -18,7 +19,7 @@ SUPPORTED_VENDORS = {
     "VendSoft", "VendSys", "Vagabond", "Vend-Trak", "VendMAX",
 }
 
-_SUPABASE_STORAGE_BASE = "https://wvtkuposrlvadyeixlke.supabase.co/storage/v1/object/public/route-pdfs"
+_SUPABASE_STORAGE_BASE = f"{SUPABASE_URL}/storage/v1/object/public/route-pdfs"
 
 
 def _ensure_route_assignment(db, route_id: str, driver_id: str, assigned_by: str) -> None:
@@ -184,7 +185,7 @@ async def upload_pdf(
             "content-type": "application/pdf",
             "upsert": "true",
         })
-        pdf_url = f"https://wvtkuposrlvadyeixlke.supabase.co/storage/v1/object/public/route-pdfs/{storage_path}"
+        pdf_url = f"{_SUPABASE_STORAGE_BASE}/{storage_path}"
     except Exception:
         # Storage upload is optional — don't fail the whole upload
         pass

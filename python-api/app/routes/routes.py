@@ -1,6 +1,9 @@
+from urllib.parse import unquote, urlparse
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from app.services.auth import AuthCaller, Caller, assert_route_in_account
+from app.config import SUPABASE_URL
+from app.services.auth import AuthCaller, Caller, assert_route_in_account, forbidden
 from app.services.database import get_client
 
 router = APIRouter()
@@ -17,6 +20,105 @@ class GetRoutesRequest(BaseModel):
 class DeleteRouteRequest(BaseModel):
     route_id: str
     user_id: str | None = None
+
+
+_ROUTE_PDF_BUCKET = "route-pdfs"
+_ROUTE_PDF_TTL_SECONDS = 60
+
+
+def _storage_path_from_reference(reference: str) -> str:
+    """Return the object path from a stored route-PDF reference.
+
+    Existing rows contain the former public URL. Keeping that database value readable lets
+    the bucket become private without a risky customer-row rewrite. New callers never receive
+    the stored reference; they receive a one-minute signed URL instead.
+    """
+    value = (reference or "").strip()
+    if not value:
+        raise ValueError("missing storage reference")
+
+    public_prefix = f"/storage/v1/object/public/{_ROUTE_PDF_BUCKET}/"
+    parsed = urlparse(value)
+    if parsed.scheme or parsed.netloc:
+        expected = urlparse(SUPABASE_URL)
+        if parsed.scheme != expected.scheme or parsed.netloc != expected.netloc:
+            raise ValueError("unexpected storage origin")
+        if not parsed.path.startswith(public_prefix):
+            raise ValueError("unexpected storage path")
+        value = unquote(parsed.path[len(public_prefix):])
+    else:
+        value = value.removeprefix(f"{_ROUTE_PDF_BUCKET}/").lstrip("/")
+
+    parts = value.split("/")
+    if not value or any(part in {"", ".", ".."} for part in parts):
+        raise ValueError("unsafe storage path")
+    return value
+
+
+def _can_view_route_pdf(db, route: dict, caller: Caller) -> bool:
+    """Match the route screen: owner/assignee, or an account-wide route viewer."""
+    if route.get("user_id") == caller.user_id:
+        return True
+
+    assignment = (
+        db.table("route_assignments")
+        .select("route_id")
+        .eq("route_id", route["id"])
+        .eq("user_id", caller.user_id)
+        .limit(1)
+        .execute()
+    )
+    if assignment.data:
+        return True
+
+    membership = (
+        db.table("account_users")
+        .select("role, can_view_all_routes")
+        .eq("account_id", caller.account_id)
+        .eq("user_id", caller.user_id)
+        .limit(1)
+        .execute()
+    )
+    row = membership.data[0] if membership.data else {}
+    return row.get("role") == "primary_admin" or row.get("can_view_all_routes") is True
+
+
+@router.get("/route-pdf-url")
+def get_route_pdf_url(route_id: str, caller: Caller = AuthCaller):
+    """Issue a short-lived URL only after checking the current caller and route."""
+    db = get_client()
+    result = (
+        db.table("routes")
+        .select("id, user_id, account_id, pdf_url")
+        .eq("id", route_id)
+        .limit(1)
+        .execute()
+    )
+    if not result.data or result.data[0].get("account_id") != caller.account_id:
+        raise forbidden()
+
+    route = result.data[0]
+    if not _can_view_route_pdf(db, route, caller):
+        raise forbidden()
+    if not route.get("pdf_url"):
+        raise HTTPException(status_code=404, detail="Route PDF is not available.")
+
+    try:
+        object_path = _storage_path_from_reference(route["pdf_url"])
+        signed = db.storage.from_(_ROUTE_PDF_BUCKET).create_signed_url(
+            object_path,
+            _ROUTE_PDF_TTL_SECONDS,
+        )
+        signed_url = signed.get("signedURL")
+        if not signed_url:
+            raise ValueError("storage did not return a signed URL")
+    except Exception:
+        raise HTTPException(
+            status_code=503,
+            detail="Could not open the route PDF. Try again.",
+        ) from None
+
+    return {"url": signed_url, "expires_in": _ROUTE_PDF_TTL_SECONDS}
 
 
 @router.post("/get-routes")
