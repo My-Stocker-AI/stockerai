@@ -8,6 +8,44 @@ on:
   pull_request:
 
 jobs:
+  changes:
+    name: Release scope
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    outputs:
+      frontend: ${{ steps.scope.outputs.frontend }}
+      backend: ${{ steps.scope.outputs.backend }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: scope
+        name: Classify changed paths
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          TARGET_SHA: ${{ github.sha }}
+        run: |
+          frontend=false
+          backend=false
+
+          if [[ "$BEFORE_SHA" =~ ^0+$ ]] || ! git cat-file -e "$BEFORE_SHA^{commit}" 2>/dev/null; then
+            changed_files="$(git show --pretty=format: --name-only "$TARGET_SHA")"
+          else
+            changed_files="$(git diff --name-only "$BEFORE_SHA" "$TARGET_SHA")"
+          fi
+
+          while IFS= read -r path; do
+            [[ -z "$path" ]] && continue
+            case "$path" in
+              python-api/*) backend=true ;;
+              docs/*|*.md) ;;
+              *) frontend=true ;;
+            esac
+          done <<< "$changed_files"
+
+          echo "frontend=$frontend" >> "$GITHUB_OUTPUT"
+          echo "backend=$backend" >> "$GITHUB_OUTPUT"
+
   frontend:
     name: Frontend (build + tests)
     runs-on: ubuntu-latest
@@ -72,3 +110,21 @@ jobs:
         run: python -m unittest discover -s scripts -p test_check_secrets.py
       - name: Block credential publication
         run: python scripts/check-secrets.py
+
+  deploy_frontend:
+    name: Release frontend after gates
+    needs: [changes, frontend, backend, secrets]
+    if: github.event_name == 'push' && needs.changes.outputs.frontend == 'true'
+    uses: ./.github/workflows/deploy-frontend.yml
+    with:
+      commit_sha: ${{ github.sha }}
+    secrets: inherit
+
+  deploy_backend:
+    name: Release backend after gates
+    needs: [changes, frontend, backend, secrets]
+    if: github.event_name == 'push' && needs.changes.outputs.backend == 'true'
+    uses: ./.github/workflows/deploy-backend.yml
+    with:
+      commit_sha: ${{ github.sha }}
+    secrets: inherit
