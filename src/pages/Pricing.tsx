@@ -9,7 +9,7 @@ const Pricing = () => {
   const plans = [
     {
       name: "Starter",
-      drivers: "1-5 drivers",
+      drivers: "2-5 drivers",
       price: "$20",
       period: "/driver/month",
       description: "Perfect for small operations",
