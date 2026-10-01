@@ -23,6 +23,12 @@ jobs:
       - name: Type-check
         run: npm run typecheck
 
+      # BLOCKING — shipped frontend source and its unit fixtures must have no lint errors.
+      # Fast Refresh export-shape notices remain visible as warnings while shared UI helpers
+      # are separated deliberately; warnings do not hide runtime/type errors.
+      - name: Lint frontend source
+        run: npm run lint:src
+
       # BLOCKING — a broken build (missing import, syntax error) fails here.
       # This is what would have caught the missing `Settings` import crash.
       - name: Build
@@ -32,11 +38,9 @@ jobs:
       - name: Unit tests (vitest)
         run: npm run test
 
-      # REPORT-ONLY for now — 126 lint errors + 18 hook-dependency warnings exist
-      # in the codebase already. Surfaced here so they're visible and can be
-      # ratcheted to blocking after a cleanup pass. New hook warnings should be
-      # treated as bugs (the Start Picking crash was this class).
-      - name: Lint (report-only)
+      # REPORT-ONLY inventory for Edge functions, Playwright and historical n8n code-node
+      # snippets. The blocking source gate above covers the shipped React application.
+      - name: Broader repository lint inventory (report-only)
         run: npm run lint || true
 
   backend:
