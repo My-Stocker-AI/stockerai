@@ -270,6 +270,10 @@ const UploadRoutes = () => {
       formData.append('date', format(deliveryDate, 'yyyy-MM-dd'));
       formData.append('user_id', driverId); // Use selected driver ID
       formData.append('vendor', vendor); // Which vending system the report is from
+      // Reuse this id across connection retries. If the first request committed but its
+      // response was lost, the API returns that exact committed result instead of replacing
+      // the route again.
+      formData.append('operation_id', crypto.randomUUID());
 
       const uploadUrl = 'https://stockerai-api.onrender.com/api/upload-pdf';
 
@@ -277,7 +281,7 @@ const UploadRoutes = () => {
       // (DNS/TLS/radio wake) and the retry succeeds — confirmed in the server logs:
       // a driver's first upload never arrived, the second returned 200. Auto-retry
       // the connection so that transient drop never surfaces as "Failed to fetch".
-      // Safe to retry: the backend de-dupes routes by name+date before inserting.
+      // Safe to retry: the backend transaction is bound to operation_id.
       let response: Response | null = null;
       let lastNetErr: unknown = null;
       for (let attempt = 1; attempt <= 4; attempt++) {

@@ -120,6 +120,8 @@ export function UploadTab() {
       formData.append('pdf', file);
       formData.append('date', format(deliveryDate, 'yyyy-MM-dd'));
       formData.append('user_id', driverId);
+      // One id for every network attempt makes a lost response safely retryable.
+      formData.append('operation_id', crypto.randomUUID());
 
       const uploadUrl = 'https://stockerai-api.onrender.com/api/upload-pdf';
       // Mobile's FIRST request after the radio's been idle often fails to connect
