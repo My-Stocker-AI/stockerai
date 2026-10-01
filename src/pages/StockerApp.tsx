@@ -10,6 +10,12 @@ import { resolveFailureSpeech, classifyFailure, type FailureKind } from '@/hooks
 import { isConnectionError, pickingConnectionMessage } from '@/utils/userFacingErrors';
 import { resolveTranscriptGate, gateReason } from '@/hooks/transcriptGate';
 import { CONFIRM_PROMPT, resolveUnknownReply } from '@/utils/commandGuess';
+import {
+  capturePendingConfirmation,
+  invalidatePendingConfirmation,
+  pendingConfirmationStatus,
+  type PendingCommandConfirmation,
+} from '@/utils/pendingCommandConfirmation';
 import { isBareNumber } from '@/utils/spokenNumber';
 import { resolveLocalIntent } from '@/utils/localCommandIntent';
 import { pickingContextKey, pickingQuestionFallback } from '@/utils/pickingConversation';
@@ -256,8 +262,9 @@ export default function StockerApp() {
   const voiceRef = useRef<ReturnType<typeof useVoice> | null>(null); // Ref to hold voice methods for callbacks
   const startFreshRef = useRef<() => Promise<void>>(async () => {});
   const triggerRouteStartRef = useRef<(routeName: string) => void>(() => {});
-  // The command the app just asked about ("Next item?"). A yes on the next turn runs it.
-  const pendingGuessRef = useRef<PickingCommand | null>(null);
+  // A command the app asked about ("Next item?"), bound to its route context and lifetime.
+  // Invalidations remain as a tombstone so a later "yes" cannot become a fresh next command.
+  const pendingGuessRef = useRef<PendingCommandConfirmation | null>(null);
 
   // SIBLING SWEEP 2026-07-30 — handleVoiceError is useCallback([]), so it can NEVER read
   // routeState directly: that closure is frozen at mount and currentItem would read null for
@@ -348,6 +355,20 @@ export default function StockerApp() {
   // Counting is not a command while actively picking. Use the same predicate at the
   // microphone boundary and direct/touch injection boundary, before any side effects.
   // Route/date selection and top/bottom handoffs keep their existing input semantics.
+  const currentCommandMachine = routeState.machines.find(machine => machine.id === routeState.currentMachineId);
+  const commandContextKey = JSON.stringify([
+    sessionId,
+    routeState.routeId,
+    routeState.pickingRevision ?? null,
+    routeState.currentMachineId,
+    currentCommandMachine?.status ?? null,
+    currentCommandMachine?.completedItems ?? null,
+    routeState.currentItem?.slot ?? null,
+    routeState.currentItem2?.slot ?? null,
+    routeState.pendingMachineTransition?.nextMachineId ?? null,
+    routeState.pickDirection,
+  ]);
+
   const shouldIgnoreTranscript = useCallback((transcript: string) => {
     return !!routeState.routeName && !routeState.pendingMachineTransition &&
       routeState.machines.some(m => m.id === routeState.currentMachineId && m.status === 'in_progress') &&
@@ -385,10 +406,12 @@ export default function StockerApp() {
 
     // Handle voice pause/mute/continue commands locally (from original PWA)
     if (lower === 'pause' || lower === 'stop listening') {
+      pendingGuessRef.current = invalidatePendingConfirmation(pendingGuessRef.current);
       v.pauseListening();
       return;
     }
     if (lower === 'mute' || lower === 'mute mic' || lower === 'mute microphone') {
+      pendingGuessRef.current = invalidatePendingConfirmation(pendingGuessRef.current);
       v.mute();
       return;
     }
@@ -411,6 +434,7 @@ export default function StockerApp() {
 
     // Handle repeat commands - repeat last AI response. See the note above the undo check.
     if (localIntent === 'repeat') {
+      pendingGuessRef.current = null;
       processingRef.current = true;
 
       // Check if 2-item mode is enabled
@@ -490,17 +514,30 @@ export default function StockerApp() {
       // If the last thing the app said was "Next item?", a yes runs it and a no drops it.
       // Anything else is treated as a fresh command, so he is never trapped in the question.
       if (pendingGuessRef.current) {
-        const guessed = pendingGuessRef.current;
+        const pending = pendingGuessRef.current;
         pendingGuessRef.current = null;
 
-        if (
+        const affirmative =
           commandMatch.command === PickingCommand.AFFIRMATIVE ||
-          /^(yes|yeah|yep|yup|sure|correct|right|do it|go ahead|please)$/.test(lower)
-        ) {
-          console.log('[CommandGuess] ✓ confirmed:', guessed);
-          commandMatch = { command: guessed, confidence: 1, parameters: {} };
-        } else if (/^(no|nope|nah|negative|cancel|never ?mind|forget it)$/.test(lower)) {
-          console.log('[CommandGuess] ✗ declined:', guessed);
+          /^(yes|yeah|yep|yup|sure|correct|right|do it|go ahead|please)$/.test(lower);
+        const negative = /^(no|nope|nah|negative|cancel|never ?mind|forget it)$/.test(lower);
+
+        if (affirmative || negative) {
+          const status = pendingConfirmationStatus(pending, commandContextKey);
+          if (status !== 'current') {
+            console.log('[CommandGuess] discarded:', status, pending.command);
+            const msg = 'That confirmation expired. Please say the command again.';
+            setAiResponse(msg);
+            await v.speak(msg);
+            return;
+          }
+        }
+
+        if (affirmative) {
+          console.log('[CommandGuess] ✓ confirmed:', pending.command);
+          commandMatch = { command: pending.command, confidence: 1, parameters: {} };
+        } else if (negative) {
+          console.log('[CommandGuess] ✗ declined:', pending.command);
           const msg = 'Okay.';
           setAiResponse(msg);
           await v.speak(msg);
@@ -523,7 +560,7 @@ export default function StockerApp() {
       ) {
         const prompt = CONFIRM_PROMPT[commandMatch.command];
         if (prompt) {
-          pendingGuessRef.current = commandMatch.command;
+          pendingGuessRef.current = capturePendingConfirmation(commandMatch.command, commandContextKey);
           setAiResponse(prompt);
           await v.speak(prompt);
           processingRef.current = false;
@@ -1044,7 +1081,7 @@ export default function StockerApp() {
         const reply = resolveUnknownReply(correctedTranscript);
         if (reply.ask && reply.guess) {
           console.log('[CommandGuess] ? asking:', reply.guess.command, 'from', reply.guess.matched);
-          pendingGuessRef.current = reply.guess.command;
+          pendingGuessRef.current = capturePendingConfirmation(reply.guess.command, commandContextKey);
           setAiResponse(reply.phrase);
           await v.speak(reply.phrase);
           processingRef.current = false;
@@ -1319,7 +1356,7 @@ export default function StockerApp() {
     } finally {
       processingRef.current = false;
     }
-  }, [userName, sessionId, routeState, addMessage, sendToAI, executeToolCalls, updateFromTool, retryCount, messagesRef, availableRoutes, shouldIgnoreTranscript, aiResponse, lastItemPair, routeSelectionDate, setRouteState, trackKeywords]);
+  }, [userName, sessionId, routeState, addMessage, sendToAI, executeToolCalls, updateFromTool, retryCount, messagesRef, availableRoutes, shouldIgnoreTranscript, aiResponse, lastItemPair, routeSelectionDate, setRouteState, trackKeywords, commandContextKey]);
 
   const handleWakePhrase = useCallback(async (command: string | null) => {
     const v = voiceRef.current;
@@ -1351,6 +1388,7 @@ export default function StockerApp() {
 
   // Smart error handler - detects mic permission issues and rate limits
   const handleVoiceError = useCallback((errorMsg: string) => {
+    pendingGuessRef.current = invalidatePendingConfirmation(pendingGuessRef.current);
     const lower = errorMsg.toLowerCase();
 
     // SIBLING SWEEP 2026-07-30 — say it out loud, not just on screen.
@@ -1408,13 +1446,7 @@ export default function StockerApp() {
   const voice = useVoice({
     onMicrophoneRecovered: () => setError(current => current === 'Microphone disconnected — tap to reconnect.' ? null : current),
     shouldIgnoreTranscript,
-    commandContextKey: JSON.stringify([
-      sessionId,
-      routeState.currentMachineId,
-      routeState.currentItem?.slot ?? null,
-      routeState.currentItem2?.slot ?? null,
-      routeState.pendingMachineTransition?.nextMachineId ?? null,
-    ]),
+    commandContextKey,
     onTranscript: handleTranscript,
     onError: handleVoiceError,
     onWakePhrase: handleWakePhrase,
@@ -2129,6 +2161,7 @@ export default function StockerApp() {
   }, [routeState, voice.status, handleTranscript]);
 
   const handleBackToDashboard = () => {
+    pendingGuessRef.current = invalidatePendingConfirmation(pendingGuessRef.current);
     voice.stopAudio();      // Stop any speaking immediately
     voice.stopListening();  // Stop microphone
 
@@ -2157,6 +2190,7 @@ export default function StockerApp() {
 
       // If 3 taps within 1 second, show diagnostics AND attempt recovery
       if (tapTimesRef.current.length >= 3) {
+        pendingGuessRef.current = invalidatePendingConfirmation(pendingGuessRef.current);
         console.log('[Triple-Tap] Triggered - showing diagnostics and attempting voice recovery');
         setShowDiagnostics(true);
         tapTimesRef.current = [];
@@ -2219,6 +2253,7 @@ export default function StockerApp() {
     if (voice.status === 'muted') {
       voice.unmute();
     } else {
+      pendingGuessRef.current = invalidatePendingConfirmation(pendingGuessRef.current);
       voice.mute();
       // Say which kind of hold this is, at the moment he creates it. Pause and Mute now behave
       // differently — one still hears the app's name, the other does not — and an orange button
@@ -2246,6 +2281,7 @@ export default function StockerApp() {
     if (voice.status === 'paused' || voice.status === 'muted') {
       voice.unmute();
     } else {
+      pendingGuessRef.current = invalidatePendingConfirmation(pendingGuessRef.current);
       voice.pauseListening();
       // The counterpart to the Mute message: this is the hold that DOES still hear his name,
       // and he has no way to know that from an orange button alone.
@@ -2263,10 +2299,12 @@ export default function StockerApp() {
     }
 
     // Otherwise show confirmation
+    pendingGuessRef.current = invalidatePendingConfirmation(pendingGuessRef.current);
     setShowStopConfirm(true);
   };
 
   const confirmStop = async () => {
+    pendingGuessRef.current = invalidatePendingConfirmation(pendingGuessRef.current);
     voice.stopAudio();
     voice.stopListening();
     await saveSessionState();

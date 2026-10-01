@@ -16,6 +16,7 @@ type ExecuteTools = (
   resetConfirmed?: boolean,
 ) => Promise<TestToolResult[]>;
 interface TestRouteState {
+  pickingRevision?: string;
   routeId: string | null; routeName: string | null; routeDate: string | null;
   totalMachines: number; currentMachineId: string | null; currentMachineName: string | null;
   currentMachineIndex: number; currentMachineItemsRemaining: number;
@@ -26,6 +27,7 @@ interface TestRouteState {
 interface TestVoice {
   status: string; getStatus: () => string; speak: ReturnType<typeof vi.fn>;
   stopListening: ReturnType<typeof vi.fn>; stopAudio: ReturnType<typeof vi.fn>;
+  pauseListening: ReturnType<typeof vi.fn>; mute: ReturnType<typeof vi.fn>; unmute: ReturnType<typeof vi.fn>;
   setAwaitingDirection: ReturnType<typeof vi.fn>; setThinking: ReturnType<typeof vi.fn>;
   resumeListening: ReturnType<typeof vi.fn>; playErrorBeep: ReturnType<typeof vi.fn>;
   playSuccessBeep: ReturnType<typeof vi.fn>; prefetchTTS: ReturnType<typeof vi.fn>;
@@ -70,10 +72,12 @@ beforeEach(() => {
   mocks.voice = {
     status: 'listening', getStatus: () => 'listening', speak: mocks.speak,
     stopListening: vi.fn(), stopAudio: vi.fn(), setAwaitingDirection: vi.fn(),
+    pauseListening: vi.fn(), mute: vi.fn(), unmute: vi.fn(),
     setThinking: vi.fn(), resumeListening: vi.fn(), playErrorBeep: vi.fn(),
     playSuccessBeep: vi.fn(), prefetchTTS: vi.fn(),
   };
   mocks.state = {
+    pickingRevision: 'revision-one',
     routeId: 'route-test', routeName: 'Fixture', routeDate: '2099-01-01',
     totalMachines: 3, currentMachineId: 'machine-test', currentMachineName: 'Fixture machine', currentMachineIndex: 0,
     currentMachineItemsRemaining: 4,
@@ -266,6 +270,49 @@ describe('actual StockerApp transcript dispatch with mocked services', () => {
     await say('yes');
     expect(mocks.execute).toHaveBeenCalledOnce();
     expect(mocks.execute.mock.calls[0][0][0].function.name).toBe('get_next_item');
+  });
+
+  it('refuses a confirmation after the authoritative picking context changes', async () => {
+    const view = render(React.createElement(StockerApp));
+    await say('nexxt');
+    mocks.state = { ...mocks.state, pickingRevision: 'revision-two' };
+    view.rerender(React.createElement(StockerApp));
+    await say('yes');
+    expect(mocks.execute).not.toHaveBeenCalled();
+    expect(mocks.speak).toHaveBeenLastCalledWith('That confirmation expired. Please say the command again.');
+  });
+
+  it('refuses an affirmative response after a confirmation expires', async () => {
+    const now = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
+    try {
+      render(React.createElement(StockerApp));
+      await say('nexxt');
+      clock.mockReturnValue(now + 15_001);
+      await say('yes');
+    } finally {
+      clock.mockRestore();
+    }
+    expect(mocks.execute).not.toHaveBeenCalled();
+    expect(mocks.speak).toHaveBeenLastCalledWith('That confirmation expired. Please say the command again.');
+  });
+
+  it('invalidates a pending mutation when voice capture fails', async () => {
+    render(React.createElement(StockerApp));
+    await say('nexxt');
+    act(() => mocks.options.onError?.('Voice connection lost'));
+    await say('yes');
+    expect(mocks.execute).not.toHaveBeenCalled();
+    expect(mocks.speak).toHaveBeenLastCalledWith('That confirmation expired. Please say the command again.');
+  });
+
+  it.each(['pause', 'mute'])('invalidates a pending mutation on an explicit %s', async hold => {
+    render(React.createElement(StockerApp));
+    await say('nexxt');
+    await say(hold);
+    await say('yes');
+    expect(mocks.execute).not.toHaveBeenCalled();
+    expect(mocks.speak).toHaveBeenLastCalledWith('That confirmation expired. Please say the command again.');
   });
 
   it('passes numeric input through when choosing a route or date', async () => {
