@@ -38,6 +38,10 @@ FORBIDDEN_MESSAGE = "Not available on this account."
 _JWKS_URL = f"{SUPABASE_URL}/auth/v1/.well-known/jwks.json"
 _ISSUER = f"{SUPABASE_URL}/auth/v1"
 _ALGORITHMS = ["ES256", "RS256", "HS256"]
+# Supabase and the API can observe a newly issued token a few seconds apart while their
+# clocks converge. Keep this deliberately small: it prevents false 401s immediately after
+# sign-in without materially extending an expired token's life.
+CLOCK_SKEW_LEEWAY_SECONDS = 30
 
 _jwk_client: PyJWKClient | None = None
 
@@ -86,6 +90,7 @@ def _verify_token(token: str) -> dict:
             algorithms=_ALGORITHMS,
             audience="authenticated",
             issuer=_ISSUER,
+            leeway=CLOCK_SKEW_LEEWAY_SECONDS,
             options={"require": ["exp", "sub"]},
         )
     except Exception:
