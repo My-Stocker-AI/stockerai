@@ -7,6 +7,7 @@ import { AlertCircle, Loader2 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { clearPasswordFlow, readPasswordFlow } from "@/lib/authRecovery";
 
 const SetPassword = () => {
   const navigate = useNavigate();
@@ -16,13 +17,17 @@ const SetPassword = () => {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [passwordFlow] = useState(readPasswordFlow);
 
   // Redirect if not logged in
   useEffect(() => {
-    if (!authLoading && !user) {
-      navigate('/login');
+    if (authLoading) return;
+    if (!user) {
+      navigate('/login', { replace: true });
+    } else if (!passwordFlow) {
+      navigate('/dashboard', { replace: true });
     }
-  }, [user, authLoading, navigate]);
+  }, [user, authLoading, navigate, passwordFlow]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -57,8 +62,9 @@ const SetPassword = () => {
         return;
       }
 
+      clearPasswordFlow();
       toast.success("Password set successfully!");
-      navigate("/dashboard");
+      navigate("/dashboard", { replace: true });
     } catch (err) {
       setError("Failed to set password. Please try again.");
       setLoading(false);

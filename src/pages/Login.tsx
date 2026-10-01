@@ -1,14 +1,16 @@
 import { useState, useEffect } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AlertCircle, Loader2 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
+import { passwordFlowFromUrl, rememberPasswordFlow } from "@/lib/authRecovery";
 
 const Login = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
   const { signIn, resetPassword, user, loading: authLoading } = useAuth();
   
@@ -22,9 +24,15 @@ const Login = () => {
   // Redirect if already logged in
   useEffect(() => {
     if (!authLoading && user) {
-      navigate('/dashboard');
+      const passwordFlow = passwordFlowFromUrl(location.search, location.hash);
+      if (passwordFlow) {
+        rememberPasswordFlow(passwordFlow);
+        navigate('/set-password', { replace: true });
+      } else {
+        navigate('/dashboard');
+      }
     }
-  }, [user, authLoading, navigate]);
+  }, [user, authLoading, location.hash, location.search, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
