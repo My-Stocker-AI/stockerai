@@ -1,6 +1,12 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
+import {
+  BillingContractError,
+  MINIMUM_BILLABLE_SEATS,
+  STRIPE_API_VERSION,
+  requirePrimaryAdministrator,
+} from "../_shared/billing-contract.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -21,7 +27,8 @@ serve(async (req) => {
     logStep("Function started");
 
     const stripeKey = Deno.env.get("STRIPE_SECRET_KEY");
-    if (!stripeKey) throw new Error("STRIPE_SECRET_KEY is not set");
+    const priceId = Deno.env.get("STRIPE_PRICE_ID");
+    if (!stripeKey || !priceId) throw new BillingContractError(503, "Billing is not configured.");
 
     const supabaseClient = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
@@ -31,26 +38,32 @@ serve(async (req) => {
 
     // Authenticate the requesting user
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader) throw new Error("No authorization header");
+    if (!authHeader) throw new BillingContractError(401, "No authorization header");
 
     const token = authHeader.replace("Bearer ", "");
     const { data: userData, error: userError } = await supabaseClient.auth.getUser(token);
-    if (userError) throw new Error(`Authentication error: ${userError.message}`);
+    if (userError) throw new BillingContractError(401, "Sign in to continue.");
 
     const user = userData.user;
-    if (!user?.email) throw new Error("User not authenticated");
-    logStep("User authenticated", { userId: user.id, email: user.email });
+    if (!user) throw new BillingContractError(401, "Sign in to continue.");
+    logStep("User authenticated", { userId: user.id });
 
     // Get account info
     const { data: accountUser } = await supabaseClient
       .from('account_users')
-      .select('account_id, accounts:account_id(stripe_customer_id, is_platform_account)')
+      .select('account_id, role, can_upload_routes, accounts:account_id(stripe_customer_id, is_platform_account)')
       .eq('user_id', user.id)
       .single();
 
     if (!accountUser?.accounts) {
-      throw new Error("Account not found");
+      throw new BillingContractError(403, "A single company membership is required.");
     }
+
+    requirePrimaryAdministrator({
+      accountId: accountUser.account_id,
+      role: accountUser.role,
+      canUploadRoutes: accountUser.can_upload_routes === true,
+    });
 
     const account = Array.isArray(accountUser.accounts)
       ? accountUser.accounts[0]
@@ -73,51 +86,56 @@ serve(async (req) => {
       throw new Error("No Stripe customer ID - user must subscribe first");
     }
 
-    // Count current active drivers in account
+    // The product's one billable-seat definition is shared with invitation
+    // enforcement: drivers plus operational admins, with a two-seat minimum.
     const { data: activeDrivers, error: countError } = await supabaseClient
       .from('account_users')
-      .select('id, role')
+      .select('id, role, can_upload_routes')
       .eq('account_id', accountUser.account_id);
 
     if (countError) throw countError;
 
-    const driverCount = activeDrivers?.filter(u => u.role === 'driver').length || 0;
+    const billableSeatCount = activeDrivers?.filter((membership) =>
+      membership.role === 'driver' ||
+      (membership.role === 'primary_admin' && membership.can_upload_routes === true)
+    ).length || 0;
+    const driverCount = Math.max(MINIMUM_BILLABLE_SEATS, billableSeatCount);
     logStep("Active driver count calculated", { driverCount, totalUsers: activeDrivers?.length });
 
-    // Helper function to determine tier price based on driver count
-    const getTierPrice = (count: number): number => {
-      if (count <= 5) return 20;
-      if (count <= 20) return 18;
-      return 15;
-    };
-
-    const stripe = new Stripe(stripeKey, { apiVersion: "2025-08-27.basil" });
+    const stripe = new Stripe(stripeKey, { apiVersion: STRIPE_API_VERSION });
 
     // Get current subscription
     const subscriptions = await stripe.subscriptions.list({
       customer: stripeCustomerId,
-      status: 'active',
-      limit: 1,
+      status: 'all',
+      limit: 100,
     });
 
-    if (subscriptions.data.length === 0) {
+    const subscription = subscriptions.data.find((candidate) =>
+      candidate.status === 'active' || candidate.status === 'trialing'
+    );
+    if (!subscription) {
       throw new Error("No active subscription found");
     }
-
-    const subscription = subscriptions.data[0];
-    const subscriptionItem = subscription.items.data[0];
+    const subscriptionItem = subscription.items.data.find((item) => item.price.id === priceId);
+    if (!subscriptionItem) {
+      throw new BillingContractError(409, "The active subscription does not contain the configured StockerAI price.");
+    }
     const currentQuantity = subscriptionItem.quantity || 0;
-    const currentPricePerDriver = (subscriptionItem.price.unit_amount || 0) / 100; // Convert cents to dollars
 
     logStep("Current subscription", {
       subscriptionId: subscription.id,
       currentQuantity,
       newQuantity: driverCount,
-      currentPricePerDriver
     });
 
     // Only update if quantity changed
     if (currentQuantity === driverCount) {
+      const { error: reconciliationError } = await supabaseClient
+        .from('accounts')
+        .update({ driver_count: driverCount })
+        .eq('id', accountUser.account_id);
+      if (reconciliationError) throw new Error(`Account reconciliation failed: ${reconciliationError.message}`);
       logStep("Quantity unchanged - no update needed");
       return new Response(JSON.stringify({
         success: true,
@@ -144,49 +162,19 @@ serve(async (req) => {
       status: updatedSubscription.status
     });
 
-    // Check if tier should change at renewal
-    const newTierPrice = getTierPrice(driverCount);
-    let tierChangeMessage = "";
-
-    if (newTierPrice !== currentPricePerDriver) {
-      logStep("⚠️ TIER CHANGE NEEDED AT RENEWAL", {
-        accountId: accountUser.account_id,
-        currentDriverCount: currentQuantity,
-        newDriverCount: driverCount,
-        currentPricePerDriver: currentPricePerDriver,
-        newTierPrice: newTierPrice,
-        priceDirection: newTierPrice > currentPricePerDriver ? "INCREASE" : "DECREASE",
-        action_required: "Update Stripe price at next renewal or create webhook handler"
-      });
-
-      tierChangeMessage = ` Tier will change from $${currentPricePerDriver} to $${newTierPrice}/driver at next renewal.`;
-
-      // TODO: Implement automatic tier change at renewal
-      // Options:
-      // 1. Create separate Stripe Price IDs for each tier (price_stocker_tier1_20, price_stocker_tier2_18, price_stocker_tier3_15)
-      // 2. Use Stripe Subscription Schedules to schedule price change
-      // 3. Implement webhook handler for invoice.created to adjust price before invoicing
-      //
-      // For MVP: Log the tier change and handle manually in Stripe dashboard
-    }
-
     // Update accounts table
     const { error: updateError } = await supabaseClient
       .from('accounts')
       .update({ driver_count: driverCount })
       .eq('id', accountUser.account_id);
 
-    if (updateError) {
-      logStep("Warning: Failed to update account driver_count", { error: updateError.message });
-    }
+    if (updateError) throw new Error(`Subscription changed but account reconciliation failed: ${updateError.message}`);
 
     return new Response(JSON.stringify({
       success: true,
       driver_count: driverCount,
       subscription_id: updatedSubscription.id,
-      current_price_per_driver: currentPricePerDriver,
-      new_tier_price: newTierPrice !== currentPricePerDriver ? newTierPrice : null,
-      message: `Subscription updated to ${driverCount} drivers. Prorated charge applied at $${currentPricePerDriver}/driver.${tierChangeMessage}`
+      message: `Subscription updated to ${driverCount} billable seats. Stripe calculated the proration from the configured price.`
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 200,
@@ -194,6 +182,7 @@ serve(async (req) => {
 
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
+    const status = error instanceof BillingContractError ? error.status : 500;
     logStep("ERROR in update-subscription-quantity", { message: errorMessage });
 
     return new Response(JSON.stringify({
@@ -201,7 +190,7 @@ serve(async (req) => {
       error: errorMessage
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
-      status: 500,
+      status,
     });
   }
 });

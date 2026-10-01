@@ -7,7 +7,11 @@ export default defineConfig({
     environment: 'node',
     // playwright-tests/**: the browser-fixture logic that decides what a test route contains.
     // It is pure and belongs under unit test even though it serves the browser suite.
-    include: ['src/**/*.test.ts', 'playwright-tests/**/*.test.ts'],
+    include: [
+      'src/**/*.test.ts',
+      'playwright-tests/**/*.test.ts',
+      'supabase/functions/_shared/**/*.test.ts',
+    ],
   },
   resolve: {
     alias: {

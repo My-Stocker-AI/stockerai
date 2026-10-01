@@ -27,3 +27,7 @@ verify_jwt = false
 
 [functions.update-subscription-quantity]
 verify_jwt = false
+
+# Stripe authenticates this server-to-server endpoint with its signed payload.
+[functions.stripe-webhook]
+verify_jwt = false
