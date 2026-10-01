@@ -33,26 +33,38 @@ if (!TEST_EMAIL?.endsWith('@example.invalid')) throw new Error('Disposable test 
 const PROJECT_REF = SUPABASE_URL.split('//')[1].split('.')[0];
 const STORAGE_KEY = `sb-${PROJECT_REF}-auth-token`;
 
+type BrowserSession = Record<string, unknown> & { access_token: string };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
 /** Signs in for real and returns the session the browser would hold afterwards. */
-async function signIn(email: string) {
-  const link = await fetch(`${SUPABASE_URL}/auth/v1/admin/generate_link`, {
+async function signIn(email: string): Promise<BrowserSession> {
+  const link: unknown = await fetch(`${SUPABASE_URL}/auth/v1/admin/generate_link`, {
     method: 'POST',
     headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ type: 'magiclink', email }),
   }).then((r) => r.json());
 
-  const session = await fetch(`${SUPABASE_URL}/auth/v1/verify`, {
+  if (!isRecord(link) || typeof link.hashed_token !== 'string') {
+    throw new Error('Could not generate a disposable test login link');
+  }
+
+  const session: unknown = await fetch(`${SUPABASE_URL}/auth/v1/verify`, {
     method: 'POST',
     headers: { apikey: ANON_KEY, 'Content-Type': 'application/json' },
     body: JSON.stringify({ type: 'magiclink', token_hash: link.hashed_token }),
   }).then((r) => r.json());
 
-  expect(session.access_token, 'could not sign in for the test').toBeTruthy();
-  return session;
+  if (!isRecord(session) || typeof session.access_token !== 'string') {
+    throw new Error('Could not sign in for the disposable browser test');
+  }
+  return { ...session, access_token: session.access_token };
 }
 
 /** Puts the signed-in session where the app looks for it, before any app code runs. */
-async function beSignedIn(page: Page, session: any) {
+async function beSignedIn(page: Page, session: BrowserSession) {
   await page.addInitScript(
     ([key, value]) => window.localStorage.setItem(key as string, value as string),
     [STORAGE_KEY, JSON.stringify(session)],

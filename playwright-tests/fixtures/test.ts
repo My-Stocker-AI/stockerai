@@ -19,15 +19,22 @@ import { randomUUID } from 'node:crypto';
 import { seedRoute, destroyRoute, type SeededRoute, type SeedOptions } from './seedRoute';
 import { requireLocalTarget } from './testSafety';
 
+type RouteShape = {
+  machines?: SeedOptions['machines'];
+  itemsPerMachine?: SeedOptions['itemsPerMachine'];
+  deliveryDate?: SeedOptions['deliveryDate'];
+  driverName?: SeedOptions['driverName'];
+};
+
 export interface FixtureFixtures {
   /** Shape of the seeded route. Override per test with `test.use({ routeShape: {...} })`. */
-  routeShape: Pick<SeedOptions, 'machines' | 'itemsPerMachine' | 'deliveryDate' | 'driverName'>;
+  routeShape: RouteShape;
   fixtureRoute: SeededRoute;
   localNetwork: void;
 }
 
 export const test = base.extend<FixtureFixtures>({
-  localNetwork: [async ({ context }, use) => {
+  localNetwork: [async ({ context }, provide) => {
     await context.route('**/*', async route => {
       const url = new URL(route.request().url());
       try { requireLocalTarget(url.origin); }
@@ -40,18 +47,18 @@ export const test = base.extend<FixtureFixtures>({
       catch { socket.close(); return; }
       socket.connectToServer();
     });
-    await use();
+    await provide();
   }, { auto: true }],
   routeShape: [{ machines: 3, itemsPerMachine: 5 }, { option: true }],
 
-  fixtureRoute: async ({ routeShape }, use, testInfo) => {
+  fixtureRoute: async ({ routeShape }, provide, testInfo) => {
     const runId = `w${testInfo.workerIndex}-${randomUUID().slice(0, 8)}`;
 
     const seeded = await seedRoute({ ...routeShape, runId });
     testInfo.annotations.push({ type: 'fixture-route', description: seeded.routeName });
 
     try {
-      await use(seeded);
+      await provide(seeded);
     } finally {
       // Runs even when the test fails or times out — a stray route poisons the next run.
       await destroyRoute(seeded.routeId);

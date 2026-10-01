@@ -10,18 +10,25 @@
 // 5 items, which North (2 machines, 159 items) never matched, so they could not have passed
 // honestly either. Both problems go away with a route the test owns.
 import { test, expect } from './fixtures/test';
+import type { Page } from '@playwright/test';
+
+declare global {
+  interface Window {
+    __testInjectTranscript: (transcript: string) => void;
+  }
+}
 
 // Helper to inject transcript directly (bypasses real voice)
-async function injectTranscript(page: any, text: string) {
+async function injectTranscript(page: Page, text: string) {
   await page.evaluate((transcript: string) => {
-    (window as any).__testInjectTranscript(transcript);
+    window.__testInjectTranscript(transcript);
   }, text);
   // Wait for processing to complete
   await page.waitForTimeout(500);
 }
 
 // Helper to set up mock Supabase auth session
-async function setupMockAuth(page: any) {
+async function setupMockAuth(page: Page) {
   // Mock auth session in localStorage (Supabase storage key)
   // Use REAL user UUID (russ@visionairy.biz) - matches globalSetup.ts
   const mockSession = {
@@ -40,7 +47,7 @@ async function setupMockAuth(page: any) {
     }
   };
 
-  await page.addInitScript((session: any) => {
+  await page.addInitScript((session) => {
     // Supabase stores session in localStorage with a specific key format
     const supabaseKey = 'sb-wvtkuposrlvadyeixlke-auth-token';
     localStorage.setItem(supabaseKey, JSON.stringify(session));
