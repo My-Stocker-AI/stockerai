@@ -553,7 +553,7 @@ const Billing = () => {
               >
                 <p className="text-xs text-dashboard-text-secondary">Starter</p>
                 <p className="text-lg font-bold text-dashboard-text">$20</p>
-                <p className="text-xs text-dashboard-text-secondary">1-5 drivers</p>
+                <p className="text-xs text-dashboard-text-secondary">2-5 drivers</p>
               </div>
               <div 
                 className={`p-3 rounded-lg border cursor-pointer transition-colors ${

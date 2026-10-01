@@ -20,7 +20,7 @@ const Home = () => {
     {
       question: "How does pricing work?",
       answer:
-        "$20/driver/month for 1-5 drivers, $18 for 6-20 drivers, $15 for 21-50 drivers. Adjust your driver count anytime - changes apply next billing cycle.",
+        "$20/driver/month for 2-5 drivers, $18 for 6-20 drivers, $15 for 21-50 drivers. Adjust your driver count anytime - changes apply next billing cycle.",
     },
     {
       question: "Is there a minimum?",
@@ -323,7 +323,7 @@ const Home = () => {
 
           <div className="grid md:grid-cols-3 gap-6 max-w-4xl mx-auto mb-10">
             {[
-              { drivers: "1-5 drivers", price: "$20", label: "per driver/mo" },
+              { drivers: "2-5 drivers", price: "$20", label: "per driver/mo" },
               { drivers: "6-20 drivers", price: "$18", label: "per driver/mo" },
               { drivers: "21-50 drivers", price: "$15", label: "per driver/mo" },
             ].map((tier, index) => (
