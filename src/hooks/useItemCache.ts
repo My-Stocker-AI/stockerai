@@ -1,5 +1,6 @@
 import { useCallback, useRef } from 'react';
 import { authFetch } from '@/lib/authFetch';
+import type { WorkflowResult } from '@/hooks/useStockerSession';
 
 /**
  * Priority 3: Client-Side Item Prefetching
@@ -11,7 +12,7 @@ import { authFetch } from '@/lib/authFetch';
  */
 
 interface CachedItem {
-  result: any;
+  result: WorkflowResult;
   timestamp: number;
   itemIndex: number;
 }
@@ -26,7 +27,7 @@ export function useItemCache() {
   /**
    * Get item from cache if available and not expired
    */
-  const getCachedItem = useCallback((sessionId: string, itemIndex: number): any | null => {
+  const getCachedItem = useCallback((sessionId: string, itemIndex: number): WorkflowResult | null => {
     const key = `${sessionId}_${itemIndex}`;
     const cached = cacheRef.current.get(key);
 
@@ -49,7 +50,7 @@ export function useItemCache() {
   /**
    * Store item in cache
    */
-  const setCachedItem = useCallback((sessionId: string, itemIndex: number, result: any) => {
+  const setCachedItem = useCallback((sessionId: string, itemIndex: number, result: WorkflowResult) => {
     const key = `${sessionId}_${itemIndex}`;
     cacheRef.current.set(key, {
       result,
@@ -99,7 +100,7 @@ export function useItemCache() {
             console.warn('[ItemCache] Prefetch failed for', key, ':', resp.status);
             return;
           }
-          const result = await resp.json();
+          const result = await resp.json() as WorkflowResult;
 
           // Only cache if it's actually an item (not next_machine or route_complete)
           if (result.action === 'next_item') {
@@ -109,8 +110,8 @@ export function useItemCache() {
             console.log('[ItemCache] Skipping cache - action is:', result.action);
           }
         })
-        .catch((e) => {
-          console.warn('[ItemCache] Prefetch error for', key, ':', e.message);
+        .catch((e: unknown) => {
+          console.warn('[ItemCache] Prefetch error for', key, ':', e instanceof Error ? e.message : String(e));
         });
     }
   }, [setCachedItem]);

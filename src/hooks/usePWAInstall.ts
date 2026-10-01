@@ -5,6 +5,8 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
 }
 
+type StandaloneNavigator = Navigator & { standalone?: boolean };
+
 export function usePWAInstall() {
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [isInstallable, setIsInstallable] = useState(false);
@@ -18,7 +20,7 @@ export function usePWAInstall() {
     }
 
     // Check iOS standalone
-    if ((navigator as any).standalone === true) {
+    if ((navigator as StandaloneNavigator).standalone === true) {
       setIsInstalled(true);
       return;
     }

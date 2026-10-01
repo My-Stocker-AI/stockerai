@@ -9,6 +9,9 @@ interface LoginScreenProps {
   onForgotPassword: (email: string) => Promise<void>;
 }
 
+const errorMessage = (error: unknown, fallback: string) =>
+  error instanceof Error && error.message ? error.message : fallback;
+
 export function LoginScreen({ onLogin, onSignup, onForgotPassword }: LoginScreenProps) {
   const [isSignupMode, setIsSignupMode] = useState(false);
   const [email, setEmail] = useState("");
@@ -49,8 +52,8 @@ export function LoginScreen({ onLogin, onSignup, onForgotPassword }: LoginScreen
       } else {
         await onLogin(email, password);
       }
-    } catch (err: any) {
-      setError(err.message || "Authentication failed. Please try again.");
+    } catch (err: unknown) {
+      setError(errorMessage(err, "Authentication failed. Please try again."));
     } finally {
       setIsLoading(false);
     }
@@ -68,8 +71,8 @@ export function LoginScreen({ onLogin, onSignup, onForgotPassword }: LoginScreen
     try {
       await onForgotPassword(email);
       setSuccess("Password reset email sent!");
-    } catch (err: any) {
-      setError(err.message || "Failed to send reset email");
+    } catch (err: unknown) {
+      setError(errorMessage(err, "Failed to send reset email"));
     } finally {
       setIsLoading(false);
     }

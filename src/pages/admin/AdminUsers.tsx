@@ -29,6 +29,12 @@ interface Account {
   }[];
 }
 
+interface AccountUserRow {
+  user_id: string;
+  role: string;
+  profiles: { email: string | null; first_name: string | null; last_name: string | null } | null;
+}
+
 const AdminUsers = () => {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState(true);
@@ -62,7 +68,7 @@ const AdminUsers = () => {
             `)
             .eq('account_id', account.id);
 
-          const users = (usersData || []).map((u: any) => ({
+          const users = ((usersData || []) as unknown as AccountUserRow[]).map(u => ({
             id: u.user_id,
             email: u.profiles?.email || 'N/A',
             role: u.role,

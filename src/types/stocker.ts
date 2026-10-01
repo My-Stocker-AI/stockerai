@@ -19,7 +19,7 @@ export interface RouteState {
   currentMachineId?: string | null;
   currentItem: RouteItem | null;
   completedItems: RouteItem[];
-  machines?: any[];
+  machines?: unknown[];
   completed: boolean;
 }
 

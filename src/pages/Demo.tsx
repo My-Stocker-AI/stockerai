@@ -75,7 +75,7 @@ const Demo = () => {
 
       // Navigate to live demo
       navigate('/demo/live');
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Demo signup error:', err);
       setError("Something went wrong. Please try again.");
     } finally {
