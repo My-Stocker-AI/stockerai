@@ -2,54 +2,11 @@
  * PHONETIC CORRECTION FOR DIRECTION COMMANDS
  *
  * Problem: Deepgram transcribes "bottom" as "bam", "bomb", "batman", etc.
- * Solution: Client-side phonetic similarity matching - ZERO LATENCY
+ * Solution: match only curated speech-service alternatives - ZERO LATENCY
  *
  * When awaiting direction (top/bottom), only 2 choices exist.
- * Use phonetic similarity to correct common mishearings.
+ * Unknown or weak matches stay unclear so the picker can clarify.
  */
-
-/**
- * Calculate simple phonetic similarity (0-1)
- * Uses consonant skeleton matching (drops vowels)
- */
-function phoneticSimilarity(word1: string, word2: string): number {
-  // Extract consonant skeleton
-  const skeleton1 = word1.toLowerCase().replace(/[aeiou\s]/g, '');
-  const skeleton2 = word2.toLowerCase().replace(/[aeiou\s]/g, '');
-
-  // Levenshtein distance on consonant skeletons
-  const maxLen = Math.max(skeleton1.length, skeleton2.length);
-  if (maxLen === 0) return 1;
-
-  const distance = levenshteinDistance(skeleton1, skeleton2);
-  return 1 - (distance / maxLen);
-}
-
-function levenshteinDistance(s1: string, s2: string): number {
-  const len1 = s1.length;
-  const len2 = s2.length;
-  const matrix: number[][] = [];
-
-  for (let i = 0; i <= len1; i++) {
-    matrix[i] = [i];
-  }
-  for (let j = 0; j <= len2; j++) {
-    matrix[0][j] = j;
-  }
-
-  for (let i = 1; i <= len1; i++) {
-    for (let j = 1; j <= len2; j++) {
-      const cost = s1[i - 1] === s2[j - 1] ? 0 : 1;
-      matrix[i][j] = Math.min(
-        matrix[i - 1][j] + 1,      // deletion
-        matrix[i][j - 1] + 1,      // insertion
-        matrix[i - 1][j - 1] + cost // substitution
-      );
-    }
-  }
-
-  return matrix[len1][len2];
-}
 
 /**
  * Known mishearings for "bottom" (from production data)
@@ -151,48 +108,9 @@ export function detectDirection(transcript: string): 'top' | 'bottom' | null {
     return 'top';
   }
 
-  // Phonetic similarity fallback.
-  //
-  // SURVEY FIX 2026-07-30 — this scores only the FIRST word, on the premise that the whole
-  // utterance is one garbled direction word. That premise does not hold for a sentence, and
-  // scoring the first word of one turned "stop the truck" and "pop is out" into "top". Anything
-  // longer than a short answer is left alone; a real direction answer is one or two words.
-  // Real two-word answers ("the top", "bottom up", "at bottom") are already covered by the
-  // phrase lists above, so the scoring fallback only ever needs a single word. Allowing two let
-  // "stop it" through as "top".
-  const words = lower.split(/\s+/).filter(Boolean);
-  if (words.length !== 1) {
-    return null;
-  }
-
-  // Extract first word (usually the misheard direction)
-  const firstWord = words[0] || '';
-
-  const bottomScore = phoneticSimilarity(firstWord, 'bottom');
-  const topScore = phoneticSimilarity(firstWord, 'top');
-
-  // Aggressive threshold: 0.4 (40% similar) - only 2 choices, be aggressive
-  const THRESHOLD = 0.4;
-
-  // If clearly "top", return top
-  if (topScore > 0.5 && topScore > bottomScore) {
-    console.log('[PhoneticCorrection] Detected "top" from:', transcript, { topScore, bottomScore });
-    return 'top';
-  }
-
-  // If clearly "bottom", return bottom
-  if (bottomScore > THRESHOLD && bottomScore > topScore) {
-    console.log('[PhoneticCorrection] Detected "bottom" from:', transcript, { bottomScore, topScore });
-    return 'bottom';
-  }
-
-  // Fallback: If awaiting direction and not clearly "top", assume "bottom"
-  // Rationale: "bottom" has more phonetic variations, users say it more often
-  if (bottomScore > topScore && bottomScore > 0.3) {
-    console.log('[PhoneticCorrection] Defaulting to "bottom" (weak match):', transcript, { bottomScore, topScore });
-    return 'bottom';
-  }
-
+  // Only explicitly curated, observed speech-service alternatives are automatic.
+  // A weak phonetic score cannot establish a direction safely: leave it unknown so
+  // the route asks the picker to repeat or clarify instead of silently choosing.
   return null;
 }
 

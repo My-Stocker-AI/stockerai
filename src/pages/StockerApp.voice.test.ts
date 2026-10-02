@@ -97,7 +97,7 @@ async function say(text: string) {
 }
 
 describe('actual StockerApp transcript dispatch with mocked services', () => {
-  it.each(['top bottom', 'from the top or from the bottom', 'bottom top bottom', 'stop stop', 'pop pop'])('does not start a handoff from ambiguous repetition: %s', async text => {
+  it.each(['top bottom', 'from the top or from the bottom', 'bottom top bottom', 'stop stop', 'pop pop', 'bat'])('does not start a handoff from ambiguous or weak speech: %s', async text => {
     mocks.state.currentItem = null;
     mocks.state.pendingMachineTransition = { nextMachineId: 'machine-test', nextMachineName: 'Fixture machine', nextMachineIndex: 1 };
     render(React.createElement(StockerApp));
