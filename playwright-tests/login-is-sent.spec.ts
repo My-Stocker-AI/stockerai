@@ -19,124 +19,17 @@
  */
 
 import { test, expect } from './fixtures/test';
-import type { Page } from '@playwright/test';
-import { requireLocalTarget, testDatabase } from './fixtures/testSafety';
+import {
+  LOCAL_API,
+  beSignedIn,
+  disposableTestEmail,
+  gatedServerIsUp,
+  routeApiToLocal,
+  signInDisposableUser,
+  type SeenApiCall,
+} from './fixtures/browserSession';
 
-const LIVE_API = 'https://stockerai-api.onrender.com';
-const LOCAL_API = requireLocalTarget(process.env.STOCKER_TEST_API);
-const APP_ORIGIN = 'http://localhost:8080';
-
-const { url: SUPABASE_URL, key: SERVICE_KEY } = testDatabase();
-const ANON_KEY = process.env.STOCKERAI_TEST_ANON_KEY!;
-const TEST_EMAIL = process.env.STOCKERAI_TEST_EMAIL;
-if (!TEST_EMAIL?.endsWith('@example.invalid')) throw new Error('Disposable test email ending @example.invalid required');
-const PROJECT_REF = SUPABASE_URL.split('//')[1].split('.')[0];
-const STORAGE_KEY = `sb-${PROJECT_REF}-auth-token`;
-
-type BrowserSession = Record<string, unknown> & { access_token: string };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
-
-/** Signs in for real and returns the session the browser would hold afterwards. */
-async function signIn(email: string): Promise<BrowserSession> {
-  const link: unknown = await fetch(`${SUPABASE_URL}/auth/v1/admin/generate_link`, {
-    method: 'POST',
-    headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ type: 'magiclink', email }),
-  }).then((r) => r.json());
-
-  if (!isRecord(link) || typeof link.hashed_token !== 'string') {
-    throw new Error('Could not generate a disposable test login link');
-  }
-
-  const session: unknown = await fetch(`${SUPABASE_URL}/auth/v1/verify`, {
-    method: 'POST',
-    headers: { apikey: ANON_KEY, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ type: 'magiclink', token_hash: link.hashed_token }),
-  }).then((r) => r.json());
-
-  if (!isRecord(session) || typeof session.access_token !== 'string') {
-    throw new Error('Could not sign in for the disposable browser test');
-  }
-  return { ...session, access_token: session.access_token };
-}
-
-/** Puts the signed-in session where the app looks for it, before any app code runs. */
-async function beSignedIn(page: Page, session: BrowserSession) {
-  await page.addInitScript(
-    ([key, value]) => window.localStorage.setItem(key as string, value as string),
-    [STORAGE_KEY, JSON.stringify(session)],
-  );
-}
-
-type Seen = { url: string; authorization: string | null; status: number };
-
-/**
- * Sends the app's API traffic to the local gated server and records what went out.
- * Handled outside the browser, so the reply is passed back with permission headers the page
- * will accept — otherwise the browser blocks it before the test can see anything.
- */
-async function watchApiTraffic(page: Page, seen: Seen[]) {
-  await page.route(`${LIVE_API}/api/**`, async (route) => {
-    const request = route.request();
-    const target = request.url().replace(LIVE_API, LOCAL_API);
-
-    if (request.method() === 'OPTIONS') {
-      await route.fulfill({
-        status: 204,
-        headers: {
-          'access-control-allow-origin': APP_ORIGIN,
-          'access-control-allow-headers': 'authorization, content-type',
-          'access-control-allow-methods': 'POST, OPTIONS',
-        },
-      });
-      return;
-    }
-
-    let response;
-    try {
-      response = await route.fetch({ url: target, maxRedirects: 0 });
-    } catch {
-      // Either the test finished and the page went away mid-call, or the server is not
-      // there. Answer the page rather than leaving it hanging — a hung page times out as
-      // "the app made no call", which blames the app for a missing server.
-      try {
-        await route.fulfill({
-          status: 503,
-          headers: { 'access-control-allow-origin': APP_ORIGIN },
-          body: '{"error":"test server unreachable"}',
-        });
-      } catch {
-        /* page already gone */
-      }
-      return;
-    }
-    seen.push({
-      url: request.url().replace(LIVE_API, ''),
-      authorization: await request.headerValue('authorization'),
-      status: response.status(),
-    });
-    await route.fulfill({
-      response,
-      headers: {
-        ...response.headers(),
-        'access-control-allow-origin': APP_ORIGIN,
-        'access-control-allow-credentials': 'true',
-      },
-    });
-  });
-}
-
-async function gatedServerIsUp(): Promise<boolean> {
-  try {
-    const res = await fetch(`${LOCAL_API}/health`, { signal: AbortSignal.timeout(3000) });
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
+const TEST_EMAIL = disposableTestEmail();
 
 test.describe('the app sends its login to the server', () => {
   // These drive the real app against a real gated server. Without one they would fail
@@ -149,11 +42,11 @@ test.describe('the app sends its login to the server', () => {
     );
   });
   test('opening the picking screen sends a login the server accepts', async ({ page }) => {
-    const session = await signIn(TEST_EMAIL!);
+    const session = await signInDisposableUser(TEST_EMAIL);
     await beSignedIn(page, session);
 
-    const seen: Seen[] = [];
-    await watchApiTraffic(page, seen);
+    const seen: SeenApiCall[] = [];
+    await routeApiToLocal(page, seen);
 
     await page.goto('/app?resume=1');
     await expect
@@ -177,11 +70,11 @@ test.describe('the app sends its login to the server', () => {
     // The real thing that happens after an hour on a route: the stored login no longer works,
     // but the renewal ticket alongside it still does. The app should quietly swap one for the
     // other and carry on. Here the login is spoiled deliberately to force exactly that moment.
-    const session = await signIn(TEST_EMAIL!);
+    const session = await signInDisposableUser(TEST_EMAIL);
     await beSignedIn(page, { ...session, access_token: 'spoiled.not.valid' });
 
-    const seen: Seen[] = [];
-    await watchApiTraffic(page, seen);
+    const seen: SeenApiCall[] = [];
+    await routeApiToLocal(page, seen);
 
     await page.goto('/app?resume=1');
     await expect

@@ -2934,6 +2934,7 @@ export default function StockerApp() {
         <>
         {/* Current Item - Tap to advance */}
         <div
+          data-testid="current-item-card"
           className={cn(
             "bg-[#161b22] rounded-xl p-4 border border-gray-800 cursor-pointer active:scale-[0.98] transition-all",
             routeState.currentItem && voice.status === 'listening' && "border-emerald-500/50 shadow-lg shadow-emerald-500/20"
@@ -3109,7 +3110,7 @@ export default function StockerApp() {
         {/* AI Response */}
         <div className="bg-[#161b22] rounded-xl p-4 border border-gray-800">
           <span className="text-xs text-purple-400 font-semibold uppercase">Stocker AI Says</span>
-          <p className={cn("mt-2", aiResponse ? "text-white" : "text-gray-500 italic")}>
+          <p data-testid="ai-response" className={cn("mt-2", aiResponse ? "text-white" : "text-gray-500 italic")}>
             {aiResponse || 'Waiting for command...'}
           </p>
         </div>

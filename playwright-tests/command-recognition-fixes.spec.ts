@@ -1,16 +1,21 @@
 /**
- * Tests for command recognition fixes:
- * 1. pendingMachineTransition clearing after start_machine (next works after OK)
- * 2. Last-item notification prefix in voice responses
+ * Real-browser protection for the voice-command and recovery rules a driver depends on.
+ *
+ * Every route, login and API call stays inside the marked disposable environment. The old
+ * version of this file used a production project key, a real user id and a made-up token;
+ * those assumptions could neither authenticate honestly nor prove the production workflow.
  */
 
-// Seeds a throwaway 3-machine × 5-item route before each test and deletes it afterwards.
-// Until 2026-07-30 these tests said "start North route" — Davy Dupon's REAL route from
-// 2026-07-10 — so every run rewrote his live pick history. They also assumed 3 machines of
-// 5 items, which North (2 machines, 159 items) never matched, so they could not have passed
-// honestly either. Both problems go away with a route the test owns.
 import { test, expect } from './fixtures/test';
 import type { Page } from '@playwright/test';
+import type { SeededRoute } from './fixtures/seedRoute';
+import {
+  beSignedIn,
+  gatedServerIsUp,
+  prepareDisposableRoute,
+  routeApiToLocal,
+  signInDisposableUser,
+} from './fixtures/browserSession';
 
 declare global {
   interface Window {
@@ -18,287 +23,222 @@ declare global {
   }
 }
 
-// Helper to inject transcript directly (bypasses real voice)
-async function injectTranscript(page: Page, text: string) {
-  await page.evaluate((transcript: string) => {
-    window.__testInjectTranscript(transcript);
-  }, text);
-  // Wait for processing to complete
+const response = (page: Page) => page.getByTestId('ai-response');
+const itemCard = (page: Page) => page.getByTestId('current-item-card');
+
+async function injectTranscript(page: Page, transcript: string): Promise<void> {
+  await page.evaluate((text) => window.__testInjectTranscript(text), transcript);
+  // The visible response is set before the silent speech cycle releases the command lock.
+  // Let that cycle finish so the next injected phrase models sequential driver speech.
+  await page.waitForTimeout(1_600);
+}
+
+function captureSpokenWorkflowText(page: Page): string[] {
+  const messages: string[] = [];
+  page.on('console', (message) => {
+    const text = message.text();
+    if (text.includes('[Voice] Using voice_text:')) messages.push(text);
+  });
+  return messages;
+}
+
+async function openPreparedRoute(page: Page, fixtureRoute: SeededRoute): Promise<void> {
+  const session = await signInDisposableUser();
+  await prepareDisposableRoute(session, fixtureRoute.routeName, fixtureRoute.deliveryDate);
+  await beSignedIn(page, session);
+  await routeApiToLocal(page);
+  await page.route('https://stocker-deepgram-stt.russ-731.workers.dev/token', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ token: 'disposable-browser-token' }),
+  }));
+  await page.addInitScript(() => {
+    // Keep the voice state machine real while completing fallback speech immediately and
+    // silently. Chromium is also launched with --mute-audio as a second safety boundary.
+    const silentSpeech = {
+      speaking: false,
+      pending: false,
+      paused: false,
+      onvoiceschanged: null,
+      cancel() {},
+      pause() {},
+      resume() {},
+      getVoices() { return []; },
+      addEventListener() {},
+      removeEventListener() {},
+      dispatchEvent() { return true; },
+      speak(utterance: SpeechSynthesisUtterance) {
+        utterance.dispatchEvent(new Event('start'));
+        queueMicrotask(() => utterance.dispatchEvent(new Event('end')));
+      },
+    } as unknown as SpeechSynthesis;
+    Object.defineProperty(window, 'speechSynthesis', { configurable: true, value: silentSpeech });
+
+    // Keep the voice connection healthy without contacting Deepgram. Transcript content is
+    // injected explicitly below; this socket only models the open/close lifecycle.
+    class SilentWebSocket {
+      static readonly CONNECTING = 0;
+      static readonly OPEN = 1;
+      static readonly CLOSING = 2;
+      static readonly CLOSED = 3;
+      readonly CONNECTING = 0;
+      readonly OPEN = 1;
+      readonly CLOSING = 2;
+      readonly CLOSED = 3;
+      readyState = SilentWebSocket.CONNECTING;
+      onopen: ((event: Event) => void) | null = null;
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onerror: ((event: Event) => void) | null = null;
+      onclose: ((event: CloseEvent) => void) | null = null;
+      constructor() {
+        setTimeout(() => {
+          this.readyState = SilentWebSocket.OPEN;
+          this.onopen?.(new Event('open'));
+        }, 0);
+      }
+      send() {}
+      close() {
+        this.readyState = SilentWebSocket.CLOSED;
+        this.onclose?.(new CloseEvent('close', { code: 1000, reason: 'test complete', wasClean: true }));
+      }
+    }
+    Object.defineProperty(window, 'WebSocket', { configurable: true, value: SilentWebSocket });
+  });
+
+  await page.goto(`/app?route=${fixtureRoute.routeId}&resume=1`);
+  await expect(page.getByRole('heading', { name: fixtureRoute.routeName })).toBeVisible({ timeout: 30_000 });
+  await expect(response(page)).toContainText(/top or bottom/i, { timeout: 30_000 });
   await page.waitForTimeout(500);
 }
 
-// Helper to set up mock Supabase auth session
-async function setupMockAuth(page: Page) {
-  // Mock auth session in localStorage (Supabase storage key)
-  // Use REAL user UUID (russ@visionairy.biz) - matches globalSetup.ts
-  const mockSession = {
-    access_token: 'mock-access-token',
-    refresh_token: 'mock-refresh-token',
-    expires_in: 3600,
-    expires_at: Math.floor(Date.now() / 1000) + 3600,
-    token_type: 'bearer',
-    user: {
-      id: 'bdc96b72-3f35-4cae-9e79-99473eb4a23b', // REAL user UUID
-      email: 'russ@visionairy.biz',
-      aud: 'authenticated',
-      role: 'authenticated',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    }
-  };
-
-  await page.addInitScript((session) => {
-    // Supabase stores session in localStorage with a specific key format
-    const supabaseKey = 'sb-wvtkuposrlvadyeixlke-auth-token';
-    localStorage.setItem(supabaseKey, JSON.stringify(session));
-  }, mockSession);
+async function startAtTop(page: Page, fixtureRoute: SeededRoute): Promise<void> {
+  await injectTranscript(page, 'top');
+  await expect(itemCard(page)).toContainText(fixtureRoute.itemsForMachine(1)[0].product_name, {
+    timeout: 30_000,
+  });
 }
 
-test.describe('Command Recognition Fixes', () => {
-  // Requesting fixtureRoute here guarantees the route exists in the database BEFORE the app
-  // loads and asks for today's routes.
-  test.beforeEach(async ({ page, fixtureRoute }) => {
-    console.log(`[Test] seeded route: ${fixtureRoute.routeName}`);
-
-    // Set up mock authentication
-    await setupMockAuth(page);
-
-    // Navigate to app (will use mock session)
-    await page.goto('http://localhost:8080/app');
-
-    // Wait for initialization
-    await page.waitForSelector('text=Hi', { timeout: 10000 });
-
-    // Clear any AI conversation history to prevent tool_call state errors
-    await page.evaluate(() => {
-      localStorage.removeItem('stocker-ai-conversation');
-    });
-    await page.reload();
-    await page.waitForSelector('text=Hi', { timeout: 10000 });
+test.describe('disposable browser command and recovery protection', () => {
+  test.beforeEach(async () => {
+    test.setTimeout(90_000);
+    test.skip(!(await gatedServerIsUp()), 'the disposable gated API is not running');
   });
 
-  test('Fix 1: "next" command works after "OK" during machine transition', async ({ page, fixtureRoute }) => {
-    /**
-     * Reproduces the bug where:
-     * 1. Machine completes → pendingMachineTransition set
-     * 2. User says "OK" → start_machine called
-     * 3. User says "next" → BLOCKED (should work)
-     * 4. User says "OK" again → Works via fallback
-     *
-     * Expected after fix:
-     * - "next" should work immediately after "OK" starts machine
-     */
+  test('an uncertain action asks before changing the displayed item', async ({ page, fixtureRoute }) => {
+    await openPreparedRoute(page, fixtureRoute);
+    await startAtTop(page, fixtureRoute);
+    const [first] = fixtureRoute.itemsForMachine(1);
 
-    // Start a route (assumes test route exists)
-    await injectTranscript(page, `start ${fixtureRoute.spokenName} route`);
-    await page.waitForTimeout(2000);
+    await injectTranscript(page, 'keep going');
+    await expect(response(page)).toHaveText('Next item?');
+    await expect(itemCard(page)).toContainText(first.product_name);
+  });
 
-    // Choose direction for first machine
-    await injectTranscript(page, 'top');
-    await page.waitForTimeout(2000);
+  test('next still works immediately after OK starts the next machine', async ({ page, fixtureRoute }) => {
+    await openPreparedRoute(page, fixtureRoute);
+    await startAtTop(page, fixtureRoute);
 
-    // Pick items until machine 1 completes
-    // Assuming 5 items per machine in test data
-    for (let i = 0; i < 4; i++) {
+    for (let index = 0; index < fixtureRoute.itemsForMachine(1).length; index += 1) {
       await injectTranscript(page, 'next');
-      await page.waitForTimeout(1000);
-    }
-
-    // Last item triggers machine transition
-    await injectTranscript(page, 'next');
-    await page.waitForTimeout(2000);
-
-    // Should hear: "Machine 1 complete. Next is Machine 2. Ready to go?"
-    // Verify we're at transition point
-    const response1 = await page.textContent('[data-testid="ai-response"]') ||
-                      await page.textContent('.text-center.text-lg');
-    expect(response1).toContain('complete');
-
-    // Say "OK" to start machine 2
-    console.log('[Test] User says OK to start machine 2');
-    await injectTranscript(page, 'OK');
-    await page.waitForTimeout(2000);
-
-    // Verify machine 2 started (should see first item)
-    const response2 = await page.textContent('[data-testid="ai-response"]') ||
-                      await page.textContent('.text-center.text-lg');
-    console.log('[Test] After OK, response:', response2);
-
-    // CRITICAL TEST: Say "next" - should work, NOT be blocked
-    console.log('[Test] User says "next" - should work (not blocked)');
-    await injectTranscript(page, 'next');
-    await page.waitForTimeout(2000);
-
-    // Verify "next" worked (should see second item, NOT "Top or bottom?" prompt)
-    const response3 = await page.textContent('[data-testid="ai-response"]') ||
-                      await page.textContent('.text-center.text-lg');
-    console.log('[Test] After "next", response:', response3);
-
-    // Should NOT contain direction prompt
-    expect(response3).not.toContain('Top or bottom');
-    expect(response3).not.toContain('didn\'t catch that');
-
-    // Should show item details (product name or count)
-    expect(response3.length).toBeGreaterThan(0);
-  });
-
-  test('Fix 2: Last-item notification prefix (1-pick mode)', async ({ page, fixtureRoute }) => {
-    /**
-     * Tests that the last item in a machine is prefaced with:
-     * "This is the last item. [product details]"
-     */
-
-    // Start a route in 1-pick mode
-    await injectTranscript(page, `start ${fixtureRoute.spokenName} route`);
-    await page.waitForTimeout(2000);
-
-    await injectTranscript(page, 'top');
-    await page.waitForTimeout(2000);
-
-    // Pick items until second-to-last
-    // Assuming 5 items per machine
-    for (let i = 0; i < 3; i++) {
-      await injectTranscript(page, 'next');
-      await page.waitForTimeout(1000);
-    }
-
-    // Say "next" for the last item
-    console.log('[Test] Getting last item in machine (1-pick mode)');
-    await injectTranscript(page, 'next');
-    await page.waitForTimeout(2000);
-
-    // Check response contains last-item prefix
-    const response = await page.textContent('[data-testid="ai-response"]') ||
-                     await page.textContent('.text-center.text-lg');
-    console.log('[Test] Last item response:', response);
-
-    // Should contain "This is the last item"
-    expect(response).toContain('last item');
-    // Should be singular (not "last 2 items")
-    expect(response).not.toContain('last 2 items');
-  });
-
-  test('Fix 2: Last-item notification prefix (2-pick mode)', async ({ page, fixtureRoute }) => {
-    /**
-     * Tests that the last 2 items in a machine are prefaced with:
-     * "These are the last 2 items. [product details]"
-     */
-
-    // Enable 2-pick mode in localStorage
-    await page.evaluate(() => {
-      localStorage.setItem('stocker-call-two-items', 'true');
-    });
-
-    // Start a route
-    await injectTranscript(page, `start ${fixtureRoute.spokenName} route`);
-    await page.waitForTimeout(2000);
-
-    await injectTranscript(page, 'top');
-    await page.waitForTimeout(2000);
-
-    // Pick items until last 2 remain
-    // With 5 items total, first call shows 1-2, second call shows 3-4
-    await injectTranscript(page, 'next');
-    await page.waitForTimeout(1000);
-
-    // Say "next" for the last 2 items (items 3-4)
-    console.log('[Test] Getting last 2 items in machine (2-pick mode)');
-    await injectTranscript(page, 'next');
-    await page.waitForTimeout(2000);
-
-    // Check response contains last-item prefix (plural)
-    const response = await page.textContent('[data-testid="ai-response"]') ||
-                     await page.textContent('.text-center.text-lg');
-    console.log('[Test] Last 2 items response:', response);
-
-    // Should contain "These are the last 2 items"
-    expect(response).toContain('last 2 items');
-    // Should be plural (not singular)
-    expect(response).not.toContain('This is the last item.');
-  });
-
-  test('Fix 2: Last-item notification with odd count (2-pick mode)', async ({ page, fixtureRoute }) => {
-    /**
-     * Edge case: 2-pick mode, but only 1 item remains
-     * Should say "This is the last item" (singular), not "These are the last 2 items"
-     */
-
-    // Enable 2-pick mode
-    await page.evaluate(() => {
-      localStorage.setItem('stocker-call-two-items', 'true');
-    });
-
-    // Start a route with 5 items per machine
-    await injectTranscript(page, `start ${fixtureRoute.spokenName} route`);
-    await page.waitForTimeout(2000);
-
-    await injectTranscript(page, 'top');
-    await page.waitForTimeout(2000);
-
-    // Pick first 2 items (items 1-2)
-    await injectTranscript(page, 'next');
-    await page.waitForTimeout(1000);
-
-    // Pick next 2 items (items 3-4)
-    await injectTranscript(page, 'next');
-    await page.waitForTimeout(1000);
-
-    // Say "next" for the last item (only item 5 remains)
-    console.log('[Test] Getting last single item in 2-pick mode');
-    await injectTranscript(page, 'next');
-    await page.waitForTimeout(2000);
-
-    // Check response contains SINGULAR prefix (only 1 item displayed)
-    const response = await page.textContent('[data-testid="ai-response"]') ||
-                     await page.textContent('.text-center.text-lg');
-    console.log('[Test] Last single item response:', response);
-
-    // Should contain singular "This is the last item"
-    expect(response).toContain('This is the last item');
-    // Should NOT contain plural "last 2 items"
-    expect(response).not.toContain('last 2 items');
-  });
-
-  test('Regression: "next" after "OK" in multiple transitions', async ({ page, fixtureRoute }) => {
-    /**
-     * Stress test: Multiple machine transitions in a row
-     * Ensures pendingMachineTransition clearing works consistently
-     */
-
-    // Start route
-    await injectTranscript(page, `start ${fixtureRoute.spokenName} route`);
-    await page.waitForTimeout(2000);
-    await injectTranscript(page, 'top');
-    await page.waitForTimeout(2000);
-
-    // Complete 3 machines, testing "OK" → "next" pattern each time
-    for (let machine = 1; machine <= 3; machine++) {
-      console.log(`[Test] Machine ${machine}: Completing items`);
-
-      // Complete all items in machine
-      for (let i = 0; i < 5; i++) {
-        await injectTranscript(page, 'next');
-        await page.waitForTimeout(800);
+      if (index < fixtureRoute.itemsForMachine(1).length - 1) {
+        await expect(page.getByText(`${index + 1} items picked`)).toBeVisible({ timeout: 30_000 });
       }
-
-      // Machine transition should occur
-      await page.waitForTimeout(2000);
-
-      // Say "OK" to start next machine
-      console.log(`[Test] Machine ${machine}: Starting machine ${machine + 1} with OK`);
-      await injectTranscript(page, 'OK');
-      await page.waitForTimeout(2000);
-
-      // Say "next" - should work every time
-      console.log(`[Test] Machine ${machine + 1}: Testing "next" after OK`);
-      await injectTranscript(page, 'next');
-      await page.waitForTimeout(1000);
-
-      // Verify no blocking message
-      const response = await page.textContent('[data-testid="ai-response"]') ||
-                       await page.textContent('.text-center.text-lg');
-      expect(response).not.toContain('Top or bottom');
-      expect(response).not.toContain('didn\'t catch that');
     }
+
+    await expect(response(page)).toContainText(/complete/i, { timeout: 30_000 });
+    await injectTranscript(page, 'OK');
+    await expect(itemCard(page)).toContainText(fixtureRoute.itemsForMachine(2)[0].product_name, {
+      timeout: 30_000,
+    });
+
+    await injectTranscript(page, 'next');
+    await expect(itemCard(page)).toContainText(fixtureRoute.itemsForMachine(2)[1].product_name, {
+      timeout: 30_000,
+    });
+    await expect(response(page)).not.toContainText(/top or bottom|didn't catch/i);
+  });
+
+  test('a connection loss keeps the verified item and touch recovery works when online returns', async ({ page, context, fixtureRoute }) => {
+    await openPreparedRoute(page, fixtureRoute);
+    await startAtTop(page, fixtureRoute);
+    const [first, second] = fixtureRoute.itemsForMachine(1);
+
+    await context.setOffline(true);
+    await expect(page.getByText(/You're offline/i)).toBeVisible();
+    await itemCard(page).click();
+    await expect(itemCard(page)).toContainText(first.product_name);
+
+    await context.setOffline(false);
+    await expect(page.getByText(/You're offline/i)).toBeHidden();
+    await itemCard(page).click();
+    await expect(itemCard(page)).toContainText(second.product_name, { timeout: 30_000 });
+  });
+
+  test('one-item mode still announces the final item', async ({ page, fixtureRoute }) => {
+    const spoken = captureSpokenWorkflowText(page);
+    await openPreparedRoute(page, fixtureRoute);
+    await startAtTop(page, fixtureRoute);
+
+    for (let index = 1; index < fixtureRoute.itemsForMachine(1).length; index += 1) {
+      await injectTranscript(page, 'next');
+      await expect(itemCard(page)).toContainText(fixtureRoute.itemsForMachine(1)[index].product_name, {
+        timeout: 30_000,
+      });
+    }
+    await expect.poll(() => spoken.some((text) => text.includes('This is the last item'))).toBe(true);
+    expect(spoken.some((text) => text.includes('last 2 items'))).toBe(false);
+  });
+});
+
+test.describe('two-item browser protection', () => {
+  test.use({ routeShape: { machines: 1, itemsPerMachine: 4 } });
+
+  test.beforeEach(async () => {
+    test.setTimeout(90_000);
+    test.skip(!(await gatedServerIsUp()), 'the disposable gated API is not running');
+  });
+
+  test('two-item mode announces the final pair and retains both items', async ({ page, fixtureRoute }) => {
+    const spoken = captureSpokenWorkflowText(page);
+    await page.addInitScript(() => localStorage.setItem('stocker-call-two-items', 'true'));
+    await openPreparedRoute(page, fixtureRoute);
+    await injectTranscript(page, 'top');
+    const items = fixtureRoute.itemsForMachine(1);
+    await expect(itemCard(page)).toContainText(items[0].product_name, { timeout: 30_000 });
+    await expect(itemCard(page)).toContainText(items[1].product_name);
+
+    await injectTranscript(page, 'next');
+    await expect(itemCard(page)).toContainText(items[2].product_name, { timeout: 30_000 });
+    await expect(itemCard(page)).toContainText(items[3].product_name);
+    await expect.poll(() => spoken.some((text) => text.includes('These are the last 2 items'))).toBe(true);
+  });
+});
+
+test.describe('two-item odd-count protection', () => {
+  test.use({ routeShape: { machines: 1, itemsPerMachine: 5 } });
+
+  test.beforeEach(async () => {
+    test.setTimeout(90_000);
+    test.skip(!(await gatedServerIsUp()), 'the disposable gated API is not running');
+  });
+
+  test('two-item mode announces a singular final item when one remains', async ({ page, fixtureRoute }) => {
+    const spoken = captureSpokenWorkflowText(page);
+    await page.addInitScript(() => localStorage.setItem('stocker-call-two-items', 'true'));
+    await openPreparedRoute(page, fixtureRoute);
+    await injectTranscript(page, 'top');
+    const items = fixtureRoute.itemsForMachine(1);
+    await expect(itemCard(page)).toContainText(items[0].product_name, { timeout: 30_000 });
+    await expect(itemCard(page)).toContainText(items[1].product_name);
+
+    await injectTranscript(page, 'next');
+    await expect(itemCard(page)).toContainText(items[2].product_name, { timeout: 30_000 });
+    await expect(itemCard(page)).toContainText(items[3].product_name);
+
+    await injectTranscript(page, 'next');
+    await expect(itemCard(page)).toContainText(items[4].product_name, { timeout: 30_000 });
+    await expect(itemCard(page)).not.toContainText(items[3].product_name);
+    await expect.poll(() => spoken.some((text) => text.includes('This is the last item'))).toBe(true);
+    expect(spoken.some((text) => text.includes('These are the last 2 items'))).toBe(false);
   });
 });

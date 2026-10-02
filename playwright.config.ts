@@ -25,6 +25,7 @@ export default defineConfig({
 
   use: {
     baseURL: 'http://localhost:8080',
+    permissions: ['microphone'],
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
@@ -34,7 +35,14 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
+      // Browser automation must never play synthesized route prompts through the user's
+      // speakers. This leaves speech state/events intact while keeping test runs silent.
+      use: {
+        ...devices['Desktop Chrome'],
+        launchOptions: {
+          args: ['--mute-audio', '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'],
+        },
+      },
     },
   ],
 
