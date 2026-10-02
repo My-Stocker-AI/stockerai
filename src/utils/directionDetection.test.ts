@@ -113,6 +113,10 @@ describe('a sentence is never guessed from its first word', () => {
     expect(detectDirection('bomb went off down the street')).toBeNull();
   });
 
+  it.each(['bat', 'bet', 'but'])('leaves an unlisted weak direction-like word unclear: "%s"', phrase => {
+    expect(detectDirection(phrase)).toBeNull();
+  });
+
   it('handles empty and whitespace input without guessing', () => {
     expect(detectDirection('')).toBeNull();
     expect(detectDirection('   ')).toBeNull();

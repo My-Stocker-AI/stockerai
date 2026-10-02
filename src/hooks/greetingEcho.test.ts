@@ -16,6 +16,16 @@ it.each([
   expect(check(heard, spoken, 1500)).toBe('accept');
 });
 
+it('rejects a garbled self-introduction attached to the spoken resume greeting', () => {
+  expect(check("Welcome back, I'm Sumit Seth", 'Welcome back Davy! Resuming Machine B5, 18 of 37 confirmed.'))
+    .toBe('echo-content');
+});
+
+it('preserves a command after the resume greeting echo window has expired', () => {
+  expect(check('next', 'Welcome back Davy! Resuming Machine B5, 18 of 37 confirmed. Say next when finished.', 1500))
+    .toBe('accept');
+});
+
 it.each(['next', 'okay', 'repeat', 'top', 'bottom', 'skip', 'pause', 'Hi Tester next',
   'Hi different', 'Welcome back bottom', 'four mango', 'Hi Testar'])('preserves commands and unrelated speech: %s', heard => {
   expect(check(heard, 'Four mango juices, slot A1.')).toBe('accept');

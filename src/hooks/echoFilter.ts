@@ -116,6 +116,13 @@ function nearbyGreetingName(heard: string, spoken: string): boolean {
 function isGreetingEcho(heard: string, spoken: string): boolean {
   const fragment = wordsOf(heard.replace(/’/g, "'")).join(' ');
   const firstClause = wordsOf(spoken.split(/[.!?;:]/)[0]).join(' ');
+  // Speech recognition can turn the name in a resume greeting into a self-introduction
+  // (for example, "Welcome back Davy" -> "Welcome back, I'm Sumit Seth"). Treat this
+  // short, command-free variant as echo only when the app itself just opened with
+  // "Welcome back". The time window in resolveEcho still bounds the match.
+  const welcomeBackIntroduction = /^welcome back (?:i'm|i am) [a-z]+(?: [a-z]+)?$/;
+  if (welcomeBackIntroduction.test(fragment) && /^welcome back [a-z]+$/.test(firstClause)) return true;
+
   const greeting = /^(hi|hello|welcome back) ([a-z]+)$/;
   const target = greeting.exec(fragment);
   const source = greeting.exec(firstClause);
