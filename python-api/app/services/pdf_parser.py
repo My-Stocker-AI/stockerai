@@ -156,8 +156,14 @@ def parse_route_pdf(text: str, delivery_date: str) -> dict:
     text = _reassemble_compound_slots(text)
 
     # Step 2: Find all machine headers
+    # Route names are operator-defined. Accept any single-line value containing at
+    # least one letter or number, including ordinary spaces and separators, up to
+    # the report's first pipe delimiter. Anchoring to a line prevents page titles
+    # or other preceding text from being folded into the route name.
     header_pattern = re.compile(
-        r"([A-Za-z]+)\s*\|\s*([^|]+)\s*\|\s*([^|]+)\s*\|\s*[^|]+\s*\|\s*ID:\s*(\w+)"
+        r"^\s*([^|\r\n]*[A-Za-z0-9][^|\r\n]*)\s*\|\s*([^|\r\n]+)\s*\|\s*"
+        r"([^|\r\n]+)\s*\|\s*[^|\r\n]+\s*\|\s*ID:\s*(\w+)",
+        re.MULTILINE,
     )
 
     headers = []

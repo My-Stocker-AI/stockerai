@@ -37,6 +37,21 @@ class TestParseRoutePdf:
         assert result["delivery_date"] == "2026-02-10"
         assert len(result["locations"]) == 2  # Building A and B
 
+    def test_route_names_allow_alphanumeric_combinations_and_separators(self):
+        for route_name in ("Route 12", "South Route 2", "North-West 7", "123"):
+            text = (
+                "Synthetic report title 2026\n"
+                f"{route_name} | Test Site | Snack Machine (12345) | Col1 | ID: abc123\n"
+                "01 Test Product 2 3/5 1.00 None\n"
+            )
+
+            result = parse_route_pdf(text, "2026-10-02")
+
+            assert result["route_name"] == route_name
+            assert result["warnings"] == []
+            assert len(result["locations"]) == 1
+            assert len(result["locations"][0]["machines"][0]["items"]) == 1
+
     def test_machine_items(self):
         result = parse_route_pdf(SAMPLE_PDF_TEXT, "2026-02-10")
         # Find Building A location
