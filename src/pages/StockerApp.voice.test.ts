@@ -128,6 +128,20 @@ describe('actual StockerApp transcript dispatch with mocked services', () => {
     expect(mocks.clear).toHaveBeenCalledOnce();
   });
 
+  it('makes Stop explicitly microphone-off and requires touch to continue', async () => {
+    mocks.loading = false;
+    const view = render(React.createElement(StockerApp));
+    fireEvent.click(view.getByRole('button', { name: 'Stop' }));
+    expect(view.getByText(/microphone will turn off/i)).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(view.getAllByRole('button', { name: 'Stop' })[0]);
+    });
+    expect(mocks.voice.stopAudio).toHaveBeenCalledOnce();
+    expect(mocks.voice.stopListening).toHaveBeenCalledOnce();
+    expect(view.getByText(/microphone is off\. Tap Continue/i)).toBeTruthy();
+    expect(view.queryByText(/OK Stocker Continue/i)).toBeNull();
+  });
+
   it('a failed server reset keeps local progress and binds to the confirmed target', async () => {
     mocks.loading = false;
     mocks.execute.mockResolvedValue([{result:{error:'conflict'}}]);

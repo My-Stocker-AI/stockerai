@@ -81,6 +81,11 @@ class TestFixPronunciation:
         assert fix_pronunciation("6 pk") == "6 pack"
         assert fix_pronunciation("6pk") == "6pk"  # no word boundary
 
+    def test_compact_gram_measurement_stays_separate_from_pick_quantity(self):
+        assert fix_pronunciation("40g") == "40 grams"
+        assert fix_pronunciation("40 g") == "40 grams"
+        assert fix_pronunciation("1g") == "1 gram"
+
     def test_none_input(self):
         assert fix_pronunciation(None) is None
 
@@ -126,6 +131,16 @@ class TestGenerateSpokenNextItem:
         assert "Coca Cola" in result
         assert "12oz" in result  # \b doesn't match digit-letter boundary
         assert "3 count" in result
+
+    def test_single_item_with_grams_keeps_size_and_quantity_distinct(self):
+        data = {
+            "product_name": "Miss Vickie's Spicy Dill 40g",
+            "quantity": 1,
+            "items_remaining": 1,
+        }
+        parsed = parse_product(data["product_name"])
+        result = generate_spoken_next_item(data, parsed, None)
+        assert result == "Miss Vickie's Spicy Dill 40 grams .... 1 count"
 
     def test_two_items(self):
         data = {

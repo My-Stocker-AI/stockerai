@@ -59,6 +59,15 @@ def fix_pronunciation(text: str | None) -> str | None:
     text = re.sub(r"\boz\b", "ounce", text, flags=re.IGNORECASE)
     text = re.sub(r"\bct\b", "count", text, flags=re.IGNORECASE)
     text = re.sub(r"\bpk\b", "pack", text, flags=re.IGNORECASE)
+    # A compact metric package size such as "40g" must remain distinct from the
+    # following pick quantity ("1 count"). Otherwise TTS says "forty gee one",
+    # which sounds like "forty-one" in a noisy warehouse.
+    text = re.sub(
+        r"(\d+(?:\.\d+)?)\s*(?:g|grams?)\b",
+        lambda match: f"{match.group(1)} {'gram' if float(match.group(1)) == 1 else 'grams'}",
+        text,
+        flags=re.IGNORECASE,
+    )
     return text
 
 
