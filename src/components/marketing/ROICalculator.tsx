@@ -25,11 +25,14 @@ const ROICalculator = () => {
     const stockerCost = drivers * perDriverCost;
     // Net savings = estimated savings - Stocker AI cost
     const netSavings = estimatedSavings - stockerCost;
+    // Annual value uses the same monthly assumptions and is exactly 12x net monthly value.
+    const annualNetValue = netSavings * 12;
 
     return {
       estimatedSavings,
       stockerCost,
       netSavings,
+      annualNetValue,
     };
   }, [drivers, hourlyWage, pickingHours, reduction]);
 
@@ -125,14 +128,14 @@ const ROICalculator = () => {
               {formatCurrency(calculations.stockerCost)}/mo
             </span>
           </div>
-          <div className="flex justify-between items-center py-2">
-            <span className="text-lg font-medium text-foreground">
+          <div className="flex justify-between items-center py-2 border-b border-border">
+            <span className="text-base font-medium text-muted-foreground">
               {hasPositiveNetValue
                 ? "Estimated monthly value after subscription"
                 : "Estimated monthly result"}
             </span>
             {hasPositiveNetValue ? (
-              <span className="text-2xl font-bold text-primary">
+              <span className="text-xl font-semibold text-foreground">
                 {formatCurrency(calculations.netSavings)}
               </span>
             ) : (
@@ -140,6 +143,23 @@ const ROICalculator = () => {
                 {formatCurrency(Math.abs(calculations.netSavings))} additional monthly cost
               </span>
             )}
+          </div>
+          <div className="rounded-lg border-2 border-primary bg-primary/10 px-4 py-5 text-center" aria-live="polite">
+            <div className="text-sm font-bold uppercase tracking-wider text-primary">
+              {hasPositiveNetValue ? "Estimated Annual Value" : "Estimated Annual Result"}
+            </div>
+            {hasPositiveNetValue ? (
+              <div className="mt-1 text-4xl font-extrabold text-primary">
+                {formatCurrency(calculations.annualNetValue)}
+              </div>
+            ) : (
+              <div className="mt-1 text-2xl font-bold text-foreground">
+                {formatCurrency(Math.abs(calculations.annualNetValue))} additional annual cost
+              </div>
+            )}
+            <div className="mt-1 text-xs text-muted-foreground">
+              12× estimated monthly value after subscription
+            </div>
           </div>
         </div>
 
