@@ -14,7 +14,7 @@
 // (registration uses updateViaCache:'none'), so a stuck device gets this update
 // the next time the app is opened — no manual data-clearing required.
 
-const SW_VERSION = 'stocker-ai-v15-android-voice-followups';
+const SW_VERSION = 'stocker-ai-v16-auth-confirmation-recovery';
 
 self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SKIP_WAITING') {

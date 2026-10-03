@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { cleanup, render, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { PASSWORD_FLOW_STORAGE_KEY } from '@/lib/authRecovery';
 
@@ -66,4 +66,19 @@ it('does not open the password form without a recovery session', async () => {
     '/login?error=recovery_session_missing', { replace: true },
   ));
   expect(window.sessionStorage.getItem(PASSWORD_FLOW_STORAGE_KEY)).toBeNull();
+});
+
+it('offers retry instead of spinning forever when session completion fails', async () => {
+  vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  mocks.getSession
+    .mockRejectedValueOnce(new Error('network unavailable'))
+    .mockResolvedValueOnce({ data: { session: { user: { id: 'user-1' } } }, error: null });
+
+  render(<AuthCallback />);
+
+  expect(await screen.findByText('We could not finish signing you in')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+  await waitFor(() => expect(mocks.navigate).toHaveBeenCalledWith(
+    '/set-password', { replace: true },
+  ));
 });
