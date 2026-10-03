@@ -30,7 +30,7 @@ const Home = () => {
     {
       question: "What do I need to get started?",
       answer:
-        "A smartphone, Bluetooth earbuds (optional), and a supported route PDF. Stocker AI currently turns Parlevel Prekitting Detail PDF exports into voice-guided picking; contact us to review another vending-system format.",
+        "A smartphone, Bluetooth earbuds (optional), and a route PDF export from your current vending system. We map that report format during setup so Stocker AI can turn it into voice-guided picking.",
     },
     {
       question: "How do I get started?",
@@ -70,8 +70,9 @@ const Home = () => {
               </h1>
               <p className="text-lg sm:text-xl text-muted-foreground mb-8 max-w-2xl animate-fade-in-up animation-delay-100">
                 Stocker AI runs in the browser on the phone in your pocket. It turns your current
-                Parlevel Prekitting Detail PDF export into flexible voice guidance during picking,
-                saves each confirmed pick, and keeps touch controls available whenever you need them.
+                vending system's route PDF export into flexible voice guidance during picking. We
+                map the report format during setup, so you can keep your existing system while
+                Stocker AI saves each confirmed pick and keeps touch controls available.
               </p>
 
               <div className="flex flex-col sm:flex-row gap-4 md:justify-start justify-center animate-fade-in-up animation-delay-200">
@@ -164,7 +165,7 @@ const Home = () => {
                 icon: Upload,
                 title: "Upload Your Route",
                 description:
-                  "Export your PDF from Parlevel, Nayax, or VendSoft. Upload it to Stocker AI.",
+                  "Export the route PDF from the vending system you already use. Once its format is set up, upload it to Stocker AI.",
               },
               {
                 step: 2,
@@ -262,23 +263,23 @@ const Home = () => {
         </div>
       </section>
 
-      {/* 4b. Works With Your System — honest "built for" vendor list */}
+      {/* 4b. Vendor-neutral PDF onboarding */}
       <section className="section-padding">
         <div className="section-container">
           <div className="text-center mb-10">
             <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
-              Works With the Reports You Already Pull
+              Keep the Vending System You Already Use
             </h2>
             <p className="text-xl text-muted-foreground max-w-3xl mx-auto">
-              Upload the stock report from your vending system and Stocker AI reads it aloud, pick by pick.
-              We read Parlevel reports today and are adding more. On another system? Tell us at signup and
-              we'll set up your format.
+              Send us the route PDF your vending system already exports. We map that report format
+              for Stocker AI, then your future PDFs can drive voice-guided picking. No switch to
+              Parlevel—or any other vending platform—is required.
             </p>
           </div>
           <div className="flex flex-wrap justify-center gap-3 max-w-4xl mx-auto">
             {[
               "Parlevel", "Nayax", "Cantaloupe / Seed", "Gimme", "VendSoft",
-              "VendSys", "Vagabond", "Vend-Trak", "VendMAX", "+ your system",
+              "VendSys", "Vagabond", "Vend-Trak", "VendMAX", "+ any PDF-exporting system",
             ].map((system) => (
               <span
                 key={system}
