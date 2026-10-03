@@ -19,6 +19,7 @@ import {
 import { isBareNumber } from '@/utils/spokenNumber';
 import { resolveLocalIntent } from '@/utils/localCommandIntent';
 import { pickingContextKey, pickingQuestionFallback } from '@/utils/pickingConversation';
+import { ensureDirectionChoice } from '@/utils/spokenText';
 import { useStockerAI } from '@/hooks/useStockerAI';
 import { useStockerSession, type ConversationMessage, type CurrentItem, type MachineState } from '@/hooks/useStockerSession';
 import { useSessionPersistence, type SessionData } from '@/hooks/useSessionPersistence';
@@ -927,7 +928,7 @@ export default function StockerApp() {
             }
 
             // For other actions, use spoken field (it's correct for those)
-            return result.spoken || '';
+            return ensureDirectionChoice(result.action, result.spoken);
           };
 
           // Execute tool calls directly (bypass AI)
@@ -941,7 +942,7 @@ export default function StockerApp() {
               // Performance Priority 5: Prefetch TTS in parallel
               // Start TTS fetch immediately when result arrives (before speak() is called)
               // OPTION B: Use voice_text if available, fallback to spoken
-              const textForTTS = result.voice_text || result.spoken;
+              const textForTTS = ensureDirectionChoice(result.action, result.voice_text || result.spoken);
               if (textForTTS) {
                 v.prefetchTTS(textForTTS);
               }
@@ -1027,7 +1028,10 @@ export default function StockerApp() {
 
             // Use fast path - speak the workflow's voice_text or spoken field directly
             for (const tr of toolResults) {
-              const voiceText = tr.result?.voice_text || tr.result?.spoken;
+              const voiceText = ensureDirectionChoice(
+                tr.result?.action,
+                tr.result?.voice_text || tr.result?.spoken,
+              );
               if (voiceText) {
                 console.log('[Voice] Using voice_text:', tr.result?.voice_text ? 'new format' : 'backwards compat', voiceText);
                 setAiResponse(buildDisplayText(tr.result)); // Display uses display_text
@@ -2311,7 +2315,7 @@ export default function StockerApp() {
     voice.stopListening();
     await saveSessionState();
     setShowStopConfirm(false);
-    setAiResponse('Stopped. Progress saved. Tap Continue or say "OK Stocker Continue" to resume.');
+    setAiResponse('Stopped. Progress saved. The microphone is off. Tap Continue when you are ready to resume.');
   };
 
   const cancelStop = () => {
@@ -2600,7 +2604,9 @@ export default function StockerApp() {
         <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
           <div className="bg-[#161b22] rounded-xl border border-gray-800 p-6 max-w-sm w-full">
             <h2 className="text-xl font-semibold text-white mb-2">Stop Route?</h2>
-            <p className="text-gray-400 mb-4">Progress will be saved. You can resume later.</p>
+            <p className="text-gray-400 mb-4">
+              Progress will be saved and the microphone will turn off. Tap Continue to resume later. For a hands-free break, use Pause instead.
+            </p>
             <div className="flex gap-3">
               <Button
                 onClick={confirmStop}

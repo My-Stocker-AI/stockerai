@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
+import type { Database } from '@/integrations/supabase/types';
 import {
   EnvironmentType,
   DriverSettings,
@@ -36,8 +37,8 @@ export { SETTINGS_KEYS, SETTINGS_DEFAULTS, readSettingsFromLocalStorage } from '
 const ENV_VALUES: EnvironmentType[] = ['quiet', 'moderate', 'loud'];
 
 // App field names -> Supabase column names on the profiles (driver) row.
-function toProfileColumns(patch: Partial<DriverSettings>): Record<string, unknown> {
-  const cols: Record<string, unknown> = {};
+function toProfileColumns(patch: Partial<DriverSettings>): Database['public']['Tables']['profiles']['Update'] {
+  const cols: Database['public']['Tables']['profiles']['Update'] = {};
   if (patch.ttsVolume !== undefined) cols.tts_volume = patch.ttsVolume;
   if (patch.callTwoItems !== undefined) cols.call_two_items = patch.callTwoItems;
   if (patch.environmentType !== undefined) cols.environment_type = patch.environmentType;
