@@ -30,7 +30,7 @@ const Home = () => {
     {
       question: "What do I need to get started?",
       answer:
-        "A smartphone, Bluetooth earbuds (optional), and a supported route PDF. Parlevel Prekitting Detail is the currently verified layout; contact us to review another vending-system format.",
+        "A smartphone, Bluetooth earbuds (optional), and a supported route PDF. Stocker AI currently turns Parlevel Prekitting Detail PDF exports into voice-guided picking; contact us to review another vending-system format.",
     },
     {
       question: "How do I get started?",
@@ -69,8 +69,9 @@ const Home = () => {
                 <span style={{ color: '#0cb08b' }}>No Dedicated Picking Hardware.</span>
               </h1>
               <p className="text-lg sm:text-xl text-muted-foreground mb-8 max-w-2xl animate-fade-in-up animation-delay-100">
-                Stocker AI runs in the browser on the phone in your pocket. It turns supported
-                vending route reports into spoken pick guidance, saves confirmed progress, and keeps touch controls available. Parlevel Prekitting Detail is supported today.
+                Stocker AI runs in the browser on the phone in your pocket. It turns your current
+                Parlevel Prekitting Detail PDF export into flexible voice guidance during picking,
+                saves each confirmed pick, and keeps touch controls available whenever you need them.
               </p>
 
               <div className="flex flex-col sm:flex-row gap-4 md:justify-start justify-center animate-fade-in-up animation-delay-200">
