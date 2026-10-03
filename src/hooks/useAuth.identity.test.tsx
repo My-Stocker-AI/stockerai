@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   authCallback: null as AuthCallback | null,
   getSession: vi.fn(),
   resetPasswordForEmail: vi.fn(),
+  signUp: vi.fn(),
   signInWithPassword: vi.fn(),
   signOut: vi.fn(),
   roleLoads: new Map<string, ReturnType<typeof deferred>>(),
@@ -51,7 +52,7 @@ vi.mock('@/integrations/supabase/client', () => ({
       },
       resetPasswordForEmail: mocks.resetPasswordForEmail,
       signInWithPassword: mocks.signInWithPassword,
-      signUp: vi.fn(),
+      signUp: mocks.signUp,
       signOut: mocks.signOut,
     },
   },
@@ -70,10 +71,17 @@ beforeEach(() => {
   mocks.resetPasswordForEmail.mockResolvedValue({ error: null });
   mocks.signInWithPassword.mockResolvedValue({ error: null });
   mocks.signOut.mockResolvedValue({ error: null });
+  mocks.signUp.mockResolvedValue({
+    data: { user: { id: 'new-user' }, session: null },
+    error: null,
+  });
   window.sessionStorage.clear();
 });
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 const createWrapper = (queryClient: QueryClient) => (
   ({ children }: PropsWithChildren) => (
@@ -163,4 +171,36 @@ it('sends reset links to the recovery callback instead of the login redirect', a
     'driver@example.invalid',
     { redirectTo: `${window.location.origin}/auth/callback?type=recovery` },
   );
+});
+
+it('sends signup confirmations through the dedicated auth callback', async () => {
+  const queryClient = new QueryClient();
+  const { result } = renderHook(useAuth, { wrapper: createWrapper(queryClient) });
+  await waitFor(() => expect(result.current.loading).toBe(false));
+
+  await act(async () => {
+    await result.current.signUp('picker@example.invalid', 'password', 'Pat', 'Picker');
+  });
+
+  expect(mocks.signUp).toHaveBeenCalledWith(expect.objectContaining({
+    options: expect.objectContaining({
+      emailRedirectTo: `${window.location.origin}/auth/callback?type=signup`,
+    }),
+  }));
+});
+
+it('ends a stalled initial session load with a recoverable error', async () => {
+  vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  vi.useFakeTimers();
+  mocks.getSession.mockReturnValue(new Promise(() => undefined));
+  const queryClient = new QueryClient();
+  const { result } = renderHook(useAuth, { wrapper: createWrapper(queryClient) });
+
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(15_000);
+  });
+
+  expect(result.current.loading).toBe(false);
+  expect(result.current.authError).toContain('could not finish signing you in');
+  expect(result.current.retryAuth).toEqual(expect.any(Function));
 });

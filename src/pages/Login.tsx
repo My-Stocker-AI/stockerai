@@ -12,7 +12,7 @@ const Login = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
-  const { signIn, resetPassword, user, loading: authLoading } = useAuth();
+  const { signIn, resetPassword, user, loading: authLoading, authError, retryAuth } = useAuth();
   
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -117,6 +117,18 @@ const Login = () => {
               <div className="mb-4 p-3 bg-destructive/10 border border-destructive/20 rounded-lg flex items-start gap-2">
                 <AlertCircle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
                 <p className="text-sm text-destructive">{error}</p>
+              </div>
+            )}
+
+            {authError && !error && (
+              <div className="mb-4 p-3 bg-destructive/10 border border-destructive/20 rounded-lg">
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
+                  <p className="text-sm text-destructive">{authError}</p>
+                </div>
+                <Button type="button" variant="outline" size="sm" className="mt-3 w-full" onClick={retryAuth}>
+                  Try again
+                </Button>
               </div>
             )}
 

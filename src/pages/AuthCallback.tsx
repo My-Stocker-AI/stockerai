@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import {
@@ -6,6 +6,12 @@ import {
   passwordFlowFromUrl,
   rememberPasswordFlow,
 } from '@/lib/authRecovery';
+import { AlertCircle, Loader2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { withTimeout } from '@/lib/withTimeout';
+
+export const AUTH_CALLBACK_TIMEOUT_MS = 15_000;
+const CALLBACK_ERROR = 'We confirmed your email, but could not finish opening StockerAI.';
 
 /**
  * Auth Callback Handler
@@ -19,8 +25,17 @@ import {
 export default function AuthCallback() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+
+  const retry = useCallback(() => {
+    setErrorMessage(null);
+    setAttempt((current) => current + 1);
+  }, []);
 
   useEffect(() => {
+    let active = true;
+
     const handleAuthCallback = async () => {
       try {
         const search = window.location.search;
@@ -39,14 +54,17 @@ export default function AuthCallback() {
 
         // Implicit links are detected by the client. PKCE links carry a one-time code and
         // require an explicit exchange when no session has been established yet.
-        let { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        const sessionResult = await withTimeout((async () => {
+          let result = await supabase.auth.getSession();
+          const code = searchParams.get('code');
+          if (!result.data.session && !result.error && code) {
+            result = await supabase.auth.exchangeCodeForSession(code);
+          }
+          return result;
+        })(), AUTH_CALLBACK_TIMEOUT_MS, CALLBACK_ERROR);
 
-        const code = searchParams.get('code');
-        if (!session && !sessionError && code) {
-          const exchanged = await supabase.auth.exchangeCodeForSession(code);
-          session = exchanged.data.session;
-          sessionError = exchanged.error;
-        }
+        if (!active) return;
+        const { data: { session }, error: sessionError } = sessionResult;
 
         if (sessionError) {
           console.error('[AuthCallback] Session error:', sessionError);
@@ -72,17 +90,38 @@ export default function AuthCallback() {
         }
       } catch (error) {
         console.error('[AuthCallback] Unexpected error:', error);
-        navigate('/login?error=unexpected_error');
+        if (active) setErrorMessage(CALLBACK_ERROR);
       }
     };
 
-    handleAuthCallback();
-  }, [navigate, searchParams]);
+    void handleAuthCallback();
+    return () => { active = false; };
+  }, [attempt, navigate, searchParams]);
+
+  if (errorMessage) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+        <div className="w-full max-w-md rounded-lg border bg-white p-6 text-center shadow-sm">
+          <AlertCircle className="h-10 w-10 text-destructive mx-auto mb-4" />
+          <h1 className="text-xl font-semibold mb-2">We could not finish signing you in</h1>
+          <p className="text-gray-600 mb-6">
+            Your confirmation may already be complete. Check your connection, then try again.
+          </p>
+          <div className="flex flex-col gap-3">
+            <Button onClick={retry}>Try again</Button>
+            <Button variant="outline" onClick={() => navigate('/login', { replace: true })}>
+              Go to sign in
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
       <div className="text-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+        <Loader2 className="h-12 w-12 animate-spin text-blue-600 mx-auto mb-4" />
         <p className="text-gray-600">Completing authentication...</p>
       </div>
     </div>
