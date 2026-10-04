@@ -42,6 +42,7 @@ function toProfileColumns(patch: Partial<DriverSettings>): Database['public']['T
   if (patch.ttsVolume !== undefined) cols.tts_volume = patch.ttsVolume;
   if (patch.callTwoItems !== undefined) cols.call_two_items = patch.callTwoItems;
   if (patch.environmentType !== undefined) cols.environment_type = patch.environmentType;
+  // Text size is intentionally local-only until the profile schema gains a column.
   return cols;
 }
 
@@ -80,6 +81,7 @@ export function useDriverSettings() {
         environmentType: row.environment_type && ENV_VALUES.includes(row.environment_type as EnvironmentType)
           ? (row.environment_type as EnvironmentType)
           : readSettingsFromLocalStorage().environmentType,
+        textSize: readSettingsFromLocalStorage().textSize,
       };
       writeSettingsToLocalStorage(next);
       setSettings(next);
@@ -129,6 +131,10 @@ export function useDriverSettings() {
     applyPatch({ environmentType: value });
   }, [applyPatch]);
 
+  const setTextSize = useCallback((value: DriverSettings['textSize']) => {
+    applyPatch({ textSize: value });
+  }, [applyPatch]);
+
   useEffect(() => () => {
     if (volumeWriteTimer.current) clearTimeout(volumeWriteTimer.current);
   }, []);
@@ -139,5 +145,6 @@ export function useDriverSettings() {
     setTtsVolume,
     setCallTwoItems,
     setEnvironmentType,
+    setTextSize,
   };
 }

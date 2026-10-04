@@ -8,6 +8,7 @@ const ENDPOINT = 'https://stockerai-api.onrender.com/api/incidents';
 interface VoiceEvent { t: number; type: string }
 interface ReportPayload {
   client_report_id: string;
+  category: 'bug' | 'feature_request' | 'feature_improvement';
   description: string;
   session_id: string | null;
   route_id: string | null;
@@ -64,6 +65,7 @@ async function send(payload: ReportPayload) {
 
 export function ReportProblemDialog({ isOpen, onClose, userId, sessionId, routeId, context }: Props) {
   const [description, setDescription] = useState('');
+  const [category, setCategory] = useState<ReportPayload['category']>('bug');
   const [state, setState] = useState<'idle' | 'sending' | 'sent' | 'queued'>('idle');
   const recentEvents = useRef<VoiceEvent[]>([]);
 
@@ -103,6 +105,7 @@ export function ReportProblemDialog({ isOpen, onClose, userId, sessionId, routeI
     if (clean.length < 3 || state === 'sending') return;
     const payload: ReportPayload = {
       client_report_id: reportId(),
+      category,
       description: clean,
       session_id: sessionId,
       route_id: routeId,
@@ -128,6 +131,7 @@ export function ReportProblemDialog({ isOpen, onClose, userId, sessionId, routeI
     if (state === 'sending') return;
     if (state === 'sent' || state === 'queued') {
       setDescription('');
+      setCategory('bug');
       setState('idle');
     }
     onClose();
@@ -139,10 +143,10 @@ export function ReportProblemDialog({ isOpen, onClose, userId, sessionId, routeI
       <div className="w-full max-w-md rounded-t-3xl border border-gray-700 bg-[#161b22] p-5 pb-[max(20px,env(safe-area-inset-bottom))] shadow-2xl sm:rounded-3xl">
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
-            <h2 id="problem-title" className="text-xl font-bold text-white">Report a problem</h2>
-            <p className="mt-1 text-sm text-gray-400">Tell us what went wrong. Current route, item, device, connection, and recent voice event types are attached automatically.</p>
+            <h2 id="problem-title" className="text-xl font-bold text-white">Send feedback</h2>
+            <p className="mt-1 text-sm text-gray-400">Report a bug or suggest an improvement. Current route and device context are attached automatically.</p>
           </div>
-          <Button variant="ghost" size="icon" onClick={close} aria-label="Close problem report"><X className="h-5 w-5" /></Button>
+          <Button variant="ghost" size="icon" onClick={close} aria-label="Close feedback"><X className="h-5 w-5" /></Button>
         </div>
 
         {state === 'sent' || state === 'queued' ? (
@@ -158,6 +162,17 @@ export function ReportProblemDialog({ isOpen, onClose, userId, sessionId, routeI
           </div>
         ) : (
           <>
+            <label htmlFor="feedback-category" className="mb-2 block text-sm font-medium text-gray-200">Feedback type</label>
+            <select
+              id="feedback-category"
+              value={category}
+              onChange={event => setCategory(event.target.value as ReportPayload['category'])}
+              className="mb-4 w-full rounded-xl border border-gray-700 bg-gray-900 p-3 text-base text-white outline-none focus:border-teal-500"
+            >
+              <option value="bug">Bug</option>
+              <option value="feature_request">New feature</option>
+              <option value="feature_improvement">Feature improvement</option>
+            </select>
             <label htmlFor="problem-description" className="mb-2 block text-sm font-medium text-gray-200">What happened?</label>
             <textarea
               id="problem-description"

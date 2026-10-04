@@ -46,6 +46,17 @@ it('submits the report without including diagnostic event payloads', async () =>
     expect.objectContaining({ type: 'recognition-final' }),
   ]);
   expect(JSON.stringify(body)).not.toContain('private words');
+  expect(body.category).toBe('bug');
+});
+
+it('submits feature feedback with the selected category', async () => {
+  mocks.authFetch.mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 201 }));
+  const view = render(<ReportProblemDialog {...props} />);
+  fireEvent.change(view.getByLabelText('Feedback type'), { target: { value: 'feature_improvement' } });
+  fireEvent.change(view.getByLabelText('What happened?'), { target: { value: 'Add another hands-free phrase.' } });
+  fireEvent.click(view.getByRole('button', { name: 'Send report' }));
+  await waitFor(() => expect(view.getByText('Report received.')).toBeTruthy());
+  expect(JSON.parse(mocks.authFetch.mock.calls[0][1].body).category).toBe('feature_improvement');
 });
 
 it('queues an offline report without changing route progress', async () => {

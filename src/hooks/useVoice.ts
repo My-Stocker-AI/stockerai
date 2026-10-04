@@ -1896,6 +1896,20 @@ export function useVoice(options: UseVoiceOptions = {}) {
 
           const audioUrl = URL.createObjectURL(audioBlob);
           const audio = new Audio(audioUrl);
+          audio.preload = 'auto';
+
+          // Re-resolve Android's current system output for every prompt. This is
+          // best-effort: Chrome/Android remains the authority for speaker vs Bluetooth,
+          // but selecting "default" prevents us from retaining a stale earbuds sink.
+          const sinkAudio = audio as HTMLAudioElement & { setSinkId?: (deviceId: string) => Promise<void> };
+          if (sinkAudio.setSinkId) {
+            try {
+              await sinkAudio.setSinkId('default');
+              emitDiagnostic('audio-output', 'default-sink-selected');
+            } catch {
+              emitDiagnostic('audio-output', 'default-sink-unavailable');
+            }
+          }
 
           // Get user's volume preference (default: 1.5 = 150%)
           const volumeMultiplier = parseFloat(localStorage.getItem('stocker-tts-volume') || '1.5');

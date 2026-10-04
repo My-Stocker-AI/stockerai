@@ -113,6 +113,7 @@ const PHONETIC_WORD_CORRECTIONS: Record<string, string> = {
 const NEXT_PATTERNS = [
   /^next$/,
   /^next item$/,
+  /^next product$/,
   /^next one$/,
   /^done$/,
   /^got it$/,
@@ -651,7 +652,7 @@ export class CommandRecognizer {
       // was unreachable. Stripping is safe here: this runs ONLY after an exact match fails,
       // and a strip that leaves nothing or leaves a non-command still returns null.
       ...APP_NAME_TOKENS,
-      "let's", 'lets', 'okay', 'ok', 'alright', 'all right', 'yeah', 'yep',
+      "let's", 'lets', 'okay', 'ok', 'k', 'kay', 'alright', 'all right', 'yeah', 'yep',
       'yes', 'yea', 'sure', 'got it', 'and', 'so', 'um', 'uh', 'well', 'hey',
       'now', 'just', 'please', 'go ahead and', 'go ahead', 'can you',
       'could you', 'would you', 'do the', 'do', 'the', "i'll", 'ill', 'then',

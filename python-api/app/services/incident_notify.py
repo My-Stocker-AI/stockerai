@@ -1,4 +1,4 @@
-"""Best-effort email delivery for user-submitted support incidents."""
+"""Best-effort admin alert delivery for user-submitted support incidents."""
 
 import html
 import json
@@ -6,6 +6,7 @@ import urllib.error
 import urllib.request
 
 from app.config import INCIDENT_ALERT_TO, INCIDENT_FROM_EMAIL, RESEND_API_KEY
+from app.services.notify import notify_russ
 
 
 def _line(label: str, value: object) -> str:
@@ -19,14 +20,19 @@ def send_incident_email(
     description: str,
 ) -> tuple[bool, str | None]:
     """Send a bounded incident summary without exposing provider errors to the driver."""
+    category = str(context.get("report_category") or "bug").replace("_", " ").title()
+    # Telegram is deliberately only a wake-up notice. Report text and driver context
+    # remain in the tenant-bound incident record (and the existing configured email).
+    telegram_sent = notify_russ(f"New StockerAI {category}. Incident {incident_id} is saved for review.")
+
     if not RESEND_API_KEY or not INCIDENT_ALERT_TO or not INCIDENT_FROM_EMAIL:
-        return False, "notification email is not configured"
+        return (True, None) if telegram_sent else (False, "Telegram and email notifications are not configured")
 
     route = context.get("route") or {}
     voice = context.get("voice") or {}
     device = context.get("device") or {}
     body = "".join([
-        "<h2>StockerAI user report</h2>",
+        f"<h2>StockerAI {html.escape(category)}</h2>",
         _line("Incident", incident_id),
         _line("Driver", reporter.get("name") or reporter.get("email")),
         _line("Email", reporter.get("email")),
@@ -41,7 +47,7 @@ def send_incident_email(
     payload = json.dumps({
         "from": INCIDENT_FROM_EMAIL,
         "to": [INCIDENT_ALERT_TO],
-        "subject": f"StockerAI report: {route.get('name') or 'no route'} / {route.get('machine_name') or 'no machine'}",
+        "subject": f"StockerAI {category}: {route.get('name') or 'no route'} / {route.get('machine_name') or 'no machine'}",
         "html": body,
         "text": (
             f"StockerAI user report\nIncident: {incident_id}\n"
@@ -61,6 +67,8 @@ def send_incident_email(
     try:
         with urllib.request.urlopen(request, timeout=10) as response:
             result = json.load(response)
-            return bool(result.get("id")), None if result.get("id") else "email provider returned no message id"
+            email_sent = bool(result.get("id"))
+            sent = telegram_sent or email_sent
+            return sent, None if sent else "notification providers returned no message id"
     except (urllib.error.URLError, OSError, ValueError) as exc:
-        return False, type(exc).__name__
+        return (True, None) if telegram_sent else (False, type(exc).__name__)

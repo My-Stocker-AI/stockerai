@@ -5,6 +5,7 @@ import { SettingsPanel } from '@/components/stocker/SettingsPanel';
 interface SettingsSheetProps {
   isOpen: boolean;
   onClose: () => void;
+  onOpenDiagnostics?: () => void;
 }
 
 /**
@@ -12,7 +13,7 @@ interface SettingsSheetProps {
  * shared SettingsPanel, so the in-route controls are identical to the dashboard's and
  * persist the same way (localStorage + driver account). No duplicated settings logic.
  */
-export function SettingsSheet({ isOpen, onClose }: SettingsSheetProps) {
+export function SettingsSheet({ isOpen, onClose, onOpenDiagnostics }: SettingsSheetProps) {
   if (!isOpen) return null;
 
   return (
@@ -36,7 +37,17 @@ export function SettingsSheet({ isOpen, onClose }: SettingsSheetProps) {
 
         <SettingsPanel />
 
-        <Button onClick={onClose} className="w-full mt-6 bg-teal-600 hover:bg-teal-700">
+        {onOpenDiagnostics && (
+          <Button
+            variant="outline"
+            onClick={() => { onClose(); onOpenDiagnostics(); }}
+            className="w-full mt-6 border-gray-700 text-gray-300"
+          >
+            Open voice diagnostics
+          </Button>
+        )}
+
+        <Button onClick={onClose} className="w-full mt-3 bg-teal-600 hover:bg-teal-700">
           Done
         </Button>
       </div>

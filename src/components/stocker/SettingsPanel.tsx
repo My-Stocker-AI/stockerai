@@ -17,11 +17,38 @@ const ENV_OPTIONS: { value: Exclude<EnvironmentType, 'unknown'>; emoji: string; 
 ];
 
 export function SettingsPanel() {
-  const { settings, setTtsVolume, setCallTwoItems, setEnvironmentType } = useDriverSettings();
-  const { ttsVolume, callTwoItems, environmentType } = settings;
+  const { settings, setTtsVolume, setCallTwoItems, setEnvironmentType, setTextSize } = useDriverSettings();
+  const { ttsVolume, callTwoItems, environmentType, textSize } = settings;
+
+  const changeTextSize = (value: typeof textSize) => {
+    setTextSize(value);
+    document.documentElement.style.fontSize = value === 'extra-large' ? '118.75%' : value === 'large' ? '112.5%' : '100%';
+  };
 
   return (
     <div className="space-y-6">
+      <div className="bg-[#0d1117] rounded-xl p-4 border border-gray-800">
+        <h3 className="text-white font-semibold mb-1">On-screen Text Size</h3>
+        <p className="text-sm text-gray-400 mb-3">Change the picking screen text without leaving the app.</p>
+        <div className="grid grid-cols-3 gap-2" role="group" aria-label="On-screen text size">
+          {([
+            ['standard', 'Standard'],
+            ['large', 'Large'],
+            ['extra-large', 'Extra Large'],
+          ] as const).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={textSize === value}
+              onClick={() => changeTextSize(value)}
+              className={`rounded-lg border p-2 text-sm font-semibold ${textSize === value ? 'border-teal-400 bg-teal-500/20 text-teal-300' : 'border-gray-700 bg-gray-800 text-gray-300'}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* 2-Pick Toggle */}
       <div className="bg-[#0d1117] rounded-xl p-4 border border-gray-800">
         <div className="flex items-start justify-between gap-4">
