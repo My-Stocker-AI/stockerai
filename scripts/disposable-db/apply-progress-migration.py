@@ -11,8 +11,12 @@ def main():
     marker = subprocess.check_output(PSQL + ['-Atc', 'SELECT public.stockerai_disposable_marker()'], text=True).strip()
     if marker != 'stockerai-local-only-20260918':
         raise SystemExit('Refusing an unmarked database')
-    path = ROOT / 'supabase/migrations/20260922000000_atomic_advance_picking.sql'
-    subprocess.run(PSQL, input=path.read_text(encoding='utf-8'), text=True, check=True)
+    paths = [
+        ROOT / 'supabase/migrations/20260922000000_atomic_advance_picking.sql',
+        ROOT / 'supabase/migrations/20261004000000_route_completion_name.sql',
+    ]
+    for path in paths:
+        subprocess.run(PSQL, input=path.read_text(encoding='utf-8'), text=True, check=True)
 
 
 if __name__ == '__main__':

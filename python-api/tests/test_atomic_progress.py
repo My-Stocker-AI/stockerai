@@ -117,6 +117,9 @@ def test_completion_and_handoff_are_durable_and_replayable(client, route, finish
     response = client.post('/api/advance-item', json=request)
     assert response.status_code == 200, response.text
     assert response.json()['action'] == ('complete' if finish_route else 'next_machine')
+    if finish_route:
+        assert response.json()['completed_route'] == 'SKIP_RECOVERY_TEST'
+        assert response.json()['spoken'] == 'SKIP_RECOVERY_TEST route complete. Nice work!'
     before = progress(route)
     assert before[0]['status'] == 'completed'
     assert before[1] == {'status': 'completed' if finish_route else 'stocking',
