@@ -24,15 +24,22 @@ describe('Scope 1 — readSettingsFromLocalStorage', () => {
     expect(readSettingsFromLocalStorage()).toEqual(SETTINGS_DEFAULTS);
   });
 
-  it('reads the three reused keys verbatim (no key rename — saved prefs carry over)', () => {
+  it('reads the reused settings and the new text-size preference', () => {
     localStorage.setItem(SETTINGS_KEYS.ttsVolume, '2.1');
     localStorage.setItem(SETTINGS_KEYS.callTwoItems, 'true');
     localStorage.setItem(SETTINGS_KEYS.environmentType, 'loud');
+    localStorage.setItem(SETTINGS_KEYS.textSize, 'large');
     expect(readSettingsFromLocalStorage()).toEqual({
       ttsVolume: 2.1,
       callTwoItems: true,
       environmentType: 'loud',
+      textSize: 'large',
     });
+  });
+
+  it('rejects an invalid text size and falls back to standard', () => {
+    localStorage.setItem(SETTINGS_KEYS.textSize, 'giant');
+    expect(readSettingsFromLocalStorage().textSize).toBe('standard');
   });
 
   it('rejects an invalid environment value and falls back to unknown', () => {

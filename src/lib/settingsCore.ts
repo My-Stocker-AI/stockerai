@@ -8,11 +8,13 @@
  */
 
 export type EnvironmentType = 'quiet' | 'moderate' | 'loud' | 'unknown';
+export type TextSize = 'standard' | 'large' | 'extra-large';
 
 export interface DriverSettings {
   ttsVolume: number;
   callTwoItems: boolean;
   environmentType: EnvironmentType;
+  textSize: TextSize;
 }
 
 // Reused verbatim from the original screens — never renamed, so saved prefs carry over.
@@ -20,21 +22,25 @@ export const SETTINGS_KEYS = {
   ttsVolume: 'stocker-tts-volume',
   callTwoItems: 'stocker-call-two-items',
   environmentType: 'stocker-environment-type',
+  textSize: 'stocker-text-size',
 } as const;
 
 export const SETTINGS_DEFAULTS: DriverSettings = {
   ttsVolume: 1.5,
   callTwoItems: false,
   environmentType: 'unknown',
+  textSize: 'standard',
 };
 
 const ENV_VALUES: EnvironmentType[] = ['quiet', 'moderate', 'loud'];
+const TEXT_SIZE_VALUES: TextSize[] = ['standard', 'large', 'extra-large'];
 
 export function readSettingsFromLocalStorage(): DriverSettings {
   try {
     const v = localStorage.getItem(SETTINGS_KEYS.ttsVolume);
     const t = localStorage.getItem(SETTINGS_KEYS.callTwoItems);
     const e = localStorage.getItem(SETTINGS_KEYS.environmentType);
+    const s = localStorage.getItem(SETTINGS_KEYS.textSize);
     const vol = v !== null ? parseFloat(v) : SETTINGS_DEFAULTS.ttsVolume;
     return {
       ttsVolume: Number.isFinite(vol) ? vol : SETTINGS_DEFAULTS.ttsVolume,
@@ -42,6 +48,9 @@ export function readSettingsFromLocalStorage(): DriverSettings {
       environmentType: e && ENV_VALUES.includes(e as EnvironmentType)
         ? (e as EnvironmentType)
         : SETTINGS_DEFAULTS.environmentType,
+      textSize: s && TEXT_SIZE_VALUES.includes(s as TextSize)
+        ? (s as TextSize)
+        : SETTINGS_DEFAULTS.textSize,
     };
   } catch {
     return { ...SETTINGS_DEFAULTS };
@@ -58,6 +67,9 @@ export function writeSettingsToLocalStorage(patch: Partial<DriverSettings>) {
     }
     if (patch.environmentType !== undefined) {
       localStorage.setItem(SETTINGS_KEYS.environmentType, patch.environmentType);
+    }
+    if (patch.textSize !== undefined) {
+      localStorage.setItem(SETTINGS_KEYS.textSize, patch.textSize);
     }
   } catch {
     /* private mode / storage full — settings still live in component state */

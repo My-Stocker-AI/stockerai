@@ -1,7 +1,7 @@
 """Durable, tenant-bound user incident reports with optional admin email."""
 
 import json
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
@@ -16,6 +16,7 @@ router = APIRouter()
 
 class IncidentReport(BaseModel):
     client_report_id: UUID
+    category: Literal["bug", "feature_request", "feature_improvement"] = "bug"
     description: str = Field(min_length=3, max_length=2000)
     session_id: str | None = Field(default=None, max_length=120)
     route_id: str | None = Field(default=None, max_length=80)
@@ -53,7 +54,7 @@ def create_incident(report: IncidentReport, caller: Caller = AuthCaller):
         "route_id": route_id,
         "client_session_id": report.session_id,
         "description": report.description.strip(),
-        "context": _bounded_context(report.context),
+        "context": _bounded_context({**report.context, "report_category": report.category}),
         "status": "open",
         "notification_status": "pending",
     }
@@ -84,7 +85,7 @@ def create_incident(report: IncidentReport, caller: Caller = AuthCaller):
         }
 
     sent, notification_error = send_incident_email(
-        incident_id, reporter, report.context, row["description"]
+        incident_id, reporter, row["context"], row["description"]
     )
     try:
         (

@@ -27,6 +27,7 @@ describe('CommandRecognizer', () => {
     it.each([
       'next',
       'next item',
+      'next product',
       'next one',
       'done',
       'got it',
@@ -374,6 +375,8 @@ describe('CommandRecognizer', () => {
   describe('natural phrases with filler words', () => {
     it.each([
       'okay, next one',
+      'k, next',
+      'kay next',
       'okay next one',
       'alright next',
       'alright, next item',

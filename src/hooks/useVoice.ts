@@ -8,6 +8,7 @@ import { accumulateTranscript } from './transcriptAccumulator';
 import { resolveEcho } from './echoFilter';
 import { WAKE_PHRASES } from '@/utils/wakePhrases';
 import { expandSpokenMeasurements } from '@/utils/spokenText';
+import { buildDeepgramKeywordParams } from './deepgramKeywords';
 
 export type VoiceStatus = 'idle' | 'listening' | 'speaking' | 'thinking' | 'paused' | 'muted' | 'error';
 
@@ -47,7 +48,7 @@ const DEEPGRAM_TOKEN_URL = 'https://stocker-deepgram-stt.russ-731.workers.dev/to
 // Build marker — bump alongside package.json "version" and sw.js SW_VERSION on each deploy.
 // Emitted to the diagnostic pipe on startListening so Davy's Render logs show EXACTLY which
 // build his phone is running (kills the "tested stale code" trap).
-const BUILD_VERSION = 'v0.2.7-auth-confirmation-recovery';
+const BUILD_VERSION = 'v0.2.8-android-field-recovery';
 
 // Wake phrases including common mishearings (from original PWA).
 // Moved to src/utils/wakePhrases.ts 2026-07-30 so the command matcher reads the SAME list —
@@ -64,6 +65,7 @@ function emitDiagnostic(type: string, data: unknown) {
 
 export interface UseVoiceOptions {
   onMicrophoneRecovered?: () => void;
+  onUnrecognizedDirectionSpeech?: () => void;
   /** Discard non-input before queueing, interrupting audio, or acknowledging it. */
   shouldIgnoreTranscript?: (transcript: string) => boolean;
   /** Stable identity for the route/item state a deferred command would act on. */
@@ -85,6 +87,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
   const shouldIgnoreTranscriptRef = useRef(shouldIgnoreTranscript);
   const onErrorRef = useRef(onError);
   const onWakePhraseRef = useRef(onWakePhrase);
+  const onUnrecognizedDirectionSpeechRef = useRef(options.onUnrecognizedDirectionSpeech);
   const keywordsRef = useRef<string[]>(keywords || []);
   const preferredDeviceIdRef = useRef<string | undefined>(preferredDeviceId);
   const commandContextKeyRef = useRef(commandContextKey);
@@ -94,6 +97,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
   shouldIgnoreTranscriptRef.current = shouldIgnoreTranscript;
   onErrorRef.current = onError;
   onWakePhraseRef.current = onWakePhrase;
+  onUnrecognizedDirectionSpeechRef.current = options.onUnrecognizedDirectionSpeech;
   keywordsRef.current = keywords || [];
   preferredDeviceIdRef.current = preferredDeviceId;
   commandContextKeyRef.current = commandContextKey;
@@ -146,6 +150,8 @@ export function useVoice(options: UseVoiceOptions = {}) {
   const isRecordingRef = useRef(false);
   const accumulatedTranscriptRef = useRef('');  // Accumulated transcript for utterance (matches original PWA this.transcript)
   const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);  // Silence timer fallback (matches original PWA)
+  const speechWithoutTextTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const unrecognizedDirectionPromptedRef = useRef(false);
   // Queued command: stores the latest command spoken during 'thinking'/'speaking'
   // Fired automatically when resumeListening() completes successfully
   const pendingCommandRef = useRef<{
@@ -158,7 +164,14 @@ export function useVoice(options: UseVoiceOptions = {}) {
   // direction command spoken during a transient 'thinking' window dispatches instead of being
   // queued-and-stranded.
   const awaitingDirectionRef = useRef(false);
-  const setAwaitingDirection = useCallback((v: boolean) => { awaitingDirectionRef.current = v; }, []);
+  const setAwaitingDirection = useCallback((v: boolean) => {
+    if (v !== awaitingDirectionRef.current) unrecognizedDirectionPromptedRef.current = false;
+    awaitingDirectionRef.current = v;
+    if (!v && speechWithoutTextTimerRef.current) {
+      clearTimeout(speechWithoutTextTimerRef.current);
+      speechWithoutTextTimerRef.current = null;
+    }
+  }, []);
 
   // PRIORITY 1.2: Deepgram reconnection tracking
   const reconnectAttemptsRef = useRef(0);
@@ -598,6 +611,21 @@ export function useVoice(options: UseVoiceOptions = {}) {
         reason: data.reason ?? data.description ?? data.message ?? data.error ?? null,
       });
     }
+    if (data.type === 'SpeechStarted') {
+      if (speechWithoutTextTimerRef.current) clearTimeout(speechWithoutTextTimerRef.current);
+      speechWithoutTextTimerRef.current = setTimeout(() => {
+        speechWithoutTextTimerRef.current = null;
+        if (
+          awaitingDirectionRef.current &&
+          !unrecognizedDirectionPromptedRef.current &&
+          statusRef.current === 'listening'
+        ) {
+          unrecognizedDirectionPromptedRef.current = true;
+          emitDiagnostic('direction-speech-without-transcript', 'clarification-requested');
+          onUnrecognizedDirectionSpeechRef.current?.();
+        }
+      }, 2500);
+    }
     if (data.type === 'Results' && data.channel?.alternatives?.[0]) {
       const alt = data.channel.alternatives[0];
       const transcript = alt.transcript || '';
@@ -608,6 +636,8 @@ export function useVoice(options: UseVoiceOptions = {}) {
       const isUtteranceEnd = speechFinal || data.speech_final;
 
       if (transcript) {
+        if (speechWithoutTextTimerRef.current) clearTimeout(speechWithoutTextTimerRef.current);
+        speechWithoutTextTimerRef.current = null;
         // Update display for interim results (only when listening, matches original PWA)
         if (!isFinal && statusRef.current === 'listening') {
           setLastInput(transcript.trim());
@@ -823,16 +853,10 @@ export function useVoice(options: UseVoiceOptions = {}) {
     // Combine base keywords with dynamic route names
     const allKeywords = [...baseKeywords, ...keywordsRef.current];
 
-    // Build keyword parameters with different boost levels
-    // Critical keywords (top/bottom) get 3x boost for better mishearing prevention
-    const criticalParam = criticalKeywords.length > 0
-      ? `&keywords=${encodeURIComponent(criticalKeywords.join(','))}&keywords_boost=3.0`
-      : '';
-
-    // Other keywords get standard 1.5x boost
-    const keywordsParam = allKeywords.length > 0
-      ? `&keywords=${encodeURIComponent(allKeywords.join(','))}&keywords_boost=1.5`
-      : '';
+    // Deepgram requires one Nova-2 keywords parameter per term, with the boost
+    // attached to that term. The old comma-joined value silently behaved like one
+    // giant literal phrase, so top/bottom were not actually receiving their boost.
+    const keywordParams = buildDeepgramKeywordParams(criticalKeywords, allKeywords);
 
     console.log('[Voice] Deepgram keywords:', {
       critical: criticalKeywords.length,
@@ -855,8 +879,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
       'interim_results=true&' +
       'vad_events=true&' +
       `endpointing=${endpointingMs}` +  // Environment-adaptive endpointing
-      criticalParam +  // Critical keywords (top/bottom) with 3x boost
-      keywordsParam;  // Standard keywords with 1.5x boost
+      keywordParams;
 
     return new Promise<void>((resolve, reject) => {
       const socket = new WebSocket(wsUrl, ['token', token]);
@@ -1373,6 +1396,11 @@ export function useVoice(options: UseVoiceOptions = {}) {
       clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = null;
     }
+    if (speechWithoutTextTimerRef.current) {
+      clearTimeout(speechWithoutTextTimerRef.current);
+      speechWithoutTextTimerRef.current = null;
+    }
+    unrecognizedDirectionPromptedRef.current = false;
     accumulatedTranscriptRef.current = '';
     pendingCommandRef.current = null; // Clear any queued commands
 
@@ -1896,6 +1924,20 @@ export function useVoice(options: UseVoiceOptions = {}) {
 
           const audioUrl = URL.createObjectURL(audioBlob);
           const audio = new Audio(audioUrl);
+          audio.preload = 'auto';
+
+          // Re-resolve Android's current system output for every prompt. This is
+          // best-effort: Chrome/Android remains the authority for speaker vs Bluetooth,
+          // but selecting "default" prevents us from retaining a stale earbuds sink.
+          const sinkAudio = audio as HTMLAudioElement & { setSinkId?: (deviceId: string) => Promise<void> };
+          if (sinkAudio.setSinkId) {
+            try {
+              await sinkAudio.setSinkId('default');
+              emitDiagnostic('audio-output', 'default-sink-selected');
+            } catch {
+              emitDiagnostic('audio-output', 'default-sink-unavailable');
+            }
+          }
 
           // Get user's volume preference (default: 1.5 = 150%)
           const volumeMultiplier = parseFloat(localStorage.getItem('stocker-tts-volume') || '1.5');

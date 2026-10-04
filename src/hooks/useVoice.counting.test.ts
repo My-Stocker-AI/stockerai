@@ -40,6 +40,9 @@ class FakeSocket {
       channel: { alternatives: [{ transcript: text }] },
     }) });
   }
+  speechStarted() {
+    this.onmessage?.({ data: JSON.stringify({ type: 'SpeechStarted' }) });
+  }
 }
 
 beforeEach(() => {
@@ -79,6 +82,35 @@ async function start() {
   chime.mockClear(); cancelSpeech.mockClear(); heard.mockClear();
   return { ...hook, heard, errors };
 }
+
+describe('direction capture recovery', () => {
+  it('asks once for top or bottom when speech arrives without a transcript', async () => {
+    const clarify = vi.fn();
+    const { result } = renderHook(() => useVoice({ onUnrecognizedDirectionSpeech: clarify }));
+    await act(async () => { expect(await result.current.startListening()).toBe(true); });
+    act(() => result.current.setAwaitingDirection(true));
+    act(() => FakeSocket.latest.speechStarted());
+    await act(async () => { await vi.advanceTimersByTimeAsync(2500); });
+    expect(clarify).toHaveBeenCalledOnce();
+
+    act(() => FakeSocket.latest.speechStarted());
+    await act(async () => { await vi.advanceTimersByTimeAsync(2500); });
+    expect(clarify).toHaveBeenCalledOnce();
+  });
+
+  it('does not ask when Deepgram returns recognized text', async () => {
+    const clarify = vi.fn();
+    const { result } = renderHook(() => useVoice({ onUnrecognizedDirectionSpeech: clarify }));
+    await act(async () => { expect(await result.current.startListening()).toBe(true); });
+    act(() => result.current.setAwaitingDirection(true));
+    act(() => {
+      FakeSocket.latest.speechStarted();
+      FakeSocket.latest.transcript('top');
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2500); });
+    expect(clarify).not.toHaveBeenCalled();
+  });
+});
 
 describe('earbud microphone recovery', () => {
   it('does not report listening when the microphone capture context stays suspended', async () => {

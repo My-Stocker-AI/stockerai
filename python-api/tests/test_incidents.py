@@ -49,6 +49,7 @@ def payload(report_id="00000000-0000-4000-8000-000000000123"):
     return {
         "client_report_id": report_id,
         "description": "The app repeated the same item.",
+        "category": "feature_improvement",
         "session_id": "phone-session",
         "context": {"route": {"name": "Test route", "machine_name": "Test machine"}},
     }
@@ -71,6 +72,7 @@ def test_user_report_is_tenant_stamped_and_notification_is_best_effort(client):
     assert inserted["account_id"] == "00000000-0000-0000-0000-00000000a001"
     assert inserted["reporter_user_id"] == "00000000-0000-0000-0000-00000000c001"
     assert inserted["notification_status"] == "pending"
+    assert inserted["context"]["report_category"] == "feature_improvement"
     notify.assert_called_once()
 
 

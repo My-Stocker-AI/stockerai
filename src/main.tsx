@@ -3,6 +3,14 @@ import App from "./App.tsx";
 import { ErrorBoundary } from "./components/ErrorBoundary.tsx";
 import "./index.css";
 
+// Apply the saved display preference before React paints.
+try {
+  const textSize = localStorage.getItem('stocker-text-size');
+  document.documentElement.style.fontSize = textSize === 'extra-large' ? '118.75%' : textSize === 'large' ? '112.5%' : '100%';
+} catch {
+  // Storage can be unavailable in private mode; keep the default size.
+}
+
 // Register service worker for PWA
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', async () => {

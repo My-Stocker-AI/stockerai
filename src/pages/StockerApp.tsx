@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, memo } from 'react';
 import { authFetch } from '@/lib/authFetch';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Bug, CheckCircle, Mic, MicOff, Pause, Play, Square, AlertTriangle, RefreshCw, HelpCircle, Zap, MapPin, Package, Truck, RotateCcw, Settings } from 'lucide-react';
+import { ArrowLeft, MessageSquarePlus, CheckCircle, Mic, MicOff, Pause, Play, Square, AlertTriangle, RefreshCw, HelpCircle, Zap, MapPin, Package, Truck, RotateCcw, Settings } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import { useVoice } from '@/hooks/useVoice';
@@ -278,11 +278,13 @@ export default function StockerApp() {
 
   // Detect iOS/Safari for tap instruction
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  const isAndroid = /Android/i.test(navigator.userAgent);
   const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
 
   // Detect iOS PWA mode (standalone) - getUserMedia() is broken in iOS PWA
   const isPWA = window.matchMedia('(display-mode: standalone)').matches ||
                 (window.navigator as StandaloneNavigator).standalone === true;
+  const androidPickingBlocked = isAndroid && !isPWA;
 
   const userName = userProfile?.first_name || 'there';
   const userId = user?.id || null;
@@ -1451,6 +1453,9 @@ export default function StockerApp() {
 
   const voice = useVoice({
     onMicrophoneRecovered: () => setError(current => current === 'Microphone disconnected — tap to reconnect.' ? null : current),
+    onUnrecognizedDirectionSpeech: () => {
+      void voiceRef.current?.speak?.("I heard you, but I didn't catch top or bottom. Please say top or bottom again.");
+    },
     shouldIgnoreTranscript,
     commandContextKey,
     onTranscript: handleTranscript,
@@ -1614,11 +1619,26 @@ export default function StockerApp() {
         // Check if permissions API is available
         if (navigator.permissions) {
           const result = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+          let previousState = result.state;
           setMicPermission(result.state as 'prompt' | 'granted' | 'denied');
 
           // Listen for permission changes
           result.onchange = () => {
-            setMicPermission(result.state as 'prompt' | 'granted' | 'denied');
+            const nextState = result.state as 'prompt' | 'granted' | 'denied';
+            setMicPermission(nextState);
+            if (nextState === 'denied') {
+              // Some Android builds leave the old capture track alive briefly after the
+              // permission switch. Stop it immediately so "mic off" really means off.
+              voiceRef.current?.stopListening?.();
+              setError('Microphone access is off. Turn it back on, then return to StockerAI.');
+            } else if (nextState === 'granted' && previousState === 'denied') {
+              // Returning from Android/Chrome settings should recover without a reload.
+              setError('Microphone restored — reconnecting…');
+              void voiceRef.current?.startListening?.().then(connected => {
+                setError(connected ? null : 'Voice paused — tap to reconnect.');
+              }).catch(() => setError('Voice paused — tap to reconnect.'));
+            }
+            previousState = result.state;
           };
         } else {
           // Fallback - assume we need to prompt
@@ -1652,7 +1672,7 @@ export default function StockerApp() {
   useEffect(() => {
     const checkSavedSession = async () => {
       // Prevent double initialization
-      if (!userId || initialized || initStartedRef.current) return;
+      if (androidPickingBlocked || !userId || initialized || initStartedRef.current) return;
       initStartedRef.current = true;
 
       // CRITICAL: If Safari/iOS needs audio unlock, wait for it before continuing
@@ -1956,7 +1976,7 @@ export default function StockerApp() {
         setInitialized(true);
       });
     }
-  }, [loading, user, userId, initialized, sessionPersistence, routeIdFromUrl, resumeFromUrl, urlRouteProcessed, voice, userName, addMessage, reset, generateNewSessionId, audioUnlocked, isIOS, isSafari, setMessages, setRouteState, setSession, setSessionId]);
+  }, [androidPickingBlocked, loading, user, userId, initialized, sessionPersistence, routeIdFromUrl, resumeFromUrl, urlRouteProcessed, voice, userName, addMessage, reset, generateNewSessionId, audioUnlocked, isIOS, isSafari, setMessages, setRouteState, setSession, setSessionId]);
 
   const resumeSession = useCallback(async () => {
     if (!savedSession) return;
@@ -2184,54 +2204,12 @@ export default function StockerApp() {
     navigate('/dashboard');
   };
 
-  // Triple-tap to show diagnostics AND recover voice system (hidden troubleshooting feature)
-  const tapTimesRef = useRef<number[]>([]);
-  useEffect(() => {
-    const handleTripleTap = async (e: TouchEvent | MouseEvent) => {
-      const now = Date.now();
-      tapTimesRef.current.push(now);
-
-      // Keep only taps within last second
-      tapTimesRef.current = tapTimesRef.current.filter(t => now - t < 1000);
-
-      // If 3 taps within 1 second, show diagnostics AND attempt recovery
-      if (tapTimesRef.current.length >= 3) {
-        pendingGuessRef.current = invalidatePendingConfirmation(pendingGuessRef.current);
-        console.log('[Triple-Tap] Triggered - showing diagnostics and attempting voice recovery');
-        setShowDiagnostics(true);
-        tapTimesRef.current = [];
-
-        // Attempt to recover voice system
-        try {
-          await voice.unlockAudio();
-          console.log('[Triple-Tap] Audio unlocked');
-
-          // If not already listening, start
-          if (voice.status !== 'listening' && voice.status !== 'speaking') {
-            await voice.startListening();
-            console.log('[Triple-Tap] Voice system restarted');
-          }
-        } catch (e) {
-          console.error('[Triple-Tap] Recovery failed:', e);
-        }
-      }
-    };
-
-    window.addEventListener('touchend', handleTripleTap);
-    window.addEventListener('click', handleTripleTap);
-
-    return () => {
-      window.removeEventListener('touchend', handleTripleTap);
-      window.removeEventListener('click', handleTripleTap);
-    };
-  }, [voice]);
-
   // GRID-006 — the failure message told him to tap, and tapping did nothing but hide it.
   //
   // The banner's only behaviour was setError(null). So when voice gave up and put
   // "Voice paused — tap to reconnect." on screen, his tap made the words disappear and left the
   // voice just as dead. That is worse than silence: it looks like it worked. (The only real
-  // recovery was an undocumented triple-tap anywhere on the screen.)
+  // recovery was previously hidden behind an undocumented gesture.)
   //
   // The second half is the wait. Getting a fresh voice credential can take up to ten seconds,
   // and nothing moves during it — so even once the tap DOES something, he cannot tell whether
@@ -2388,6 +2366,23 @@ export default function StockerApp() {
     return (
       <div className="min-h-screen bg-[#0d1117] flex items-center justify-center">
         <div className="text-gray-400">Loading...</div>
+      </div>
+    );
+  }
+
+  // Android picking is supported only from the installed home-screen app. The
+  // public website and dashboard remain browser-accessible for onboarding/admin.
+  if (androidPickingBlocked) {
+    return (
+      <div className="min-h-screen bg-[#0d1117] text-white flex flex-col items-center justify-center gap-5 p-6">
+        <div className="h-24 w-24 overflow-hidden rounded-full bg-white shadow-lg shadow-teal-500/30">
+          <img src="/stocker-ai-logo.jpg" alt="StockerAI" className="h-full w-full object-cover" />
+        </div>
+        <h1 className="text-center text-2xl font-bold">Open the StockerAI app</h1>
+        <p className="max-w-sm text-center text-gray-300">
+          Route picking runs from the installed StockerAI app, not a Chrome tab. Open StockerAI from your Home screen.
+        </p>
+        <Button variant="outline" onClick={() => navigate('/dashboard')}>Back to dashboard</Button>
       </div>
     );
   }
@@ -2734,11 +2729,11 @@ export default function StockerApp() {
             variant="outline"
             size="sm"
             onClick={() => setShowProblemReport(true)}
-            title="Report a problem"
-            aria-label="Report a problem"
+            title="Send feedback"
+            aria-label="Send feedback"
             className="border-amber-700/70 px-2 text-amber-300 hover:bg-amber-950 hover:text-amber-200"
           >
-            <Bug className="h-4 w-4" />
+            <MessageSquarePlus className="h-4 w-4" />
           </Button>
           <Button variant="ghost" size="icon" onClick={() => setShowHelpSheet(true)} title="Voice Commands Help">
             <HelpCircle className="h-5 w-5 text-gray-400" />
@@ -2812,9 +2807,13 @@ export default function StockerApp() {
 
       {/* Help Sheet */}
       <HelpSheet isOpen={showHelpSheet} onClose={() => setShowHelpSheet(false)} />
-      <SettingsSheet isOpen={showSettings} onClose={() => setShowSettings(false)} />
+      <SettingsSheet
+        isOpen={showSettings}
+        onClose={() => setShowSettings(false)}
+        onOpenDiagnostics={() => setShowDiagnostics(true)}
+      />
 
-      {/* Diagnostic Overlay - Triple-tap to reveal */}
+      {/* Diagnostic Overlay - opened deliberately from Settings */}
       <DiagnosticOverlay
         voiceStatus={voice.status}
         isDeepgramConnected={voice.isDeepgramConnected}
