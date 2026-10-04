@@ -1453,6 +1453,9 @@ export default function StockerApp() {
 
   const voice = useVoice({
     onMicrophoneRecovered: () => setError(current => current === 'Microphone disconnected — tap to reconnect.' ? null : current),
+    onUnrecognizedDirectionSpeech: () => {
+      void voiceRef.current?.speak?.("I heard you, but I didn't catch top or bottom. Please say top or bottom again.");
+    },
     shouldIgnoreTranscript,
     commandContextKey,
     onTranscript: handleTranscript,
