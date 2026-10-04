@@ -10,7 +10,8 @@ import {
   X,
   Shield,
   Tag,
-  Home
+  Home,
+  FileText
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
@@ -52,6 +53,11 @@ const AdminLayout = ({ children, title }: AdminLayoutProps) => {
       label: "Usage & Metrics",
       href: "/admin/metrics",
       icon: BarChart3
+    },
+    {
+      label: "Report Formats",
+      href: "/admin/report-formats",
+      icon: FileText
     },
     {
       label: "Discount Codes",

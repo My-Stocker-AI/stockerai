@@ -232,6 +232,9 @@ def test_all_commands_are_present():
         "/api/go-back-to-skipped", "/api/update-session", "/api/resume-state",
         "/api/upload-pdf", "/api/diag", "/api/openai-chat",
         "/api/route-pdf-url", "/api/incidents",
+        "/api/admin/report-formats", "/api/admin/report-formats/test-notification",
+        "/api/admin/report-formats/{review_id}",
+        "/api/admin/report-formats/{review_id}/pdf-url",
     }, sorted(paths)
 
 

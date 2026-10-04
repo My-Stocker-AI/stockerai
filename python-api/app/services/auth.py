@@ -140,6 +140,16 @@ def require_auth(request: Request) -> Caller:
 AuthCaller = Depends(require_auth)
 
 
+# Server-side authority for cross-account platform operations. The frontend's
+# route guard is only presentation; every privileged API must enforce this ID.
+PLATFORM_ADMIN_USER_IDS = frozenset({"bdc96b72-3f35-4cae-9e79-99473eb4a23b"})
+
+
+def require_platform_admin(caller: Caller) -> None:
+    if caller.user_id not in PLATFORM_ADMIN_USER_IDS:
+        raise forbidden()
+
+
 def optional_auth(request: Request) -> Caller | None:
     """
     Identify the caller if they are signed in, and let them through if they are not.
