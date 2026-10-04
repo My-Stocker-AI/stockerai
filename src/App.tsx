@@ -27,6 +27,7 @@ const Team = lazy(() => import("./pages/dashboard/Team"));
 const Usage = lazy(() => import("./pages/dashboard/Usage"));
 const Billing = lazy(() => import("./pages/dashboard/Billing"));
 const Settings = lazy(() => import("./pages/dashboard/Settings"));
+const GettingStarted = lazy(() => import("./pages/dashboard/GettingStarted"));
 const StockerApp = lazy(() => import("./pages/StockerApp"));
 const AdminOverview = lazy(() => import("./pages/admin/AdminOverview"));
 const AdminUsers = lazy(() => import("./pages/admin/AdminUsers"));
@@ -78,6 +79,7 @@ const App = () => (
             <Route path="/dashboard/usage" element={<ProtectedRoute adminOnly><Usage /></ProtectedRoute>} />
             <Route path="/dashboard/billing" element={<ProtectedRoute adminOnly><Billing /></ProtectedRoute>} />
             <Route path="/dashboard/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+            <Route path="/dashboard/getting-started" element={<ProtectedRoute><GettingStarted /></ProtectedRoute>} />
             <Route path="/app" element={<ProtectedRoute><StockerApp /></ProtectedRoute>} />
 
             {/* Redirects for short URLs */}
@@ -87,6 +89,7 @@ const App = () => (
             <Route path="/usage" element={<Navigate to="/dashboard/usage" replace />} />
             <Route path="/billing" element={<Navigate to="/dashboard/billing" replace />} />
             <Route path="/settings" element={<Navigate to="/dashboard/settings" replace />} />
+            <Route path="/getting-started" element={<Navigate to="/dashboard/getting-started" replace />} />
 
             {/* Platform Admin Routes */}
             <Route path="/admin" element={<PlatformAdminRoute><AdminOverview /></PlatformAdminRoute>} />

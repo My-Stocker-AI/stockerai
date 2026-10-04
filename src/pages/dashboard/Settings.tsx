@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Loader2, User, Lock, Trash2, Building2, Users, Zap } from "lucide-react";
+import { Loader2, User, Lock, Trash2, Building2, Users, Zap, FileText } from "lucide-react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,6 +21,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { SettingsPanel } from "@/components/stocker/SettingsPanel";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { isReportSource, type ReportSource } from "@/lib/onboarding";
 
 interface Profile {
   id: string;
@@ -34,6 +36,9 @@ interface Account {
   name: string;
   driver_count: number | null;
   machines_per_driver: number | null;
+  report_source: string | null;
+  report_source_name: string | null;
+  report_format_status: string;
 }
 
 const Settings = () => {
@@ -52,6 +57,8 @@ const Settings = () => {
   const [accountName, setAccountName] = useState("");
   const [driverCount, setDriverCount] = useState(2);
   const [machinesPerDriver, setMachinesPerDriver] = useState(10);
+  const [reportSource, setReportSource] = useState<ReportSource | ''>('');
+  const [reportSourceName, setReportSourceName] = useState('');
 
   // Password form state
   const [currentPassword, setCurrentPassword] = useState("");
@@ -88,7 +95,7 @@ const Settings = () => {
       if (!userRole?.account_id) return null;
       const { data, error } = await supabase
         .from('accounts')
-        .select('id, name, driver_count, machines_per_driver')
+        .select('id, name, driver_count, machines_per_driver, report_source, report_source_name, report_format_status')
         .eq('id', userRole.account_id)
         .single();
 
@@ -112,6 +119,8 @@ const Settings = () => {
       setAccountName(account.name || "");
       setDriverCount(account.driver_count || 2);
       setMachinesPerDriver(account.machines_per_driver || 10);
+      setReportSource(account.report_source && isReportSource(account.report_source) ? account.report_source : '');
+      setReportSourceName(account.report_source_name || '');
     }
   }, [account]);
 
@@ -144,11 +153,20 @@ const Settings = () => {
     mutationFn: async () => {
       if (!userRole?.account_id) throw new Error('No account found');
 
+      const normalizedSourceName = reportSource === 'parlevel' ? null : reportSourceName.trim() || null;
+      const sourceChanged = reportSource !== (account?.report_source || '')
+        || normalizedSourceName !== (account?.report_source_name || null);
+
       const { error } = await supabase
         .from('accounts')
         .update({
           name: accountName,
           machines_per_driver: machinesPerDriver,
+          report_source: reportSource || null,
+          report_source_name: normalizedSourceName,
+          report_format_status: reportSource === 'parlevel'
+            ? 'ready'
+            : sourceChanged ? 'needs_submission' : account?.report_format_status || 'needs_submission',
         })
         .eq('id', userRole.account_id);
 
@@ -351,6 +369,33 @@ const Settings = () => {
                     Expected machines each driver services daily (for usage tracking)
                   </p>
                 </div>
+              </div>
+
+              <div className="space-y-3 rounded-lg border border-dashboard-border p-4">
+                <Label className="text-dashboard-text flex items-center gap-2">
+                  <FileText className="h-4 w-4" /> Route Report Source
+                </Label>
+                <Select value={reportSource} onValueChange={(value) => setReportSource(value as ReportSource)}>
+                  <SelectTrigger className="bg-dashboard-bg border-dashboard-border text-dashboard-text">
+                    <SelectValue placeholder="Choose the system that produces your PDF" />
+                  </SelectTrigger>
+                  <SelectContent className="border-dashboard-border bg-[#161b22] text-white">
+                    <SelectItem value="parlevel">Parlevel</SelectItem>
+                    <SelectItem value="other">Another vending system</SelectItem>
+                    <SelectItem value="not_sure">Not sure</SelectItem>
+                  </SelectContent>
+                </Select>
+                {reportSource !== 'parlevel' && reportSource && (
+                  <Input
+                    value={reportSourceName}
+                    onChange={(event) => setReportSourceName(event.target.value)}
+                    placeholder={reportSource === 'not_sure' ? 'Optional notes about the report' : 'Vending system name'}
+                    className="bg-dashboard-bg border-dashboard-border text-dashboard-text"
+                  />
+                )}
+                <p className="text-xs text-dashboard-text-secondary">
+                  This company-wide choice controls whether route PDFs are imported or submitted for format setup.
+                </p>
               </div>
 
               <div className="p-4 bg-dashboard-bg rounded-lg border border-dashboard-border">

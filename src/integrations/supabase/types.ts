@@ -61,6 +61,10 @@ export type Database = {
           machines_per_driver: number | null
           min_drivers_required: number | null
           name: string
+          onboarding_completed_at: string | null
+          report_format_status: string
+          report_source: string | null
+          report_source_name: string | null
           stripe_customer_id: string | null
           stripe_state_event_created_at: string | null
           stripe_subscription_id: string | null
@@ -76,6 +80,10 @@ export type Database = {
           machines_per_driver?: number | null
           min_drivers_required?: number | null
           name: string
+          onboarding_completed_at?: string | null
+          report_format_status?: string
+          report_source?: string | null
+          report_source_name?: string | null
           stripe_customer_id?: string | null
           stripe_state_event_created_at?: string | null
           stripe_subscription_id?: string | null
@@ -91,6 +99,10 @@ export type Database = {
           machines_per_driver?: number | null
           min_drivers_required?: number | null
           name?: string
+          onboarding_completed_at?: string | null
+          report_format_status?: string
+          report_source?: string | null
+          report_source_name?: string | null
           stripe_customer_id?: string | null
           stripe_state_event_created_at?: string | null
           stripe_subscription_id?: string | null
@@ -463,6 +475,7 @@ export type Database = {
           id: string
           is_active: boolean | null
           last_name: string | null
+          onboarding_completed_at: string | null
           tts_volume: number
           updated_at: string | null
         }
@@ -475,6 +488,7 @@ export type Database = {
           id: string
           is_active?: boolean | null
           last_name?: string | null
+          onboarding_completed_at?: string | null
           tts_volume?: number
           updated_at?: string | null
         }
@@ -487,6 +501,7 @@ export type Database = {
           id?: string
           is_active?: boolean | null
           last_name?: string | null
+          onboarding_completed_at?: string | null
           tts_volume?: number
           updated_at?: string | null
         }

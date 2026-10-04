@@ -1,11 +1,13 @@
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { Card, CardContent } from "@/components/ui/card";
-import { Upload, Route, Users, BarChart3, CreditCard, Settings, LogOut } from "lucide-react";
-import { Link, useNavigate } from "react-router-dom";
+import { Upload, Route, Users, BarChart3, CreditCard, Settings, LogOut, Rocket, Loader2 } from "lucide-react";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
+import { useOnboardingStatus } from "@/hooks/useOnboardingStatus";
 
 const Dashboard = () => {
   const { user, userRole, signOut } = useAuth();
+  const onboarding = useOnboardingStatus();
   const navigate = useNavigate();
   const isPrimaryAdmin = userRole?.role === 'primary_admin';
 
@@ -13,6 +15,18 @@ const Dashboard = () => {
   const PLATFORM_ADMIN_EMAILS = ['russ@visionairy.biz'];
   const isPlatformAdmin = PLATFORM_ADMIN_EMAILS.includes(user?.email || '');
   const showAdminMenu = isPrimaryAdmin || isPlatformAdmin;
+
+  if (onboarding.isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-dashboard-bg-alt">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (onboarding.needsOnboarding) {
+    return <Navigate to="/dashboard/getting-started" replace />;
+  }
 
   const handleLogout = async () => {
     await signOut();
@@ -59,6 +73,14 @@ const Dashboard = () => {
       icon: CreditCard,
       color: "bg-green-600",
       visible: showAdminMenu
+    },
+    {
+      label: "Getting Started",
+      description: "Setup and first-route guidance",
+      href: "/dashboard/getting-started",
+      icon: Rocket,
+      color: "bg-teal-600",
+      visible: true
     },
     {
       label: "Settings",

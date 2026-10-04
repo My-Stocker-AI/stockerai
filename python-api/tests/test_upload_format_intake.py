@@ -71,6 +71,43 @@ def test_other_vendor_is_captured(client):
     notify.assert_called_once()
 
 
+def test_named_non_parlevel_vendor_is_captured(client):
+    db = _mock_db()
+    with patch("app.routes.upload.get_client", return_value=db), \
+         patch("app.routes.upload.notify_russ") as notify:
+        r = client.post(
+            "/api/upload-pdf",
+            data={"date": "2026-07-02", "user_id": "u1", "vendor": "Nayax", "operation_id": str(uuid4())},
+            files={"pdf": _dummy_pdf()},
+        )
+    assert r.status_code == 200
+    assert r.json()["status"] == "pending_format"
+    assert r.json()["vendor"] == "Nayax"
+    assert _pending_calls(db)
+    notify.assert_called_once()
+
+
+def test_explicit_format_submission_never_creates_a_route(client):
+    db = _mock_db()
+    with patch("app.routes.upload.get_client", return_value=db), \
+         patch("app.routes.upload.extract_text_from_pdf") as extract, \
+         patch("app.routes.upload.notify_russ"):
+        r = client.post(
+            "/api/upload-pdf",
+            data={
+                "date": "2026-07-02",
+                "user_id": "u1",
+                "vendor": "Parlevel",
+                "format_submission": "true",
+                "operation_id": str(uuid4()),
+            },
+            files={"pdf": _dummy_pdf()},
+        )
+    assert r.status_code == 200
+    assert r.json()["status"] == "pending_format"
+    extract.assert_not_called()
+
+
 def test_unrecognized_report_is_captured(client):
     db = _mock_db()
     with patch("app.routes.upload.get_client", return_value=db), \

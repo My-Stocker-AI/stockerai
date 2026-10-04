@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { authFetch } from '@/lib/authFetch';
 import { format, addDays } from "date-fns";
 import { Upload, Calendar, Trash2, Users, Loader2 } from "lucide-react";
@@ -41,6 +41,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
+import { Link } from "react-router-dom";
 
 interface Route {
   id: string;
@@ -87,6 +88,41 @@ const UploadRoutes = () => {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedRoute, setSelectedRoute] = useState<Route | null>(null);
   const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
+
+  const { data: reportConfig } = useQuery({
+    queryKey: ['account-report-config', userRole?.account_id],
+    queryFn: async () => {
+      if (!userRole?.account_id) return null;
+      const { data, error } = await supabase
+        .from('accounts')
+        .select('report_source, report_source_name, report_format_status')
+        .eq('id', userRole.account_id)
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!userRole?.account_id,
+  });
+
+  const configuredVendor = useMemo(() => {
+    if (reportConfig?.report_source === 'parlevel') return 'Parlevel';
+    if (reportConfig?.report_source === 'other') return reportConfig.report_source_name || 'Other';
+    if (reportConfig?.report_source === 'not_sure') return 'Other';
+    return '';
+  }, [reportConfig]);
+
+  useEffect(() => {
+    if (configuredVendor) setVendor(configuredVendor);
+  }, [configuredVendor]);
+
+  const vendorOptions = useMemo(() => {
+    const standard = ['Parlevel', 'Nayax', 'Cantaloupe/Seed', 'Gimme', 'VendSoft', 'VendSys', 'Vagabond', 'Vend-Trak', 'VendMAX', 'Other'];
+    return configuredVendor && !standard.includes(configuredVendor)
+      ? [configuredVendor, ...standard]
+      : standard;
+  }, [configuredVendor]);
+
+  const reportFormatReady = !reportConfig || reportConfig.report_format_status === 'ready';
 
   // delivery_date is stored as "YYYY-MM-DD". Parsing with `new Date("YYYY-MM-DD")` treats it as UTC,
   // which can display as the previous day in some timezones. Always parse as a local date.
@@ -494,12 +530,12 @@ const UploadRoutes = () => {
 
               <div className="space-y-2">
                 <Label className="text-dashboard-text">Vending System</Label>
-                <Select value={vendor} onValueChange={setVendor}>
+                <Select value={vendor} onValueChange={setVendor} disabled={!!configuredVendor}>
                   <SelectTrigger className="bg-dashboard-bg border-dashboard-border text-dashboard-text">
                     <SelectValue placeholder="Which system is this report from?" />
                   </SelectTrigger>
                   <SelectContent className="border-dashboard-border bg-[#161b22] text-white">
-                    {['Parlevel', 'Nayax', 'Cantaloupe/Seed', 'Gimme', 'VendSoft', 'VendSys', 'Vagabond', 'Vend-Trak', 'VendMAX', 'Other'].map((v) => (
+                    {vendorOptions.map((v) => (
                       <SelectItem
                         key={v}
                         value={v}
@@ -511,14 +547,21 @@ const UploadRoutes = () => {
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-dashboard-text-secondary">
-                  We read Parlevel reports today. Using another system? Pick it (or "Other") and we'll set up your format.
+                  {configuredVendor
+                    ? <>Saved for your company. Change it in <Link to="/dashboard/settings" className="text-primary underline">Settings</Link>.</>
+                    : <>We read Parlevel reports today. Other systems go through format setup before live route uploads.</>}
                 </p>
+                {!reportFormatReady && (
+                  <p className="text-sm text-amber-400">
+                    Your report format is being set up. <Link to="/dashboard/getting-started" className="underline">Open Getting Started</Link> to review its status.
+                  </p>
+                )}
               </div>
             </div>
 
             <Button
               onClick={handleUpload} 
-              disabled={!file || !vendor || uploading}
+              disabled={!file || !vendor || uploading || !reportFormatReady}
               className="bg-primary hover:bg-primary-hover text-primary-foreground"
             >
               {uploading ? (

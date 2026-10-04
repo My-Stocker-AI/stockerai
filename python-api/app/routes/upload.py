@@ -16,9 +16,9 @@ from app.services.notify import notify_russ
 
 router = APIRouter()
 
-# Vending management systems we present in the upload dropdown. "Other" (and any
-# report we can't parse) routes to the capture-and-wait holding pen.
-SUPPORTED_VENDORS = {
+# Vending management systems we present in the upload dropdown. Parlevel is the
+# only generally available parser today. Other sources stay in format intake.
+KNOWN_VENDORS = {
     "Parlevel", "Nayax", "Cantaloupe/Seed", "Gimme",
     "VendSoft", "VendSys", "Vagabond", "Vend-Trak", "VendMAX",
 }
@@ -184,14 +184,15 @@ async def upload_pdf(
     date: str = Form(...),
     for_user_id: str = Form(None, alias="user_id"),
     vendor: str = Form(None),
+    format_submission: bool = Form(False),
     operation_id: UUID | None = Form(None),
     caller: Caller = AuthCaller,
 ):
     """
     Upload a route PDF, parse it, and insert route/machines/items.
 
-    Today we parse the Parlevel "Prekitting Detail" layout. Anything we can't turn
-    into a route — or an explicit "Other" vendor selection — is routed to the
+    Today we parse the supported Parlevel route-report layout. Anything we can't turn
+    into a route — or an explicit format-intake submission — is routed to the
     capture-and-wait holding pen instead of dead-ending on an error.
 
     The upload screen deliberately lets an admin load tomorrow's route FOR one of their
@@ -224,11 +225,22 @@ async def upload_pdf(
     if len(pdf_bytes) > MAX_PDF_BYTES:
         raise HTTPException(status_code=413, detail="PDF too large (max 25 MB).")
 
-    # The operator told us their system isn't one we support yet → capture-and-wait.
-    if vendor and vendor.strip().lower() == "other":
+    normalized_vendor = (vendor or "").strip().lower()
+
+    # A deliberate onboarding sample never becomes a live route, even if its
+    # contents resemble a currently supported report.
+    if format_submission is True:
         return _capture_pending(
             db, pdf_bytes, user_id, vendor, filename,
-            "vendor_other", request_operation_id, caller,
+            "onboarding_format_submission", request_operation_id, caller,
+        )
+
+    # Parlevel is the only generally available parser today. Named future
+    # vendors remain intake submissions until their mappings are released.
+    if normalized_vendor and normalized_vendor != "parlevel":
+        return _capture_pending(
+            db, pdf_bytes, user_id, vendor, filename,
+            "unsupported_vendor", request_operation_id, caller,
         )
 
     # Try to read the report. A file we can't extract text from (scanned/image/corrupt)

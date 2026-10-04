@@ -8,7 +8,8 @@ import {
   CreditCard,
   Settings,
   LogOut,
-  Shield
+  Shield,
+  Rocket
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
@@ -40,6 +41,12 @@ const DashboardLayout = ({ children, title, breadcrumbs }: DashboardLayoutProps)
   const showAdminMenu = isPrimaryAdmin || isPlatformAdmin;
 
   const navItems = [
+    {
+      label: "Getting Started",
+      href: "/dashboard/getting-started",
+      icon: Rocket,
+      visible: true
+    },
     {
       label: "Upload Routes",
       href: "/dashboard/upload-routes",
