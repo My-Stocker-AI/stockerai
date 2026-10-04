@@ -1,4 +1,5 @@
-from unittest.mock import patch
+import json
+from unittest.mock import MagicMock, patch
 
 from app.services.incident_notify import send_incident_email
 
@@ -41,3 +42,25 @@ def test_missing_telegram_and_email_configuration_is_reported():
 
     assert sent is False
     assert error == "Telegram and email notifications are not configured"
+
+
+def test_resend_request_identifies_stockerai_client():
+    response = MagicMock()
+    response.__enter__.return_value = response
+    response.read.return_value = json.dumps({"id": "email-123"}).encode("utf-8")
+
+    with patch("app.services.incident_notify.RESEND_API_KEY", "test-key"), patch(
+        "app.services.incident_notify.INCIDENT_ALERT_TO", "admin@example.test"
+    ), patch(
+        "app.services.incident_notify.INCIDENT_FROM_EMAIL", "StockerAI <alerts@example.test>"
+    ), patch(
+        "app.services.incident_notify.notify_russ", return_value=False
+    ), patch(
+        "app.services.incident_notify.urllib.request.urlopen", return_value=response
+    ) as urlopen:
+        sent, error = send_incident_email("incident-789", {}, {}, "description")
+
+    request = urlopen.call_args.args[0]
+    assert request.get_header("User-agent") == "StockerAI/1.0"
+    assert sent is True
+    assert error is None
