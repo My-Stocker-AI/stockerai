@@ -61,7 +61,12 @@ def send_incident_email(
     request = urllib.request.Request(
         "https://api.resend.com/emails",
         data=payload,
-        headers={"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"},
+        headers={
+            "Authorization": f"Bearer {RESEND_API_KEY}",
+            "Content-Type": "application/json",
+            # Resend's edge rejects urllib's default Python-urllib user agent.
+            "User-Agent": "StockerAI/1.0",
+        },
         method="POST",
     )
     try:
