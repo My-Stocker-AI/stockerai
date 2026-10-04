@@ -118,6 +118,8 @@ def test_skip_back_start_and_finish_route(client, route):
         result = call(client, request(client, route, action))
         assert result.status_code == 200, (action, result.text)
     assert result.json()['action'] == 'complete'
+    assert result.json()['completed_route'] == 'SKIP_RECOVERY_TEST'
+    assert result.json()['spoken'] == 'SKIP_RECOVERY_TEST route complete. Nice work!'
     assert all(m['status']=='completed' for m in state(route)[0])
     assert state(route)[1][0]['status']=='completed'
     reset = call(client, request(client, route, 'reset'))
