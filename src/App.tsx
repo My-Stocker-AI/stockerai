@@ -34,6 +34,7 @@ const AdminUsers = lazy(() => import("./pages/admin/AdminUsers"));
 const AdminSubscriptions = lazy(() => import("./pages/admin/AdminSubscriptions"));
 const AdminMetrics = lazy(() => import("./pages/admin/AdminMetrics"));
 const AdminDiscounts = lazy(() => import("./pages/admin/AdminDiscounts"));
+const AdminReportFormats = lazy(() => import("./pages/admin/AdminReportFormats"));
 const Guide = lazy(() => import("./pages/Guide"));
 const Demo = lazy(() => import("./pages/Demo"));
 const DemoLive = lazy(() => import("./pages/DemoLive"));
@@ -97,6 +98,7 @@ const App = () => (
             <Route path="/admin/subscriptions" element={<PlatformAdminRoute><AdminSubscriptions /></PlatformAdminRoute>} />
             <Route path="/admin/metrics" element={<PlatformAdminRoute><AdminMetrics /></PlatformAdminRoute>} />
             <Route path="/admin/discounts" element={<PlatformAdminRoute><AdminDiscounts /></PlatformAdminRoute>} />
+            <Route path="/admin/report-formats" element={<PlatformAdminRoute><AdminReportFormats /></PlatformAdminRoute>} />
 
             <Route path="*" element={<NotFound />} />
           </Routes>
