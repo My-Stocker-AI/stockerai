@@ -28,6 +28,7 @@ import {
   calculatePricingQuote,
   formatCurrency,
 } from "@/lib/pricing";
+import { TrialCancellationNotice } from "@/components/billing/TrialCancellationNotice";
 
 interface SubscriptionData {
   subscribed: boolean;
@@ -268,6 +269,8 @@ const Billing = () => {
   const quote = calculatePricingQuote(driverCount, billingTerm);
   const newQuote = calculatePricingQuote(newDriverCount, billingTerm);
   const requiresCardSetup = account?.billing_onboarding_required === true && !hasActiveSubscription;
+  const trialEndsAt = subscription?.trial_ends_at || account?.trial_ends_at;
+  const isPrimaryAdmin = userRole?.role === "primary_admin";
 
   return (
     <DashboardLayout 
@@ -324,14 +327,34 @@ const Billing = () => {
           </Card>
         )}
 
+        {!isPlatformAccount && subscriptionStatus === "trialing" && trialEndsAt && (
+          <TrialCancellationNotice
+            trialEndsAt={trialEndsAt}
+            cancelAtPeriodEnd={subscription?.cancel_at_period_end === true}
+            isPrimaryAdmin={isPrimaryAdmin}
+            isOpeningPortal={isOpeningPortal}
+            onManageSubscription={handleManageSubscription}
+          />
+        )}
+
         {!isPlatformAccount && hasActiveSubscription && (
           <Card className="bg-success/10 border-success/30">
             <CardContent className="flex items-center gap-4 py-4">
               <CheckCircle className="h-6 w-6 text-success" />
               <div className="flex-1">
-                <p className="font-medium text-dashboard-text">Subscription active</p>
+                <p className="font-medium text-dashboard-text">
+                  {subscriptionStatus === "trialing"
+                    ? subscription?.cancel_at_period_end
+                      ? "Trial cancellation scheduled"
+                      : "Free trial active"
+                    : "Subscription active"}
+                </p>
                 <p className="text-sm text-dashboard-text-secondary">
-                  {subscription?.subscription_end
+                  {subscriptionStatus === "trialing" && trialEndsAt
+                    ? subscription?.cancel_at_period_end
+                      ? `Access continues through ${format(new Date(trialEndsAt), "MMMM d, yyyy")}`
+                      : `First charge is scheduled for ${format(new Date(trialEndsAt), "MMMM d, yyyy")} unless you cancel first`
+                    : subscription?.subscription_end
                     ? `Renews on ${format(new Date(subscription.subscription_end), 'MMMM d, yyyy')}`
                     : 'Your subscription is active'}
                 </p>
@@ -385,7 +408,7 @@ const Billing = () => {
                   </CardDescription>
                 </div>
                 <div className="flex items-center gap-2">
-                  {getStatusBadge(subscriptionStatus, account?.trial_ends_at || null)}
+                  {getStatusBadge(subscriptionStatus, trialEndsAt || null)}
                   <Button
                     variant="ghost"
                     size="icon"
