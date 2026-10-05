@@ -21,6 +21,13 @@ import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format, differenceInDays } from "date-fns";
 import { useSearchParams } from "react-router-dom";
+import {
+  BILLING_TERMS,
+  FREE_TRIAL_DAYS,
+  type BillingTerm,
+  calculatePricingQuote,
+  formatCurrency,
+} from "@/lib/pricing";
 
 interface SubscriptionData {
   subscribed: boolean;
@@ -30,6 +37,12 @@ interface SubscriptionData {
   stripe_customer_id: string | null;
   price_per_driver?: number;
   monthly_total?: number;
+  term_total?: number;
+  billing_months?: number;
+  billing_term?: BillingTerm | "legacy";
+  pricing_version?: string | null;
+  trial_ends_at?: string | null;
+  cancel_at_period_end?: boolean;
 }
 
 interface Account {
@@ -41,10 +54,13 @@ interface Account {
   stripe_customer_id: string | null;
   min_drivers_required: number | null;
   is_platform_account: boolean | null;
+  billing_onboarding_required: boolean;
+  billing_term: string | null;
+  pricing_version: string | null;
 }
 
 const Billing = () => {
-  const { userRole } = useAuth();
+  const { user, userRole } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
@@ -53,13 +69,19 @@ const Billing = () => {
   const [newDriverCount, setNewDriverCount] = useState(2);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [isOpeningPortal, setIsOpeningPortal] = useState(false);
+  const preferredTerm = user?.user_metadata?.billing_term;
+  const [billingTerm, setBillingTerm] = useState<BillingTerm>(
+    preferredTerm === "monthly" || preferredTerm === "semiannual" || preferredTerm === "annual"
+      ? preferredTerm
+      : "annual",
+  );
 
   // Handle success/cancel URL params from Stripe checkout
   useEffect(() => {
     if (searchParams.get('success') === 'true') {
       toast({ 
-        title: "Subscription activated!", 
-        description: "Welcome to Stocker AI. Your subscription is now active." 
+        title: "Card saved — trial activating",
+        description: "Stripe is confirming your seven-day trial. This page will update automatically.",
       });
       queryClient.invalidateQueries({ queryKey: ['subscription', userRole?.account_id] });
       queryClient.invalidateQueries({ queryKey: ['account'] });
@@ -80,7 +102,7 @@ const Billing = () => {
       if (!userRole?.account_id) return null;
       const { data, error } = await supabase
         .from('accounts')
-        .select('id, name, driver_count, subscription_status, trial_ends_at, stripe_customer_id, min_drivers_required, is_platform_account')
+        .select('id, name, driver_count, subscription_status, trial_ends_at, stripe_customer_id, min_drivers_required, is_platform_account, billing_onboarding_required, billing_term, pricing_version')
         .eq('id', userRole.account_id)
         .single();
       
@@ -88,7 +110,23 @@ const Billing = () => {
       return data as Account;
     },
     enabled: !!userRole?.account_id,
+    refetchInterval: (query) => {
+      const current = query.state.data as Account | null | undefined;
+      const accessConfirmed = current?.is_platform_account === true ||
+        current?.subscription_status === "trialing" ||
+        current?.subscription_status === "active";
+      return searchParams.get("success") === "true" && !accessConfirmed ? 2_000 : false;
+    },
   });
+
+  useEffect(() => {
+    const accessConfirmed = account?.is_platform_account === true ||
+      account?.subscription_status === "trialing" ||
+      account?.subscription_status === "active";
+    if (accessConfirmed) {
+      queryClient.invalidateQueries({ queryKey: ["billing-access", userRole?.account_id] });
+    }
+  }, [account?.is_platform_account, account?.subscription_status, queryClient, userRole?.account_id]);
 
   // Fetch subscription status from Stripe
   const { data: subscription, isLoading: subscriptionLoading, refetch: refetchSubscription } = useQuery({
@@ -115,22 +153,6 @@ const Billing = () => {
     refetchInterval: 60000, // Refresh every minute
   });
 
-  const getPricePerDriver = (count: number) => {
-    if (count <= 5) return 20;
-    if (count <= 20) return 18;
-    return 15;
-  };
-
-  const getMonthlyPrice = (count: number) => {
-    return count * getPricePerDriver(count);
-  };
-
-  const getPlanName = (count: number) => {
-    if (count <= 5) return 'Starter';
-    if (count <= 20) return 'Growth';
-    return 'Scale';
-  };
-
   const getStatusBadge = (status: string | null, trialEndsAt: string | null) => {
     if (status === 'trialing' && trialEndsAt) {
       const daysLeft = differenceInDays(new Date(trialEndsAt), new Date());
@@ -152,7 +174,7 @@ const Billing = () => {
     }
   };
 
-  const handleCheckout = async (driverCount: number) => {
+  const handleCheckout = async (driverCount: number, term: BillingTerm = billingTerm) => {
     setIsCheckingOut(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -162,7 +184,7 @@ const Billing = () => {
       }
 
       if (!userRole?.account_id) throw new Error("Company account is not available.");
-      const operationKey = `stockerai-checkout:${userRole.account_id}:${driverCount}`;
+      const operationKey = `stockerai-checkout:${userRole.account_id}:${driverCount}:${term}`;
       let operationId = sessionStorage.getItem(operationKey);
       if (!operationId) {
         operationId = crypto.randomUUID();
@@ -173,12 +195,12 @@ const Billing = () => {
         headers: {
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: { driver_count: driverCount, operation_id: operationId },
+        body: { driver_count: driverCount, billing_term: term, operation_id: operationId },
       });
 
       if (error) throw error;
       if (data?.url) {
-        window.open(data.url, '_blank');
+        window.location.assign(data.url);
       }
     } catch (error: unknown) {
       console.error('Checkout error:', error);
@@ -243,6 +265,9 @@ const Billing = () => {
   const minDriversRequired = account?.min_drivers_required || 2;
   const effectiveMinimum = Math.max(2, minDriversRequired);
   const isBelowMinimum = newDriverCount < effectiveMinimum;
+  const quote = calculatePricingQuote(driverCount, billingTerm);
+  const newQuote = calculatePricingQuote(newDriverCount, billingTerm);
+  const requiresCardSetup = account?.billing_onboarding_required === true && !hasActiveSubscription;
 
   return (
     <DashboardLayout 
@@ -250,6 +275,15 @@ const Billing = () => {
       breadcrumbs={[{ label: "Dashboard", href: "/dashboard" }, { label: "Billing" }]}
     >
       <div className="space-y-8">
+        {requiresCardSetup && (
+          <Alert className="bg-primary/10 border-primary/30">
+            <CreditCard className="h-4 w-4 text-primary" />
+            <AlertTitle className="text-dashboard-text">Complete card setup to start your free trial</AlertTitle>
+            <AlertDescription className="text-dashboard-text-secondary">
+              A valid card is required, but the subscription charge today is $0. Your selected plan is charged after {FREE_TRIAL_DAYS} days unless you cancel first.
+            </AlertDescription>
+          </Alert>
+        )}
         {/* Subscription Status Alert */}
         {!hasActiveSubscription && subscriptionStatus !== 'trialing' && (
           <Card className="bg-primary/10 border-primary/30">
@@ -258,11 +292,14 @@ const Billing = () => {
               <div className="flex-1">
                 <p className="font-medium text-dashboard-text">No active subscription</p>
                 <p className="text-sm text-dashboard-text-secondary">
-                  Subscribe to continue using Stocker AI after your trial ends.
+                  Choose a billing term and securely save a card to start your {FREE_TRIAL_DAYS}-day trial.
                 </p>
               </div>
               <Button 
-                onClick={() => handleCheckout(driverCount)}
+                onClick={() => {
+                  setNewDriverCount(driverCount);
+                  setChangeDriversOpen(true);
+                }}
                 disabled={isCheckingOut}
                 className="bg-primary hover:bg-primary-hover"
               >
@@ -344,7 +381,7 @@ const Billing = () => {
                 <div>
                   <CardTitle className="text-dashboard-text">Subscription</CardTitle>
                   <CardDescription className="text-dashboard-text-secondary">
-                    {getPlanName(driverCount)} Plan
+                    Graduated per-driver pricing
                   </CardDescription>
                 </div>
                 <div className="flex items-center gap-2">
@@ -367,12 +404,16 @@ const Billing = () => {
                   <p className="text-2xl font-bold text-dashboard-text">{driverCount}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-dashboard-text-secondary">Price per driver</p>
-                  <p className="text-2xl font-bold text-dashboard-text">${getPricePerDriver(driverCount)}/mo</p>
+                  <p className="text-sm text-dashboard-text-secondary">Billing</p>
+                  <p className="text-2xl font-bold text-dashboard-text">
+                    {subscription?.billing_term === "semiannual" ? "6 months" : subscription?.billing_term === "annual" ? "Annual" : "Monthly"}
+                  </p>
                 </div>
                 <div>
                   <p className="text-sm text-dashboard-text-secondary">Monthly total</p>
-                  <p className="text-2xl font-bold text-primary">${getMonthlyPrice(driverCount)}/mo</p>
+                  <p className="text-2xl font-bold text-primary">
+                    {formatCurrency(Math.round((subscription?.monthly_total ?? quote.monthlyCents / 100) * 100))}/mo
+                  </p>
                 </div>
               </div>
 
@@ -433,7 +474,7 @@ const Billing = () => {
                     </div>
                     <div>
                       <p className="text-dashboard-text">Payment method on file</p>
-                      <p className="text-sm text-dashboard-text-secondary">Managed via Stripe</p>
+                <p className="text-sm text-dashboard-text-secondary">Managed securely by Stripe</p>
                     </div>
                   </div>
                   <Button
@@ -447,14 +488,17 @@ const Billing = () => {
                 </div>
               ) : (
                 <div className="text-center py-4">
-                  <p className="text-dashboard-text-secondary mb-4">No payment method on file</p>
+                  <p className="text-dashboard-text-secondary mb-4">A card is required to start the free trial</p>
                   <Button
-                    onClick={() => handleCheckout(driverCount)}
+                    onClick={() => {
+                      setNewDriverCount(driverCount);
+                      setChangeDriversOpen(true);
+                    }}
                     disabled={isCheckingOut}
                     className="bg-primary hover:bg-primary-hover"
                   >
                     {isCheckingOut ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                    Add Payment Method
+                    Start Secure Card Setup
                   </Button>
                 </div>
               )}
@@ -530,6 +574,22 @@ const Billing = () => {
               </p>
             </div>
 
+            {!hasActiveSubscription && (
+              <div className="space-y-2">
+                <Label htmlFor="checkoutBillingTerm" className="text-dashboard-text">Billing frequency</Label>
+                <select
+                  id="checkoutBillingTerm"
+                  value={billingTerm}
+                  onChange={(event) => setBillingTerm(event.target.value as BillingTerm)}
+                  className="flex h-10 w-full rounded-md border border-dashboard-border bg-dashboard-bg px-3 py-2 text-sm text-dashboard-text"
+                >
+                  <option value="annual">Annual — Best value, save 10%</option>
+                  <option value="monthly">Monthly — Maximum flexibility</option>
+                  <option value="semiannual">Every 6 months — Save 5%</option>
+                </select>
+              </div>
+            )}
+
             {/* Usage-based minimum warning */}
             {isBelowMinimum && minDriversRequired > 2 && (
               <Alert className="bg-warning/10 border-warning/30">
@@ -552,8 +612,8 @@ const Billing = () => {
                 onClick={() => setNewDriverCount(Math.max(effectiveMinimum, 2))}
               >
                 <p className="text-xs text-dashboard-text-secondary">Starter</p>
-                <p className="text-lg font-bold text-dashboard-text">$20</p>
-                <p className="text-xs text-dashboard-text-secondary">2-5 drivers</p>
+                <p className="text-lg font-bold text-dashboard-text">$24</p>
+                <p className="text-xs text-dashboard-text-secondary">first 5</p>
               </div>
               <div 
                 className={`p-3 rounded-lg border cursor-pointer transition-colors ${
@@ -564,8 +624,8 @@ const Billing = () => {
                 onClick={() => setNewDriverCount(Math.max(effectiveMinimum, 6))}
               >
                 <p className="text-xs text-dashboard-text-secondary">Growth</p>
-                <p className="text-lg font-bold text-dashboard-text">$18</p>
-                <p className="text-xs text-dashboard-text-secondary">6-20 drivers</p>
+                <p className="text-lg font-bold text-dashboard-text">$21</p>
+                <p className="text-xs text-dashboard-text-secondary">drivers 6–20</p>
               </div>
               <div 
                 className={`p-3 rounded-lg border cursor-pointer transition-colors ${
@@ -576,8 +636,8 @@ const Billing = () => {
                 onClick={() => setNewDriverCount(Math.max(effectiveMinimum, 21))}
               >
                 <p className="text-xs text-dashboard-text-secondary">Scale</p>
-                <p className="text-lg font-bold text-dashboard-text">$15</p>
-                <p className="text-xs text-dashboard-text-secondary">21+ drivers</p>
+                <p className="text-lg font-bold text-dashboard-text">$18</p>
+                <p className="text-xs text-dashboard-text-secondary">drivers 21+</p>
               </div>
             </div>
 
@@ -585,21 +645,31 @@ const Billing = () => {
               {hasActiveSubscription && (
                 <div className="flex justify-between text-sm">
                   <span className="text-dashboard-text-secondary">Current</span>
-                  <span className="text-dashboard-text">{driverCount} drivers × ${getPricePerDriver(driverCount)} = ${getMonthlyPrice(driverCount)}/mo</span>
+                  <span className="text-dashboard-text">{driverCount} drivers · {formatCurrency(quote.monthlyCents)}/mo value</span>
                 </div>
               )}
               <div className="flex justify-between text-sm font-medium">
                 <span className="text-dashboard-text-secondary">
                   {hasActiveSubscription ? 'New' : 'Total'}
                 </span>
-                <span className="text-primary">{newDriverCount} drivers × ${getPricePerDriver(newDriverCount)} = ${getMonthlyPrice(newDriverCount)}/mo</span>
+                <span className="text-primary">
+                  {hasActiveSubscription
+                    ? `${newDriverCount} drivers · ${formatCurrency(newQuote.monthlyCents)}/mo value`
+                    : `${formatCurrency(newQuote.dueAfterTrialCents)} due after the ${FREE_TRIAL_DAYS}-day trial`}
+                </span>
               </div>
+              {!hasActiveSubscription && newQuote.discountCents > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-dashboard-text-secondary">{BILLING_TERMS[billingTerm].label} savings</span>
+                  <span className="text-primary">{formatCurrency(newQuote.discountCents)}</span>
+                </div>
+              )}
             </div>
 
             <p className="text-xs text-dashboard-text-secondary">
               {hasActiveSubscription 
                 ? 'Changes will be prorated and applied immediately'
-                : 'You will be redirected to Stripe to complete payment'}
+                : `You will enter a card securely in Stripe. The subscription charge today is $0; cancel before the ${FREE_TRIAL_DAYS}-day trial ends to avoid the first charge.`}
             </p>
           </div>
           <DialogFooter>
@@ -615,7 +685,7 @@ const Billing = () => {
                 if (hasActiveSubscription) {
                   handleManageSubscription();
                 } else {
-                  handleCheckout(newDriverCount);
+                  handleCheckout(newDriverCount, billingTerm);
                 }
                 setChangeDriversOpen(false);
               }}

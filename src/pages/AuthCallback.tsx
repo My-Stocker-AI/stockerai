@@ -18,7 +18,7 @@ const CALLBACK_ERROR = 'We confirmed your email, but could not finish opening St
  *
  * Handles Supabase auth redirects:
  * - Invite emails (type=invite) → /set-password
- * - Email confirmations → /dashboard
+ * - Email confirmations → billing setup (new accounts are card-gated there)
  * - Password resets → /set-password
  * - Magic links → /dashboard
  */
@@ -80,9 +80,12 @@ export default function AuthCallback() {
           rememberPasswordFlow(passwordFlow);
           navigate('/set-password', { replace: true });
         } else if (session) {
-          // User is authenticated - go to dashboard
-          console.log('[AuthCallback] User authenticated - redirecting to dashboard');
-          navigate('/dashboard', { replace: true });
+          const isNewCompanySignup = searchParams.get('type') === 'signup';
+          // New companies continue to card setup. Invite, magic-link and ordinary
+          // callbacks retain their existing destination and are still protected by
+          // the account-level billing gate if appropriate.
+          console.log('[AuthCallback] User authenticated');
+          navigate(isNewCompanySignup ? '/dashboard/billing?setup=required' : '/dashboard', { replace: true });
         } else {
           // No session, no specific type - go to login
           console.log('[AuthCallback] No session found - redirecting to login');

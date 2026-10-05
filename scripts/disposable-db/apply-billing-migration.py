@@ -14,5 +14,9 @@ if __name__ == "__main__":
     ).strip()
     if marker != "stockerai-local-only-20260918":
         raise SystemExit("Refusing an unmarked database")
-    migration = ROOT / "supabase/migrations/20261004000000_account_bound_billing.sql"
-    subprocess.run(PSQL, input=migration.read_text(), text=True, check=True)
+    migrations = [
+        ROOT / "supabase/migrations/20261004000000_account_bound_billing.sql",
+        ROOT / "supabase/migrations/20261005000000_pricing_and_card_required_trial.sql",
+    ]
+    for migration in migrations:
+        subprocess.run(PSQL, input=migration.read_text(), text=True, check=True)

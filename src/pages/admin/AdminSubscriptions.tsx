@@ -31,6 +31,7 @@ import { Badge } from "@/components/ui/badge";
 import { Search, RefreshCw, DollarSign, Edit2, Loader2, Users, CreditCard, Calendar, Shield } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import { PRICING_VERSION, calculateMonthlyPriceCents } from "@/lib/pricing";
 import { format } from "date-fns";
 
 interface Account {
@@ -41,6 +42,7 @@ interface Account {
   stripe_customer_id: string | null;
   trial_ends_at: string | null;
   is_platform_account: boolean | null;
+  pricing_version: string | null;
   created_at: string | null;
   primary_admin_email?: string;
   primary_admin_name?: string;
@@ -64,8 +66,9 @@ const AdminSubscriptions = () => {
     is_platform_account: false,
   });
 
-  const calculateMonthlyAmount = (driverCount: number, isPlatform: boolean) => {
+  const calculateMonthlyAmount = (driverCount: number, isPlatform: boolean, pricingVersion: string | null) => {
     if (isPlatform) return 0;
+    if (pricingVersion === PRICING_VERSION) return calculateMonthlyPriceCents(driverCount) / 100;
     if (driverCount <= 5) return driverCount * 20;
     if (driverCount <= 20) return driverCount * 18;
     return driverCount * 15;
@@ -193,7 +196,7 @@ const AdminSubscriptions = () => {
   const platformCount = accounts.filter(a => a.is_platform_account).length;
   const totalMRR = accounts
     .filter(a => a.subscription_status === 'active' && !a.is_platform_account)
-    .reduce((sum, a) => sum + calculateMonthlyAmount(a.driver_count || 0, false), 0);
+    .reduce((sum, a) => sum + calculateMonthlyAmount(a.driver_count || 0, false, a.pricing_version), 0);
 
   return (
     <AdminLayout title="Subscription Management">
@@ -332,7 +335,7 @@ const AdminSubscriptions = () => {
                         {account.is_platform_account ? (
                           <span className="text-purple-400">Free</span>
                         ) : (
-                          `$${calculateMonthlyAmount(account.driver_count || 0, false)}`
+                          `$${calculateMonthlyAmount(account.driver_count || 0, false, account.pricing_version)}`
                         )}
                       </TableCell>
                       <TableCell>
@@ -401,7 +404,7 @@ const AdminSubscriptions = () => {
                 className="bg-slate-800 border-slate-700 text-white"
               />
               <p className="text-xs text-slate-500">
-                Monthly: ${calculateMonthlyAmount(editForm.driver_count, editForm.is_platform_account)}
+                Monthly: ${calculateMonthlyAmount(editForm.driver_count, editForm.is_platform_account, selectedAccount?.pricing_version ?? null)}
               </p>
             </div>
 

@@ -5,7 +5,11 @@ WITH expected(column_name) AS (
     ('stripe_customer_id'),
     ('stripe_subscription_id'),
     ('subscription_current_period_end'),
-    ('stripe_state_event_created_at')
+    ('stripe_state_event_created_at'),
+    ('billing_onboarding_required'),
+    ('billing_term'),
+    ('pricing_version'),
+    ('trial_redeemed_at')
 )
 SELECT e.column_name, (c.column_name IS NOT NULL) AS present
 FROM expected e
@@ -42,6 +46,7 @@ WITH expected(signature) AS (
     ('claim_stripe_webhook_event(text,text,timestamp with time zone)'),
     ('finish_stripe_webhook_event(text,text)'),
     ('apply_stripe_account_state(uuid,text,text,text,integer,timestamp with time zone,timestamp with time zone)'),
+    ('apply_stripe_account_state_v2(uuid,text,text,text,integer,timestamp with time zone,timestamp with time zone,timestamp with time zone,text,text,boolean)'),
     ('reserve_billing_checkout(uuid,uuid,integer)'),
     ('complete_billing_checkout(uuid,uuid,text,text)'),
     ('expire_billing_checkout(uuid,uuid)')

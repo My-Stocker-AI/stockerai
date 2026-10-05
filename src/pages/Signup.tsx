@@ -8,6 +8,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { AlertCircle, Loader2 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
+import {
+  BILLING_TERMS,
+  FREE_TRIAL_DAYS,
+  type BillingTerm,
+  calculatePricingQuote,
+  formatCurrency,
+} from "@/lib/pricing";
 
 const Signup = () => {
   const navigate = useNavigate();
@@ -19,6 +26,7 @@ const Signup = () => {
   const [lastName, setLastName] = useState("");
   const [driverCount, setDriverCount] = useState("5");
   const [machinesPerDriver, setMachinesPerDriver] = useState("6-10");
+  const [billingTerm, setBillingTerm] = useState<BillingTerm>("annual");
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -27,16 +35,8 @@ const Signup = () => {
                               machinesPerDriver === "16-20" ||
                               machinesPerDriver === "20+";
 
-  // Calculate pricing based on driver count
-  const getPricing = (count: number) => {
-    if (count <= 5) return { tier: "Starter", price: 20 };
-    if (count <= 20) return { tier: "Growth", price: 18 };
-    return { tier: "Scale", price: 15 };
-  };
-
   const parsedCount = driverCount === "50+" ? 50 : parseInt(driverCount) || 2;
-  const pricing = getPricing(parsedCount);
-  const monthlyTotal = parsedCount * pricing.price;
+  const pricing = calculatePricingQuote(parsedCount, billingTerm);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -62,7 +62,8 @@ const Signup = () => {
       password,
       firstName,
       lastName,
-      parsedDriverCount
+      parsedDriverCount,
+      billingTerm,
     );
 
     setLoading(false);
@@ -80,7 +81,7 @@ const Signup = () => {
       navigate("/login?signup=check-email", { replace: true });
     } else {
       toast.success("Account created!");
-      navigate("/dashboard");
+      navigate("/dashboard/billing?setup=required");
     }
   };
 
@@ -103,7 +104,7 @@ const Signup = () => {
                 Create your account
               </h1>
               <p className="text-muted-foreground">
-                Start your 14-day free trial
+                Start your {FREE_TRIAL_DAYS}-day free trial
               </p>
             </div>
 
@@ -182,16 +183,39 @@ const Signup = () => {
                   </SelectContent>
                 </Select>
 
-                {/* Pricing Summary */}
-                <div className="mt-3 p-3 bg-primary/10 border border-primary/20 rounded-lg">
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="billingTerm">Billing frequency</Label>
+                <Select value={billingTerm} onValueChange={(value) => setBillingTerm(value as BillingTerm)}>
+                  <SelectTrigger id="billingTerm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="annual">Annual — Best value, save 10%</SelectItem>
+                    <SelectItem value="monthly">Monthly — Maximum flexibility</SelectItem>
+                    <SelectItem value="semiannual">Every 6 months — Save 5%</SelectItem>
+                  </SelectContent>
+                </Select>
+
+                <div className="mt-3 space-y-2 p-3 bg-primary/10 border border-primary/20 rounded-lg">
                   <div className="flex justify-between items-center">
-                    <span className="text-sm text-muted-foreground">{pricing.tier} Plan</span>
-                    <span className="text-sm font-medium text-primary">${pricing.price}/driver/mo</span>
+                    <span className="text-sm text-muted-foreground">Graduated monthly value</span>
+                    <span className="text-sm font-medium text-foreground">{formatCurrency(pricing.monthlyCents)}/mo</span>
                   </div>
-                  <div className="flex justify-between items-center mt-1">
-                    <span className="text-sm text-muted-foreground">After 14-day trial</span>
-                    <span className="text-lg font-bold text-foreground">${monthlyTotal}/mo</span>
+                  {pricing.discountCents > 0 && (
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-muted-foreground">{BILLING_TERMS[billingTerm].label} savings</span>
+                      <span className="text-sm font-medium text-primary">−{formatCurrency(pricing.discountCents)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between items-center border-t border-primary/20 pt-2">
+                    <span className="text-sm text-muted-foreground">Due after {FREE_TRIAL_DAYS}-day trial</span>
+                    <span className="text-lg font-bold text-foreground">{formatCurrency(pricing.dueAfterTrialCents)}</span>
                   </div>
+                  <p className="text-xs text-muted-foreground">
+                    A card is required to start. No subscription charge today. Cancel before the trial ends and you will not be charged.
+                  </p>
                 </div>
               </div>
 
@@ -240,7 +264,7 @@ const Signup = () => {
                     Creating account...
                   </>
                 ) : (
-                  "Start Free Trial"
+                    "Create Account & Continue"
                 )}
               </Button>
             </form>

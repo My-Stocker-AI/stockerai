@@ -6,6 +6,13 @@ import {
   isSubscriptionBlockingCheckout,
   subscriptionSnapshot,
 } from "../_shared/billing-contract.ts";
+import {
+  PRICING_VERSION,
+  StripePriceConfiguration,
+  billingTermForPriceId,
+  recognizedPriceIds,
+  stripePriceConfiguration,
+} from "../_shared/pricing-contract.ts";
 
 type ServiceClient = SupabaseClient;
 
@@ -44,7 +51,7 @@ async function accountIdForCustomer(
 async function applySubscription(
   supabase: ServiceClient,
   stripe: Stripe,
-  priceId: string,
+  priceConfig: StripePriceConfiguration,
   subscriptionId: string,
   eventCreated: number,
   expectedAccountId?: string | null,
@@ -59,15 +66,31 @@ async function applySubscription(
     throw new Error("Checkout and subscription company metadata disagree.");
   }
   const accountId = await accountIdForCustomer(supabase, customer, metadataAccountId);
-  const snapshot = subscriptionSnapshot(subscription, priceId);
-  const { data, error } = await supabase.rpc("apply_stripe_account_state", {
+  const allowedPriceIds = recognizedPriceIds(priceConfig);
+  const snapshot = subscriptionSnapshot(subscription, allowedPriceIds);
+  const stockerItem = subscription.items.data.find((item) => allowedPriceIds.includes(item.price.id));
+  if (!stockerItem) throw new Error("Subscription has no recognized StockerAI price.");
+  const billingTerm = billingTermForPriceId(priceConfig, stockerItem.price.id);
+  if (!billingTerm) throw new Error("Subscription uses an unrecognized StockerAI billing term.");
+  let hasPaymentMethod = Boolean(subscription.default_payment_method);
+  if (!hasPaymentMethod) {
+    const stripeCustomer = await stripe.customers.retrieve(customer);
+    hasPaymentMethod = !stripeCustomer.deleted && Boolean(stripeCustomer.invoice_settings.default_payment_method);
+  }
+  const { data, error } = await supabase.rpc("apply_stripe_account_state_v2", {
     p_account_id: accountId,
     p_customer_id: customer,
     p_subscription_id: snapshot.subscriptionId,
     p_subscription_status: snapshot.status,
     p_driver_count: snapshot.quantity,
     p_period_end: snapshot.periodEnd,
+    p_trial_end: subscription.trial_end
+      ? new Date(subscription.trial_end * 1000).toISOString()
+      : null,
     p_event_created_at: new Date(eventCreated * 1000).toISOString(),
+    p_billing_term: billingTerm,
+    p_pricing_version: subscription.metadata.pricing_version || (billingTerm === "legacy" ? "legacy" : PRICING_VERSION),
+    p_has_payment_method: hasPaymentMethod,
   });
   if (error) throw new Error(`Account billing state was not saved: ${error.message}`);
   return { accountId, applied: data === true };
@@ -76,7 +99,7 @@ async function applySubscription(
 async function applyCurrentCustomerSubscription(
   supabase: ServiceClient,
   stripe: Stripe,
-  priceId: string,
+  priceConfig: StripePriceConfiguration,
   customer: string,
   eventCreated: number,
 ) {
@@ -85,7 +108,7 @@ async function applyCurrentCustomerSubscription(
     .filter((candidate) => isSubscriptionBlockingCheckout(candidate.status))
     .sort((left, right) => right.created - left.created)[0];
   if (!subscription) return { ignored: true };
-  return applySubscription(supabase, stripe, priceId, subscription.id, eventCreated);
+  return applySubscription(supabase, stripe, priceConfig, subscription.id, eventCreated);
 }
 
 async function markCheckoutCompleted(
@@ -107,9 +130,14 @@ serve(async (req) => {
   const signature = req.headers.get("stripe-signature");
   const endpointSecret = Deno.env.get("STRIPE_WEBHOOK_SECRET");
   const stripeKey = Deno.env.get("STRIPE_SECRET_KEY");
-  const priceId = Deno.env.get("STRIPE_PRICE_ID");
   if (!signature) return new Response("Missing signature.", { status: 400 });
-  if (!endpointSecret || !stripeKey || !priceId) return new Response("Webhook is not configured.", { status: 503 });
+  if (!endpointSecret || !stripeKey) return new Response("Webhook is not configured.", { status: 503 });
+  let priceConfig: StripePriceConfiguration;
+  try {
+    priceConfig = stripePriceConfiguration((name) => Deno.env.get(name));
+  } catch {
+    return new Response("Webhook price configuration is incomplete.", { status: 503 });
+  }
 
   const stripe = new Stripe(stripeKey, { apiVersion: STRIPE_API_VERSION });
   let event: Stripe.Event;
@@ -150,7 +178,7 @@ serve(async (req) => {
       case "customer.subscription.deleted": {
         const subscription = event.data.object as Stripe.Subscription;
         const result = await applySubscription(
-          supabase, stripe, priceId, subscription.id, event.created, subscription.metadata.account_id,
+          supabase, stripe, priceConfig, subscription.id, event.created, subscription.metadata.account_id,
         );
         await markCheckoutCompleted(supabase, result.accountId, subscription.metadata.operation_id);
         break;
@@ -162,7 +190,7 @@ serve(async (req) => {
           : session.subscription?.id;
         if (!subscriptionId) throw new Error("Completed subscription checkout has no subscription identity.");
         const result = await applySubscription(
-          supabase, stripe, priceId, subscriptionId, event.created, session.metadata?.account_id,
+          supabase, stripe, priceConfig, subscriptionId, event.created, session.metadata?.account_id,
         );
         await markCheckoutCompleted(supabase, result.accountId, session.metadata?.operation_id);
         break;
@@ -172,7 +200,7 @@ serve(async (req) => {
         const invoice = event.data.object as Stripe.Invoice;
         const customer = customerId(invoice.customer);
         if (!customer) throw new Error("Subscription invoice has no customer identity.");
-        await applyCurrentCustomerSubscription(supabase, stripe, priceId, customer, event.created);
+        await applyCurrentCustomerSubscription(supabase, stripe, priceConfig, customer, event.created);
         break;
       }
       default:

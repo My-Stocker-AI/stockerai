@@ -58,6 +58,16 @@ it('exchanges a PKCE code when the callback has no session yet', async () => {
   expect(mocks.navigate).toHaveBeenCalledWith('/set-password', { replace: true });
 });
 
+it('sends a confirmed new company to card-required billing setup', async () => {
+  window.history.replaceState({}, '', '/auth/callback?type=signup');
+
+  render(<AuthCallback />);
+
+  await waitFor(() => expect(mocks.navigate).toHaveBeenCalledWith(
+    '/dashboard/billing?setup=required', { replace: true },
+  ));
+});
+
 it('does not open the password form without a recovery session', async () => {
   mocks.getSession.mockResolvedValue({ data: { session: null }, error: null });
   render(<AuthCallback />);

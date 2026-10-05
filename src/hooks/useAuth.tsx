@@ -4,6 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
 import { clearPasswordFlow } from '@/lib/authRecovery';
 import { withTimeout } from '@/lib/withTimeout';
+import type { BillingTerm } from '@/lib/pricing';
 
 export const AUTH_BOOTSTRAP_TIMEOUT_MS = 15_000;
 const AUTH_BOOTSTRAP_ERROR = 'We could not finish signing you in. Check your connection and try again.';
@@ -29,7 +30,7 @@ interface AuthContextType {
   authError: string | null;
   retryAuth: () => void;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
-  signUp: (email: string, password: string, firstName: string, lastName: string, driverCount?: number) => Promise<{ error: Error | null; requiresEmailConfirmation: boolean }>;
+  signUp: (email: string, password: string, firstName: string, lastName: string, driverCount?: number, billingTerm?: BillingTerm) => Promise<{ error: Error | null; requiresEmailConfirmation: boolean }>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<{ error: Error | null }>;
 }
@@ -182,7 +183,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     password: string, 
     firstName: string, 
     lastName: string,
-    driverCount: number = 2
+    driverCount: number = 2,
+    billingTerm: BillingTerm = 'annual',
   ) => {
     const redirectUrl = `${window.location.origin}/auth/callback?type=signup`;
     
@@ -195,6 +197,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           first_name: firstName,
           last_name: lastName,
           driver_count: driverCount,
+          billing_term: billingTerm,
           stocker_account_signup: true,
         }
       }

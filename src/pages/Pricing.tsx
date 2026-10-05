@@ -8,61 +8,48 @@ import { Check } from "lucide-react";
 const Pricing = () => {
   const plans = [
     {
-      name: "Starter",
-      drivers: "2-5 drivers",
-      price: "$20",
+      name: "Drivers 1–5",
+      drivers: "First 5 drivers",
+      price: "$24",
       period: "/driver/month",
-      description: "Perfect for small operations",
+      description: "Applies to drivers one through five",
       features: [
         "Voice-guided picking",
         "PDF upload",
         "Auto-save & resume",
-        "Email support",
+        "Team and route management",
       ],
       cta: "Start Free Trial",
       popular: false,
     },
     {
-      name: "Growth",
-      drivers: "6-20 drivers",
-      price: "$18",
+      name: "Drivers 6–20",
+      drivers: "Drivers 6-20",
+      price: "$21",
       period: "/driver/month",
-      description: "For growing vending operations",
+      description: "Applies only to these additional drivers",
       features: [
-        "Everything in Starter",
-        "Team management",
-        "Route assignment",
-        "Usage analytics",
+        "Same complete StockerAI product",
+        "Lower rate for these additional drivers",
+        "Voice and touch picking",
+        "Usage visibility",
       ],
       cta: "Start Free Trial",
       popular: true,
     },
     {
-      name: "Scale",
-      drivers: "21-50 drivers",
-      price: "$15",
+      name: "Drivers 21+",
+      drivers: "Drivers 21+",
+      price: "$18",
       period: "/driver/month",
-      description: "For established operations",
+      description: "Applies only to additional drivers above 20",
       features: [
-        "Everything in Growth",
-        "Phone support",
-        "Priority onboarding",
+        "Same complete StockerAI product",
+        "Lowest rate for additional drivers",
+        "Voice and touch picking",
+        "Usage visibility",
       ],
       cta: "Start Free Trial",
-      popular: false,
-    },
-    {
-      name: "Enterprise",
-      drivers: "51+ drivers",
-      price: "Contact Us",
-      period: "",
-      description: "For large-scale operations",
-      features: [
-        "Custom pricing",
-        "Dedicated support",
-        "Custom integrations",
-      ],
-      cta: "Contact Sales",
       popular: false,
     },
   ];
@@ -71,17 +58,17 @@ const Pricing = () => {
     {
       question: "Can I change my plan?",
       answer:
-        "Yes, adjust your driver count anytime. Changes apply next billing cycle. If you exceed 10 machines per driver per day, you'll need to add another driver.",
+        "Yes. Add drivers when your team grows; Stripe calculates any applicable proration. Reductions apply under your renewal terms and cannot go below the two-driver or usage-based minimum.",
     },
     {
       question: "What happens after the trial?",
       answer:
-        "Your card is charged based on your driver count. Cancel anytime before the trial ends - no charge.",
+        "A valid card is required to start. The subscription charge today is $0. After seven days, Stripe charges the billing term you selected unless you cancel first.",
     },
     {
       question: "Do you offer annual billing?",
       answer:
-        "Not yet. Monthly billing lets you scale up or down with seasonal demand.",
+        "Yes. Six-month prepayment saves 5%, and annual prepayment saves 10%. Monthly billing remains available for maximum flexibility.",
     },
     {
       question: "What if we exceed our machine limit?",
@@ -107,7 +94,7 @@ const Pricing = () => {
               Simple, Per-Driver Pricing
             </h1>
             <p className="text-xl text-muted-foreground">
-              Scale up or down monthly. No contracts. No surprises.
+              Graduated pricing rewards growth without pricing cliffs. Choose monthly, six-month, or annual billing.
             </p>
           </div>
         </div>
@@ -116,7 +103,7 @@ const Pricing = () => {
       {/* Pricing Cards */}
       <section className="pb-16">
         <div className="section-container">
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-6xl mx-auto">
+          <div className="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto">
             {plans.map((plan, index) => (
               <div
                 key={index}
@@ -162,23 +149,15 @@ const Pricing = () => {
                   ))}
                 </ul>
 
-                {plan.cta === "Contact Sales" ? (
-                  <a href="mailto:sales@my-stocker-ai.com" className="block mt-auto">
-                    <Button className="w-full btn-secondary">
-                      {plan.cta}
-                    </Button>
-                  </a>
-                ) : (
-                  <Link to="/signup" className="block mt-auto">
-                    <Button
-                      className={`w-full ${
-                        plan.popular ? "btn-primary" : "btn-secondary"
-                      }`}
-                    >
-                      {plan.cta}
-                    </Button>
-                  </Link>
-                )}
+                <Link to="/signup" className="block mt-auto">
+                  <Button
+                    className={`w-full ${
+                      plan.popular ? "btn-primary" : "btn-secondary"
+                    }`}
+                  >
+                    {plan.cta}
+                  </Button>
+                </Link>
               </div>
             ))}
           </div>
@@ -186,17 +165,17 @@ const Pricing = () => {
           {/* Notes below tiers */}
           <div className="text-center mt-10 space-y-2">
             <p className="text-muted-foreground">
-              All plans include 14-day free trial
+              All new subscriptions include one 7-day free trial
             </p>
-            <p className="text-muted-foreground">2 driver minimum*</p>
+            <p className="text-muted-foreground">2 driver minimum ($48 monthly value)*</p>
             <p className="text-sm text-muted-foreground mt-4">
               *Each driver can service up to 10 machines per day.
               <br />
               Usage reporting helps you identify when your plan needs to change.
             </p>
             <p className="text-xs text-muted-foreground mt-6 max-w-lg mx-auto">
-              After signup, you'll select your driver count and add payment info in your dashboard.
-              Your card won't be charged until your trial ends.
+              A valid card is required before the trial begins. The subscription charge today is $0.
+              Cancel before the seven-day trial ends to avoid the first charge. Six-month billing saves 5%; annual billing saves 10%.
             </p>
           </div>
         </div>

@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { calculateMonthlyPriceCents } from "@/lib/pricing";
 
 const ROICalculator = () => {
   const [drivers, setDrivers] = useState(5);
@@ -18,11 +19,9 @@ const ROICalculator = () => {
     const monthlyLaborCost = monthlyLaborHours * hourlyWage;
     // Estimated value of picking time saved
     const estimatedSavings = monthlyLaborCost * reduction / 100;
-    // Stocker AI cost based on tier
-    let perDriverCost = 20;
-    if (drivers > 20) perDriverCost = 15;
-    else if (drivers > 5) perDriverCost = 18;
-    const stockerCost = drivers * perDriverCost;
+    // Stocker AI graduated monthly pricing (annual/prepaid discounts omitted
+    // so the public ROI estimate stays conservative).
+    const stockerCost = calculateMonthlyPriceCents(drivers) / 100;
     // Net savings = estimated savings - Stocker AI cost
     const netSavings = estimatedSavings - stockerCost;
     // Annual value uses the same monthly assumptions and is exactly 12x net monthly value.

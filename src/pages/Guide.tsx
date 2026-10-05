@@ -831,7 +831,7 @@ const Guide = () => {
               Ready to try it?
             </h2>
             <p className="text-muted-foreground mb-6">
-              Start your 14-day free trial and experience hands-free stocking.
+              Start your 7-day free trial and experience hands-free stocking. A valid card is required, but there is no subscription charge during the trial.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <Link to="/signup">
