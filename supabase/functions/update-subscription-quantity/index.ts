@@ -7,6 +7,10 @@ import {
   STRIPE_API_VERSION,
   requirePrimaryAdministrator,
 } from "../_shared/billing-contract.ts";
+import {
+  recognizedPriceIds,
+  stripePriceConfiguration,
+} from "../_shared/pricing-contract.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -27,8 +31,9 @@ serve(async (req) => {
     logStep("Function started");
 
     const stripeKey = Deno.env.get("STRIPE_SECRET_KEY");
-    const priceId = Deno.env.get("STRIPE_PRICE_ID");
-    if (!stripeKey || !priceId) throw new BillingContractError(503, "Billing is not configured.");
+    if (!stripeKey) throw new BillingContractError(503, "Billing is not configured.");
+    const priceConfig = stripePriceConfiguration((name) => Deno.env.get(name));
+    const allowedPriceIds = recognizedPriceIds(priceConfig);
 
     const supabaseClient = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
@@ -117,7 +122,7 @@ serve(async (req) => {
     if (!subscription) {
       throw new Error("No active subscription found");
     }
-    const subscriptionItem = subscription.items.data.find((item) => item.price.id === priceId);
+    const subscriptionItem = subscription.items.data.find((item) => allowedPriceIds.includes(item.price.id));
     if (!subscriptionItem) {
       throw new BillingContractError(409, "The active subscription does not contain the configured StockerAI price.");
     }

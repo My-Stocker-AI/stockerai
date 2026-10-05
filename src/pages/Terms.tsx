@@ -14,7 +14,7 @@ const Terms = () => {
       <main className="container mx-auto px-4 py-16 max-w-4xl">
         <div className="bg-white/5 backdrop-blur-sm rounded-lg border border-white/10 p-8 md:p-12">
           <h1 className="text-4xl md:text-5xl font-bold text-white mb-4">Terms and Conditions</h1>
-          <p className="text-gray-400 mb-8">Last Updated: October 1, 2026</p>
+          <p className="text-gray-400 mb-8">Last Updated: October 5, 2026</p>
 
           <div className="prose prose-invert prose-lg max-w-none space-y-8 text-gray-300">
 
@@ -32,15 +32,14 @@ const Terms = () => {
 
             <section>
               <h2 className="text-2xl font-semibold text-white mb-4">2. Subscription and Billing</h2>
-              <p>Pricing based on number of drivers:</p>
+              <p>Graduated pricing is based on number of drivers:</p>
               <ul className="list-disc pl-6 space-y-2 mt-3">
-                <li><strong>Starter (2-5 drivers):</strong> $20/driver/month</li>
-                <li><strong>Growth (6-20 drivers):</strong> $18/driver/month</li>
-                <li><strong>Scale (21-50 drivers):</strong> $15/driver/month</li>
-                <li><strong>Enterprise (51+ drivers):</strong> Custom pricing</li>
+                <li><strong>First 5 drivers:</strong> $24 per driver per month</li>
+                <li><strong>Drivers 6-20:</strong> $21 per additional driver per month</li>
+                <li><strong>Drivers 21+:</strong> $18 per additional driver per month</li>
               </ul>
               <p className="mt-4">
-                A two-driver minimum applies. All subscriptions are billed monthly in advance. Payment processing is handled securely by Stripe.
+                A two-driver minimum applies. Monthly billing is full price, six-month prepayment receives a 5% discount, and annual prepayment receives a 10% discount. New companies receive one seven-day trial after providing a valid payment card. No subscription charge is collected during the trial. Cancel before the trial ends to avoid the first charge. Paid cancellations stop renewal and access continues through the prepaid term. Payment processing is handled securely by Stripe.
               </p>
             </section>
 

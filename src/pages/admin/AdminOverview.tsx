@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Users, CreditCard, BarChart3, Activity, RefreshCw, TrendingUp, Package, Clock } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { PRICING_VERSION, calculateMonthlyPriceCents } from "@/lib/pricing";
 import { format } from "date-fns";
 
 interface PlatformStats {
@@ -24,10 +25,16 @@ interface RecentSession {
   profiles: { first_name: string | null; last_name: string | null; email: string | null } | null;
 }
 
-const calculateMonthlyAmount = (driverCount: number) => {
+const calculateLegacyMonthlyAmount = (driverCount: number) => {
   if (driverCount <= 5) return driverCount * 20;
   if (driverCount <= 20) return driverCount * 18;
   return driverCount * 15;
+};
+
+const calculateMonthlyAmount = (driverCount: number, pricingVersion: string | null) => {
+  return pricingVersion === PRICING_VERSION
+    ? calculateMonthlyPriceCents(driverCount) / 100
+    : calculateLegacyMonthlyAmount(driverCount);
 };
 
 const AdminOverview = () => {
@@ -50,7 +57,7 @@ const AdminOverview = () => {
       // Get all accounts
       const { data: accounts, error: accountsError } = await supabase
         .from('accounts')
-        .select('id, subscription_status, driver_count, is_platform_account');
+        .select('id, subscription_status, driver_count, is_platform_account, pricing_version');
 
       if (accountsError) throw accountsError;
 
@@ -63,7 +70,7 @@ const AdminOverview = () => {
       // Calculate MRR
       const monthlyRevenue = accounts
         ?.filter(a => a.subscription_status === 'active' && !a.is_platform_account)
-        .reduce((sum, a) => sum + calculateMonthlyAmount(a.driver_count || 0), 0) || 0;
+        .reduce((sum, a) => sum + calculateMonthlyAmount(a.driver_count || 0, a.pricing_version), 0) || 0;
 
       // Get routes for today
       const today = format(new Date(), 'yyyy-MM-dd');

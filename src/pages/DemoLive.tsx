@@ -1001,7 +1001,7 @@ export default function DemoLive() {
             <div className="space-y-3">
               <Link to="/signup" className="block w-full">
                 <Button className="w-full h-14 text-lg font-bold bg-emerald-600 hover:bg-emerald-700 rounded-xl">
-                  Start Free Trial — 1 Month FREE
+                  Start Your 7-Day Free Trial
                   <ArrowRight className="ml-2 h-5 w-5" />
                 </Button>
               </Link>
@@ -1066,13 +1066,13 @@ export default function DemoLive() {
             {/* Discount Offer */}
             <div className="bg-primary/10 border border-primary/20 rounded-xl p-4 mb-6">
               <p className="text-center text-primary font-semibold mb-1">
-                🎁 You EARNED 2 extra weeks free!
+                🎁 You earned a demo offer!
               </p>
               <p className="text-center text-sm text-gray-400">
                 Code: <span className="font-mono text-white">{demoUser.discountCode || 'DEMO-BONUS'}</span>
               </p>
               <p className="text-center text-xs text-gray-500 mt-2">
-                Standard 2 weeks + 2 bonus = 1 month free trial
+                Eligible promotion codes can be applied to full-price monthly billing. Prepaid discounts do not stack.
               </p>
             </div>
 

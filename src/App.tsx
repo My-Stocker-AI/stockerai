@@ -78,7 +78,7 @@ const App = () => (
             <Route path="/dashboard/my-routes" element={<ProtectedRoute><MyRoutes /></ProtectedRoute>} />
             <Route path="/dashboard/team" element={<ProtectedRoute adminOnly><Team /></ProtectedRoute>} />
             <Route path="/dashboard/usage" element={<ProtectedRoute adminOnly><Usage /></ProtectedRoute>} />
-            <Route path="/dashboard/billing" element={<ProtectedRoute adminOnly><Billing /></ProtectedRoute>} />
+            <Route path="/dashboard/billing" element={<ProtectedRoute adminOnly allowBillingSetup><Billing /></ProtectedRoute>} />
             <Route path="/dashboard/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
             <Route path="/dashboard/getting-started" element={<ProtectedRoute><GettingStarted /></ProtectedRoute>} />
             <Route path="/app" element={<ProtectedRoute><StockerApp /></ProtectedRoute>} />

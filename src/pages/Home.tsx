@@ -20,12 +20,12 @@ const Home = () => {
     {
       question: "How does pricing work?",
       answer:
-        "$20/driver/month for 2-5 drivers, $18 for 6-20 drivers, $15 for 21-50 drivers. Adjust your driver count anytime - changes apply next billing cycle.",
+        "Graduated pricing: the first 5 drivers are $24 each per month, drivers 6-20 are $21 each, and additional drivers are $18 each. Save 5% with six-month prepayment or 10% annually.",
     },
     {
       question: "Is there a minimum?",
       answer:
-        "2 driver minimum ($40/month). Each driver can service up to 10 machines per day.",
+        "2 driver minimum ($48/month). Each driver can service up to 10 machines per day.",
     },
     {
       question: "What do I need to get started?",
@@ -40,7 +40,7 @@ const Home = () => {
     {
       question: "What's the trial?",
       answer:
-        "14 days free with credit card signup. Cancel anytime - no questions asked.",
+        "Seven days free with a valid card. The subscription charge today is $0. Cancel before the trial ends and you will not be charged.",
     },
   ];
 
@@ -319,15 +319,15 @@ const Home = () => {
               Simple Per-Driver Pricing
             </h2>
             <p className="text-xl text-muted-foreground">
-              Starting at $20/driver/month
+              Starting at $48/month for two drivers
             </p>
           </div>
 
           <div className="grid md:grid-cols-3 gap-6 max-w-4xl mx-auto mb-10">
             {[
-              { drivers: "2-5 drivers", price: "$20", label: "per driver/mo" },
-              { drivers: "6-20 drivers", price: "$18", label: "per driver/mo" },
-              { drivers: "21-50 drivers", price: "$15", label: "per driver/mo" },
+              { drivers: "First 5 drivers", price: "$24", label: "each/mo" },
+              { drivers: "Drivers 6-20", price: "$21", label: "each/mo" },
+              { drivers: "Drivers 21+", price: "$18", label: "each/mo" },
             ].map((tier, index) => (
               <div
                 key={index}

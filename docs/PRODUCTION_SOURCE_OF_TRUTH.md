@@ -1,6 +1,6 @@
 # StockerAI production source of truth
 
-Last reconciled: 2026-09-30. This document describes the supported product and the evidence boundary for the current release. The remediation register owns finding status and acceptance history. Historical plans, audits, `MEMORY.md`, and archived documents do not override current code or verified runtime evidence.
+Last reconciled: 2026-10-05. This document describes the supported product and the evidence boundary for the current release. The remediation register owns finding status and acceptance history. Historical plans, audits, `MEMORY.md`, and archived documents do not override current code or verified runtime evidence.
 
 ## Public product and deployment
 
@@ -45,7 +45,7 @@ Last reconciled: 2026-09-30. This document describes the supported product and t
 
 ## Pricing and ROI
 
-Public pricing currently displayed by the application is $20 per driver/month for 2–5 drivers, $18 for 6–20, $15 for 21–50, and contact sales for 51+, with a two-driver minimum and a 14-day trial. This describes public product copy; complete Stripe entitlement, webhook, and billing reconciliation remains open under findings 13–17.
+Production continues to display the legacy $20/$18/$15 pricing and 14-day trial until the 2026-10 billing release is explicitly deployed. The reviewed release candidate changes new subscriptions to graduated pricing: the first five drivers at $24 each per month, drivers 6–20 at $21 each, and drivers 21+ at $18 each, with a two-driver minimum. Monthly billing is full price, six-month prepayment saves 5%, annual prepayment saves 10%, and a valid card is required before one seven-day trial begins. Existing paid subscriptions and active trials remain grandfathered. Stripe test prices are verified; end-to-end disposable-environment acceptance remains separate from source and dashboard inspection.
 
 The ROI calculator is illustrative. It offers exactly **25%, 30%, and 35% picking-time reduction** choices, with **35% selected by default**. It assumes one route per driver per workday, five workdays per week, and 52 working weeks per year. The driver slider covers 2–50 drivers and applies the displayed per-driver price tier. Time freed is not necessarily payroll savings, and the illustrated result is not a guarantee of speed, accuracy, training time, completion, or payroll reduction.
 

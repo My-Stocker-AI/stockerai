@@ -14,12 +14,29 @@ describe("billing Edge boundary source contract", () => {
     expect(source).toContain("parseOperationId(body.operation_id)");
     expect(source).toContain("client_reference_id: account.id");
     expect(source).toContain("metadata: { account_id: account.id");
-    expect(source).toContain("STRIPE_PRICE_ID");
+    expect(source).toContain("stripePriceConfiguration");
+    expect(source).toContain("parseBillingTerm(body.billing_term)");
+    expect(source).toContain('payment_method_collection: "always"');
+    expect(source).toContain("trial_period_days: FREE_TRIAL_DAYS");
+    expect(source).toContain('missing_payment_method: "cancel"');
     expect(source).toContain("idempotencyKey: checkoutIdempotencyKey");
     expect(source).toContain('rpc("reserve_billing_checkout"');
     expect(source).toContain('rpc("complete_billing_checkout"');
     expect(source).toContain("customers.search");
     expect(source).not.toContain("customers.list({ email");
+  });
+
+  it("moves operational access only from signed Stripe state", () => {
+    const migration = readFileSync(
+      resolve(process.cwd(), "supabase/migrations/20261005000000_pricing_and_card_required_trial.sql"),
+      "utf8",
+    );
+    expect(migration).toContain("ALTER COLUMN subscription_status DROP DEFAULT");
+    expect(migration).toContain("ALTER COLUMN trial_ends_at DROP DEFAULT");
+    expect(migration).toContain("p_has_payment_method");
+    expect(migration).toContain("billing_onboarding_required = CASE");
+    expect(migration).toContain("Paid and trial access must be established through Stripe checkout");
+    expect(migration).not.toContain("interval '14 days'");
   });
 
   it("uses the durable account customer for read and portal paths without mutating on reads", () => {
@@ -36,7 +53,7 @@ describe("billing Edge boundary source contract", () => {
   it("fails webhook writes closed and reconciles through ordered service-only RPCs", () => {
     const source = edgeSource("stripe-webhook");
     expect(source).toContain('rpc("claim_stripe_webhook_event"');
-    expect(source).toContain('rpc("apply_stripe_account_state"');
+    expect(source).toContain('rpc("apply_stripe_account_state_v2"');
     expect(source).toContain('rpc("finish_stripe_webhook_event"');
     expect(source).toContain('status: 500');
     expect(source).not.toContain('.from("profiles")');

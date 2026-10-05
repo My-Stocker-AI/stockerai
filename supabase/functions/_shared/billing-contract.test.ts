@@ -65,6 +65,14 @@ describe("billing contract", () => {
     }, "price_stocker")).toThrow("configured StockerAI price");
   });
 
+  it("recognizes both new and grandfathered StockerAI prices", () => {
+    expect(subscriptionSnapshot({
+      id: "sub_legacy",
+      status: "active",
+      items: { data: [{ quantity: 4, price: { id: "price_legacy" } }] },
+    }, ["price_monthly", "price_legacy"]).quantity).toBe(4);
+  });
+
   it("blocks duplicate checkout for every nonterminal subscription state", () => {
     expect(isSubscriptionBlockingCheckout("active")).toBe(true);
     expect(isSubscriptionBlockingCheckout("trialing")).toBe(true);

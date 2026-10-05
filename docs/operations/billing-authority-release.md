@@ -1,7 +1,7 @@
 # Billing authority release procedure
 
-This procedure releases the bounded findings 13/14/16 correction prepared on
-`codex/billing-authority`. It does not close seat lifecycle reconciliation (15),
+This procedure releases the bounded findings 13/14/16 correction and the authorized
+2026-10 graduated-pricing/card-required trial update. It does not close seat lifecycle reconciliation (15),
 immutable usage accounting (17), provider-side coupon administration, or customer
 payment acceptance. Keep production credentials and customer billing objects out of
 logs and release evidence.
@@ -12,21 +12,25 @@ logs and release evidence.
   secret-publication gates.
 - Confirm a recent database backup. Supabase database backups do not include Storage.
 - Confirm `APP_URL=https://www.stocker-ai.com`, the correct environment-specific
-  `STRIPE_PRICE_ID`, `STRIPE_SECRET_KEY`, and `STRIPE_WEBHOOK_SECRET` are present.
+  `STRIPE_PRICE_ID_MONTHLY`, `STRIPE_PRICE_ID_SEMIANNUAL`,
+  `STRIPE_PRICE_ID_ANNUAL`, `STRIPE_SECRET_KEY`, and `STRIPE_WEBHOOK_SECRET` are
+  present. Preserve `STRIPE_PRICE_ID` while grandfathered subscriptions still use it.
   Never infer test/live mode from a price ID or replace production keys for testing.
 - Confirm the Stripe webhook endpoint uses the pinned Basil-compatible event shape and
   includes subscription, checkout-session and subscription-invoice events used by the
   handler.
 - Stop if any non-null Stripe customer or subscription ID is bound to more than one
-  account, if the environment-specific price cannot be identified, or if the migration
-  SHA-256 differs from
-  `BA34C6D3ECB82A680BB8834CE2E5DD95FCF7E5C564053EB6B1AA6E6EB49B3339`.
+  account, if the environment-specific price cannot be identified, or if either migration
+  SHA-256 differs from the reviewed value: `20261004000000` is
+  `BA34C6D3ECB82A680BB8834CE2E5DD95FCF7E5C564053EB6B1AA6E6EB49B3339`; `20261005000000`
+  is `0C429716FA9C2A1748319702F9F028C06FDD0D5312B05D0C70FBDEA2DCF0E8E0`.
 
 ## Ordered release
 
 1. Run the migration preflight and duplicate-binding check without selecting customer
    identities into logs.
-2. Apply `20261004000000_account_bound_billing.sql` in one transaction.
+2. Apply `20261004000000_account_bound_billing.sql`, then
+   `20261005000000_pricing_and_card_required_trial.sql`, each in its own transaction.
 3. Run `scripts/verification/billing-authority-verify.sql`. Require all columns and
    indexes present; RLS true; anon/authenticated access false; service-role access true;
    every function security-definer with an empty search path.
@@ -38,8 +42,10 @@ logs and release evidence.
 6. With an explicitly authorized Stripe test-mode company and disposable users, verify
    primary-admin checkout retry, ordinary-member refusal, shared company status, portal
    authority, duplicate/out-of-order webhook convergence, failed-write retry and Basil
-   item-level period display. Record Stripe mode and object IDs only in protected release
-   evidence, not the repository.
+   item-level period display. Also verify card collection, a seven-day $0 trial, each
+   graduated boundary for all three billing terms, trial cancellation without a charge,
+   and grandfathered subscription behavior. Test-mode object IDs may be recorded in the
+   pricing specification; never record keys, customer identities, or payment details.
 
 ## Recovery boundary
 

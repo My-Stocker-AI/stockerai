@@ -12,6 +12,13 @@ import {
   parseRequestedSeatCount,
   requirePrimaryAdministrator,
 } from "../_shared/billing-contract.ts";
+import {
+  FREE_TRIAL_DAYS,
+  PRICING_VERSION,
+  parseBillingTerm,
+  priceIdForTerm,
+  stripePriceConfiguration,
+} from "../_shared/pricing-contract.ts";
 
 const baseCorsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -24,6 +31,7 @@ interface AccountRecord {
   stripe_customer_id: string | null;
   is_platform_account: boolean | null;
   min_drivers_required: number | null;
+  trial_redeemed_at: string | null;
 }
 
 function json(status: number, body: unknown, origin?: string) {
@@ -51,8 +59,8 @@ serve(async (req) => {
 
   try {
     const stripeKey = Deno.env.get("STRIPE_SECRET_KEY");
-    const priceId = Deno.env.get("STRIPE_PRICE_ID");
-    if (!stripeKey || !priceId) throw new BillingContractError(503, "Billing is not configured.");
+    if (!stripeKey) throw new BillingContractError(503, "Billing is not configured.");
+    const priceConfig = stripePriceConfiguration((name) => Deno.env.get(name));
 
     const authHeader = req.headers.get("Authorization") ?? "";
     if (!/^Bearer\s+\S+$/i.test(authHeader)) throw new BillingContractError(401, "Sign in to continue.");
@@ -79,7 +87,7 @@ serve(async (req) => {
 
     const { data: accountData, error: accountError } = await supabase
       .from("accounts")
-      .select("id, name, stripe_customer_id, is_platform_account, min_drivers_required")
+      .select("id, name, stripe_customer_id, is_platform_account, min_drivers_required, trial_redeemed_at")
       .eq("id", membership.account_id)
       .single();
     if (accountError || !accountData) throw new BillingContractError(404, "Company account not found.");
@@ -89,6 +97,9 @@ serve(async (req) => {
     const body = await req.json().catch(() => ({})) as Record<string, unknown>;
     const driverCount = parseRequestedSeatCount(body.driver_count, account.min_drivers_required ?? 2);
     const operationId = parseOperationId(body.operation_id);
+    const billingTerm = parseBillingTerm(body.billing_term);
+    const priceId = priceIdForTerm(priceConfig, billingTerm);
+    const trialEligible = account.trial_redeemed_at === null;
 
     const stripe = new Stripe(stripeKey, { apiVersion: STRIPE_API_VERSION });
     let customerId = account.stripe_customer_id;
@@ -162,7 +173,11 @@ serve(async (req) => {
     let reservation = await reserve(operationId);
     if (reservation.stripe_checkout_session_id) {
       const reservedSession = await stripe.checkout.sessions.retrieve(reservation.stripe_checkout_session_id);
-      if (reservedSession.status === "open" && reservedSession.url) {
+      if (
+        reservedSession.status === "open" &&
+        reservedSession.url &&
+        reservedSession.metadata?.billing_term === billingTerm
+      ) {
         return json(200, { url: reservedSession.url, reused: true }, origin);
       }
       if (reservedSession.status === "complete") {
@@ -178,7 +193,10 @@ serve(async (req) => {
 
     const openSessions = await stripe.checkout.sessions.list({ customer: customerId, status: "open", limit: 100 });
     const existingSession = openSessions.data.find((session) =>
-      session.client_reference_id === account.id && session.metadata?.account_id === account.id && session.url
+      session.client_reference_id === account.id &&
+      session.metadata?.account_id === account.id &&
+      session.metadata?.billing_term === billingTerm &&
+      session.url
     );
     if (existingSession?.url) {
       const { error: completeError } = await supabase.rpc("complete_billing_checkout", {
@@ -196,14 +214,32 @@ serve(async (req) => {
       client_reference_id: account.id,
       line_items: [{ price: priceId, quantity: driverCount }],
       mode: "subscription",
-      success_url: `${origin}/dashboard/billing?success=true`,
+      payment_method_collection: "always",
+      success_url: `${origin}/dashboard/billing?success=true&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${origin}/dashboard/billing?canceled=true`,
-      metadata: { account_id: account.id, operation_id: reservation.operation_id, driver_count: String(driverCount) },
-      subscription_data: {
-        trial_period_days: 14,
-        metadata: { account_id: account.id, operation_id: reservation.operation_id, driver_count: String(driverCount) },
+      metadata: {
+        account_id: account.id,
+        operation_id: reservation.operation_id,
+        driver_count: String(driverCount),
+        billing_term: billingTerm,
+        pricing_version: PRICING_VERSION,
       },
-      allow_promotion_codes: true,
+      subscription_data: {
+        ...(trialEligible ? {
+          trial_period_days: FREE_TRIAL_DAYS,
+          trial_settings: { end_behavior: { missing_payment_method: "cancel" } },
+        } : {}),
+        metadata: {
+          account_id: account.id,
+          operation_id: reservation.operation_id,
+          driver_count: String(driverCount),
+          billing_term: billingTerm,
+          pricing_version: PRICING_VERSION,
+        },
+      },
+      // Promotions remain available on full-price monthly billing. Prepaid
+      // commitment discounts do not stack with another promotion.
+      allow_promotion_codes: billingTerm === "monthly",
     }, { idempotencyKey: checkoutIdempotencyKey(account.id, reservation.operation_id) });
 
     if (!session.url) throw new Error("Stripe did not return a checkout URL.");

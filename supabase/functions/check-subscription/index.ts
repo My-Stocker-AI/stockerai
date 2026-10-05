@@ -7,6 +7,16 @@ import {
   getRequestOrigin,
   subscriptionSnapshot,
 } from "../_shared/billing-contract.ts";
+import {
+  BILLING_TERM_MONTHS,
+  BillingTerm,
+  PRICING_VERSION,
+  billingTermForPriceId,
+  calculateMonthlyPriceCents,
+  calculateTermPriceCents,
+  recognizedPriceIds,
+  stripePriceConfiguration,
+} from "../_shared/pricing-contract.ts";
 
 const baseCorsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -37,8 +47,8 @@ serve(async (req) => {
 
   try {
     const stripeKey = Deno.env.get("STRIPE_SECRET_KEY");
-    const priceId = Deno.env.get("STRIPE_PRICE_ID");
-    if (!stripeKey || !priceId) throw new BillingContractError(503, "Billing is not configured.");
+    if (!stripeKey) throw new BillingContractError(503, "Billing is not configured.");
+    const priceConfig = stripePriceConfiguration((name) => Deno.env.get(name));
     const authHeader = req.headers.get("Authorization") ?? "";
     if (!/^Bearer\s+\S+$/i.test(authHeader)) throw new BillingContractError(401, "Sign in to continue.");
 
@@ -107,10 +117,23 @@ serve(async (req) => {
       }, origin);
     }
 
-    const snapshot = subscriptionSnapshot(subscription, priceId);
+    const allowedPriceIds = recognizedPriceIds(priceConfig);
+    const snapshot = subscriptionSnapshot(subscription, allowedPriceIds);
     const active = subscription.status === "active" || subscription.status === "trialing";
-    const firstUnitAmount = subscription.items.data.find((item) => item.price.id === priceId)?.price.unit_amount;
+    const stockerItem = subscription.items.data.find((item) => allowedPriceIds.includes(item.price.id));
+    if (!stockerItem) throw new BillingContractError(409, "The subscription does not contain a recognized StockerAI price.");
+    const billingTerm = billingTermForPriceId(priceConfig, stockerItem.price.id);
+    if (!billingTerm) throw new BillingContractError(409, "The subscription billing term is not recognized.");
+    const firstUnitAmount = stockerItem.price.unit_amount;
     const pricePerDriver = typeof firstUnitAmount === "number" ? firstUnitAmount / 100 : null;
+    const isCurrentPricing = billingTerm !== "legacy" && subscription.metadata.pricing_version === PRICING_VERSION;
+    const currentTerm = isCurrentPricing ? billingTerm as BillingTerm : null;
+    const monthlyTotal = currentTerm
+      ? calculateMonthlyPriceCents(snapshot.quantity) / 100
+      : (pricePerDriver === null ? null : pricePerDriver * snapshot.quantity);
+    const termTotal = currentTerm
+      ? calculateTermPriceCents(snapshot.quantity, currentTerm) / 100
+      : monthlyTotal;
 
     return json(200, {
       subscribed: active,
@@ -118,11 +141,15 @@ serve(async (req) => {
       driver_count: snapshot.quantity,
       subscription_status: snapshot.status,
       subscription_end: snapshot.periodEnd,
+      trial_ends_at: subscription.trial_end ? new Date(subscription.trial_end * 1000).toISOString() : null,
       stripe_customer_id: account.stripe_customer_id,
-      ...(pricePerDriver === null ? {} : {
-        price_per_driver: pricePerDriver,
-        monthly_total: pricePerDriver * snapshot.quantity,
-      }),
+      billing_term: billingTerm,
+      pricing_version: subscription.metadata.pricing_version || (billingTerm === "legacy" ? "legacy" : null),
+      cancel_at_period_end: subscription.cancel_at_period_end,
+      ...(monthlyTotal === null ? {} : { monthly_total: monthlyTotal }),
+      ...(termTotal === null ? {} : { term_total: termTotal }),
+      ...(currentTerm ? { billing_months: BILLING_TERM_MONTHS[currentTerm] } : {}),
+      ...(pricePerDriver === null ? {} : { price_per_driver: pricePerDriver }),
     }, origin);
   } catch (error) {
     const status = error instanceof BillingContractError ? error.status : 500;

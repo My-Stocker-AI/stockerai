@@ -87,8 +87,12 @@ export function getRequestOrigin(requestOrigin: string | null, configuredOrigin?
   return normalized;
 }
 
-export function subscriptionSnapshot(subscription: SubscriptionLike, priceId: string) {
-  const items = subscription.items.data.filter((item) => item.price?.id === priceId);
+export function subscriptionSnapshot(subscription: SubscriptionLike, priceIds: string | string[]) {
+  const recognized = new Set(Array.isArray(priceIds) ? priceIds : [priceIds]);
+  const items = subscription.items.data.filter((item) => {
+    const id = item.price?.id;
+    return typeof id === "string" && recognized.has(id);
+  });
   if (items.length === 0) {
     throw new BillingContractError(
       409,

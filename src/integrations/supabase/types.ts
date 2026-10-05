@@ -54,6 +54,8 @@ export type Database = {
       }
       accounts: {
         Row: {
+          billing_onboarding_required: boolean
+          billing_term: string | null
           created_at: string | null
           driver_count: number | null
           id: string
@@ -71,8 +73,12 @@ export type Database = {
           subscription_current_period_end: string | null
           subscription_status: string | null
           trial_ends_at: string | null
+          trial_redeemed_at: string | null
+          pricing_version: string | null
         }
         Insert: {
+          billing_onboarding_required?: boolean
+          billing_term?: string | null
           created_at?: string | null
           driver_count?: number | null
           id?: string
@@ -90,8 +96,12 @@ export type Database = {
           subscription_current_period_end?: string | null
           subscription_status?: string | null
           trial_ends_at?: string | null
+          trial_redeemed_at?: string | null
+          pricing_version?: string | null
         }
         Update: {
+          billing_onboarding_required?: boolean
+          billing_term?: string | null
           created_at?: string | null
           driver_count?: number | null
           id?: string
@@ -109,6 +119,8 @@ export type Database = {
           subscription_current_period_end?: string | null
           subscription_status?: string | null
           trial_ends_at?: string | null
+          trial_redeemed_at?: string | null
+          pricing_version?: string | null
         }
         Relationships: []
       }
@@ -768,6 +780,22 @@ export type Database = {
           p_period_end: string | null
           p_subscription_id: string
           p_subscription_status: string
+        }
+        Returns: boolean
+      }
+      apply_stripe_account_state_v2: {
+        Args: {
+          p_account_id: string
+          p_billing_term: string
+          p_customer_id: string
+          p_driver_count: number
+          p_event_created_at: string
+          p_has_payment_method: boolean
+          p_period_end: string | null
+          p_pricing_version: string
+          p_subscription_id: string
+          p_subscription_status: string
+          p_trial_end: string | null
         }
         Returns: boolean
       }
