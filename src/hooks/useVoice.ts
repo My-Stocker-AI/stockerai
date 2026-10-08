@@ -18,6 +18,13 @@ const TTS_URL = 'https://solitary-base-799c.russ-731.workers.dev';
 // fallback path before the general voice watchdog treats preparation as stalled.
 const TTS_PREPARATION_WATCHDOG_MS = 16000;
 const PENDING_COMMAND_MAX_AGE_MS = 5000;
+// A picker should never stare at a green "listening" indicator while the voice path is dead.
+// Automatic recovery gets this long; after that the app exposes the one-tap iOS/Android
+// fallback while preserving the route position. A late automatic recovery may still finish.
+const VOICE_RECOVERY_BUDGET_MS = 3000;
+const VOICE_RECOVERY_SETTLE_MS = 250;
+const VOICE_RECOVERY_DEADLINE_MS = VOICE_RECOVERY_BUDGET_MS - VOICE_RECOVERY_SETTLE_MS;
+const VOICE_RECOVERY_RETRY_DELAYS_MS = [0, 350, 800] as const;
 
 type WebkitAudioWindow = Window & typeof globalThis & {
   webkitAudioContext?: typeof AudioContext;
@@ -42,13 +49,20 @@ const errorMessage = (error: unknown, fallback: string) =>
 
 const errorName = (error: unknown) => error instanceof Error ? error.name : '';
 
+const isPermissionFailure = (error: unknown) => {
+  const name = errorName(error).toLowerCase();
+  const message = errorMessage(error, '').toLowerCase();
+  return name === 'notallowederror' || name === 'securityerror' ||
+    message.includes('permission') || message.includes('not allowed') || message.includes('denied');
+};
+
 // Deepgram STT via Cloudflare Worker (same as original PWA)
 const DEEPGRAM_TOKEN_URL = 'https://stocker-deepgram-stt.russ-731.workers.dev/token';
 
 // Build marker — bump alongside package.json "version" and sw.js SW_VERSION on each deploy.
 // Emitted to the diagnostic pipe on startListening so Davy's Render logs show EXACTLY which
 // build his phone is running (kills the "tested stale code" trap).
-const BUILD_VERSION = 'v0.2.8-android-field-recovery';
+const BUILD_VERSION = 'v0.2.9-three-second-voice-recovery';
 
 // Wake phrases including common mishearings (from original PWA).
 // Moved to src/utils/wakePhrases.ts 2026-07-30 so the command matcher reads the SAME list —
@@ -190,6 +204,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
   microphoneRecoveredRef.current = options.onMicrophoneRecovered;
   const microphoneTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const microphoneNeedsRecoveryRef = useRef(false);
+  const voiceRecoveryDeadlineRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const observeMicrophoneRef = useRef<(stream: MediaStream) => void>(() => {});
   const detachMicrophoneRef = useRef<() => void>(() => {});
 
@@ -711,7 +726,8 @@ export function useVoice(options: UseVoiceOptions = {}) {
   }, []);
 
   const startPcmCapture = useCallback(async (): Promise<boolean> => {
-    if (!audioStreamRef.current) {
+    const audioTrack = audioStreamRef.current?.getAudioTracks()[0];
+    if (!audioTrack || audioTrack.readyState !== 'live' || audioTrack.muted) {
       console.error('[Voice] No audio stream available for PCM capture');
       onErrorRef.current?.('Microphone is not ready — tap to reconnect.');
       return false;
@@ -1142,21 +1158,124 @@ export function useVoice(options: UseVoiceOptions = {}) {
     return request;
   }, [acquireAudioStream]);
 
+  const voicePathSnapshot = useCallback(() => {
+    const track = audioStreamRef.current?.getAudioTracks()[0];
+    return {
+      track: !track ? 'missing' : track.readyState === 'live' && !track.muted ? 'live' : track.muted ? 'muted' : track.readyState,
+      capture: captureCtxRef.current?.state ?? 'missing',
+      socket: socketRef.current?.readyState ?? WebSocket.CLOSED,
+      connected: isConnectedRef.current,
+      page: document.hidden ? 'hidden' : 'visible',
+    };
+  }, []);
+
+  const isVoicePathReady = useCallback(() => {
+    const track = audioStreamRef.current?.getAudioTracks()[0];
+    return !!track && track.readyState === 'live' && !track.muted &&
+      !microphoneNeedsRecoveryRef.current &&
+      captureCtxRef.current?.state === 'running' && !!captureNodeRef.current &&
+      socketRef.current?.readyState === WebSocket.OPEN && isConnectedRef.current;
+  }, []);
+
+  // One recovery owns the entire microphone -> capture -> Deepgram path. Device, foreground,
+  // network and track events all converge here, so they cannot start competing microphone
+  // requests or socket reconnect storms.
   const recoverMicrophone = useCallback(() => {
     if (!shouldReconnectRef.current || !audioStreamRef.current || document.hidden) return Promise.resolve();
     if (microphoneRecoveryRef.current) return microphoneRecoveryRef.current;
     const generation = microphoneGenerationRef.current;
+    const startedAt = Date.now();
+    const previousStatus = statusRef.current;
     const recovery = (async () => {
-      emitDiagnostic('microphone-recovery', 'started');
-      try {
-        await getOrCreateAudioStream();
-        if (generation !== microphoneGenerationRef.current) return;
-        emitDiagnostic('microphone-recovery', 'source-rebound');
-        microphoneRecoveredRef.current?.();
-      } catch {
-        if (generation !== microphoneGenerationRef.current || !shouldReconnectRef.current) return;
-        emitDiagnostic('microphone-recovery', 'needs-tap');
-        onErrorRef.current?.('Microphone disconnected — tap to reconnect.');
+      let fallbackShown = false;
+      emitDiagnostic('voice-recovery', { phase: 'started', readiness: voicePathSnapshot() });
+      if (previousStatus !== 'paused' && previousStatus !== 'muted') {
+        if (previousStatus === 'listening') setStatus('error');
+        onErrorRef.current?.('Reconnecting voice…');
+      }
+
+      voiceRecoveryDeadlineRef.current = setTimeout(() => {
+        if (generation !== microphoneGenerationRef.current || !shouldReconnectRef.current || isVoicePathReady()) return;
+        fallbackShown = true;
+        emitDiagnostic('voice-recovery', {
+          phase: 'needs-tap',
+          elapsedMs: VOICE_RECOVERY_DEADLINE_MS,
+          readiness: voicePathSnapshot(),
+        });
+        setStatus('error');
+        onErrorRef.current?.('Voice paused — tap to reconnect.');
+      }, VOICE_RECOVERY_DEADLINE_MS);
+
+      let lastError: unknown;
+      for (let attempt = 0; attempt < VOICE_RECOVERY_RETRY_DELAYS_MS.length; attempt++) {
+        const delay = VOICE_RECOVERY_RETRY_DELAYS_MS[attempt];
+        if (delay > 0) await new Promise(resolve => setTimeout(resolve, delay));
+        if (generation !== microphoneGenerationRef.current || !shouldReconnectRef.current || document.hidden) return;
+
+        let stage = 'microphone';
+        try {
+          microphoneNeedsRecoveryRef.current = true;
+          await getOrCreateAudioStream();
+          stage = 'speech-socket';
+          if (socketRef.current?.readyState !== WebSocket.OPEN || !isConnectedRef.current) {
+            await connectDeepgram();
+          } else {
+            stage = 'capture';
+            if (!(await startPcmCapture())) throw new Error('Microphone capture is not running');
+          }
+          if (!isVoicePathReady()) throw new Error('Voice path did not become ready');
+          if (generation !== microphoneGenerationRef.current || !shouldReconnectRef.current) return;
+
+          if (voiceRecoveryDeadlineRef.current) clearTimeout(voiceRecoveryDeadlineRef.current);
+          voiceRecoveryDeadlineRef.current = null;
+          microphoneNeedsRecoveryRef.current = false;
+          if (statusRef.current === 'error') {
+            setStatus(previousStatus === 'error' ? 'listening' : previousStatus);
+          }
+          emitDiagnostic('voice-recovery', {
+            phase: 'recovered',
+            attempt: attempt + 1,
+            elapsedMs: Date.now() - startedAt,
+            readiness: voicePathSnapshot(),
+          });
+          emitDiagnostic('microphone-recovery', 'source-rebound');
+          microphoneRecoveredRef.current?.();
+          return;
+        } catch (error: unknown) {
+          lastError = error;
+          emitDiagnostic('voice-recovery', {
+            phase: 'attempt-failed',
+            stage,
+            attempt: attempt + 1,
+            errorName: errorName(error) || 'Error',
+            errorMessage: errorMessage(error, 'Voice recovery failed'),
+            readiness: voicePathSnapshot(),
+          });
+          if (isPermissionFailure(error)) break;
+        }
+      }
+
+      if (generation !== microphoneGenerationRef.current || !shouldReconnectRef.current) return;
+      const permissionBlocked = isPermissionFailure(lastError);
+      if (!permissionBlocked) {
+        const remaining = VOICE_RECOVERY_DEADLINE_MS - (Date.now() - startedAt);
+        if (remaining > 0) await new Promise(resolve => setTimeout(resolve, remaining));
+      }
+      if (generation !== microphoneGenerationRef.current || !shouldReconnectRef.current) return;
+      if (voiceRecoveryDeadlineRef.current) clearTimeout(voiceRecoveryDeadlineRef.current);
+      voiceRecoveryDeadlineRef.current = null;
+      setStatus('error');
+      if (permissionBlocked || !fallbackShown) {
+        emitDiagnostic('voice-recovery', {
+          phase: permissionBlocked ? 'permission-blocked' : 'needs-tap',
+          elapsedMs: Date.now() - startedAt,
+          errorName: errorName(lastError) || 'Error',
+          errorMessage: errorMessage(lastError, 'Voice recovery failed'),
+          readiness: voicePathSnapshot(),
+        });
+        onErrorRef.current?.(permissionBlocked
+          ? 'Microphone access denied. Please allow microphone access.'
+          : 'Voice paused — tap to reconnect.');
       }
     })();
     microphoneRecoveryRef.current = recovery;
@@ -1164,7 +1283,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
       if (microphoneRecoveryRef.current === recovery) microphoneRecoveryRef.current = null;
     });
     return recovery;
-  }, [getOrCreateAudioStream]);
+  }, [connectDeepgram, getOrCreateAudioStream, isVoicePathReady, setStatus, startPcmCapture, voicePathSnapshot]);
 
   const invalidateMicrophoneGeneration = useCallback(() => {
     microphoneGenerationRef.current++;
@@ -1184,8 +1303,8 @@ export function useVoice(options: UseVoiceOptions = {}) {
       detachMicrophoneRef.current();
       const track = stream.getAudioTracks()[0];
       if (!track) return;
-      const ended = () => schedule(300);
-      const muted = () => schedule(1500); // Allow a transient Bluetooth handoff to settle.
+      const ended = () => schedule(0);
+      const muted = () => schedule(VOICE_RECOVERY_SETTLE_MS); // Brief Bluetooth handoff settle, still inside the 3s budget.
       const unmuted = () => {
         if (microphoneTimerRef.current) clearTimeout(microphoneTimerRef.current);
         microphoneTimerRef.current = null;
@@ -1200,17 +1319,10 @@ export function useVoice(options: UseVoiceOptions = {}) {
         track.removeEventListener('unmute', unmuted);
       };
     };
-    const changed = () => schedule(300);
-    const visible = () => {
-      if (document.hidden || !shouldReconnectRef.current) return;
-      const tracks = audioStreamRef.current?.getAudioTracks() ?? [];
-      if (microphoneNeedsRecoveryRef.current || tracks.some(t => t.readyState === 'ended' || t.muted)) schedule(300);
-    };
+    const changed = () => schedule(0);
     navigator.mediaDevices?.addEventListener('devicechange', changed);
-    document.addEventListener('visibilitychange', visible);
     return () => {
       navigator.mediaDevices?.removeEventListener('devicechange', changed);
-      document.removeEventListener('visibilitychange', visible);
       detachMicrophoneRef.current();
       invalidateMicrophoneGeneration();
       if (microphoneTimerRef.current) clearTimeout(microphoneTimerRef.current);
@@ -1388,6 +1500,8 @@ export function useVoice(options: UseVoiceOptions = {}) {
     detachMicrophoneRef.current();
     if (microphoneTimerRef.current) clearTimeout(microphoneTimerRef.current);
     microphoneTimerRef.current = null;
+    if (voiceRecoveryDeadlineRef.current) clearTimeout(voiceRecoveryDeadlineRef.current);
+    voiceRecoveryDeadlineRef.current = null;
     microphoneNeedsRecoveryRef.current = false;
     stopKeepAlive();
 
@@ -2370,24 +2484,47 @@ export function useVoice(options: UseVoiceOptions = {}) {
           });
       }
 
-      // GRID SURVEY 2026-07-30 — same status-list gap as the socket close handler: this list
-      // omitted 'speaking' and 'idle', so a drop that happened while the app was announcing an
-      // item was not reconnected on wake either. Second site of the same family.
-      if (shouldReconnectRef.current && shouldReconnectFromStatus(s) && !isConnectedRef.current) {
+      // Validate the WHOLE path on return. iOS can leave the microphone track and WebSocket
+      // looking live while silently suspending the separate capture AudioContext. Checking only
+      // the socket produced the green-but-deaf state observed in the field.
+      if (shouldReconnectRef.current && shouldReconnectFromStatus(s) && !isVoicePathReady()) {
         if (reconnectTimeoutRef.current) {
           clearTimeout(reconnectTimeoutRef.current);
           reconnectTimeoutRef.current = null;
         }
         reconnectAttemptsRef.current = 0;
-        emitDiagnostic('reconnect-on-resume', { timestamp: new Date().toISOString(), status: s });
-        startListeningRef.current?.();
+        emitDiagnostic('reconnect-on-resume', {
+          timestamp: new Date().toISOString(),
+          status: s,
+          readiness: voicePathSnapshot(),
+        });
+        void recoverMicrophone();
       }
+    };
+
+    const handleOnline = () => {
+      if (!document.hidden && shouldReconnectRef.current && !isVoicePathReady()) {
+        emitDiagnostic('voice-network', { state: 'online', readiness: voicePathSnapshot() });
+        void recoverMicrophone();
+      }
+    };
+
+    const handleOffline = () => {
+      if (!shouldReconnectRef.current) return;
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      emitDiagnostic('voice-network', { state: 'offline', readiness: voicePathSnapshot() });
+      onErrorRef.current?.('Voice is waiting for a network connection.');
     };
 
     // Add event listeners
     window.addEventListener('beforeunload', handleBeforeUnload);
     window.addEventListener('pagehide', handlePageHide);
     window.addEventListener('pageshow', handlePageShow);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     // Cleanup on unmount
@@ -2395,6 +2532,8 @@ export function useVoice(options: UseVoiceOptions = {}) {
       window.removeEventListener('beforeunload', handleBeforeUnload);
       window.removeEventListener('pagehide', handlePageHide);
       window.removeEventListener('pageshow', handlePageShow);
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       // Clear reconnection timeout
       if (reconnectTimeoutRef.current) {
@@ -2404,7 +2543,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
       stopEverything();
       stopListening();
     };
-  }, [releaseVoiceLock, stopListening, stopPcmCapture]);
+  }, [isVoicePathReady, recoverMicrophone, releaseVoiceLock, stopListening, stopPcmCapture, voicePathSnapshot]);
 
   return {
     status,
