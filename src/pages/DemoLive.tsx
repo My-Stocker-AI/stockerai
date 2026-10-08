@@ -944,6 +944,7 @@ export default function DemoLive() {
             listener + 3s flusher only exist in the main return (after this gate), so every
             demo-mic-check event fired here would run "dark" and never reach the Render logs. */}
         <DiagnosticOverlay
+          queueOwner="public-demo"
           voiceStatus={voice.status}
           isDeepgramConnected={voice.isDeepgramConnected}
           isVisible={showDiagnostics}
@@ -980,6 +981,7 @@ export default function DemoLive() {
       {/* Diagnostics: auto-ships every voice event to /api/diag so demo failures are
           readable in the logs. Triple-tap the status dot reveals it on-device. */}
       <DiagnosticOverlay
+        queueOwner="public-demo"
         voiceStatus={voice.status}
         isDeepgramConnected={voice.isDeepgramConnected}
         isVisible={showDiagnostics}

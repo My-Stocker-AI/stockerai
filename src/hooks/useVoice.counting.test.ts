@@ -17,6 +17,7 @@ let initialTrack: FakeTrack;
 let workletPort: { onmessage: ((event: { data: ArrayBuffer }) => void) | null };
 const node = () => ({ connect: vi.fn(), disconnect: vi.fn(), start: vi.fn(), stop: vi.fn() });
 class FakeAudioContext {
+  static created: FakeAudioContext[] = [];
   state = 'running'; currentTime = 0; destination = {};
   audioWorklet = { addModule: vi.fn(async () => {}) };
   resume = vi.fn(async () => {}); close = vi.fn(async () => {});
@@ -24,6 +25,7 @@ class FakeAudioContext {
   createMediaStreamSource = (stream: unknown) => { captureSources(stream); return node(); };
   createOscillator() { chime(); return { ...node(), frequency: { value: 0, setValueAtTime: vi.fn() } }; }
   createGain() { return { ...node(), gain: { value: 0, exponentialRampToValueAtTime: vi.fn() } }; }
+  constructor() { FakeAudioContext.created.push(this); }
 }
 class FakeSocket {
   static OPEN = 1;
@@ -62,6 +64,7 @@ beforeEach(() => {
     return { ok: true, json: async () => ({ token: 'fake-token', expires_in: 600 }) };
   }));
   initialTrack = new FakeTrack();
+  FakeAudioContext.created = [];
   FakeSocket.created = 0;
   Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: Object.assign(new EventTarget(), {
     getUserMedia: vi.fn(async () => streamFor(initialTrack.readyState === 'live' ? initialTrack : new FakeTrack())),
@@ -206,6 +209,34 @@ describe('earbud microphone recovery', () => {
     } finally { visibility.mockRestore(); }
   });
 
+  it('checks the capture engine on foreground even when the mic track and socket still look live', async () => {
+    const recovered = vi.fn();
+    const errors = vi.fn();
+    const visibility = vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
+    const { result } = renderHook(() => useVoice({ onMicrophoneRecovered: recovered, onError: errors }));
+    try {
+      await act(async () => { expect(await result.current.startListening()).toBe(true); });
+      errors.mockClear();
+      const capture = FakeAudioContext.created.find(ctx => ctx.audioWorklet.addModule.mock.calls.length > 0);
+      expect(capture).toBeTruthy();
+      if (!capture) return;
+      capture.state = 'suspended';
+      capture.resume.mockImplementation(async () => { capture.state = 'running'; });
+      vi.mocked(navigator.mediaDevices.getUserMedia).mockResolvedValue(streamFor(new FakeTrack()) as unknown as MediaStream);
+
+      await act(async () => {
+        document.dispatchEvent(new Event('visibilitychange'));
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+
+      expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledTimes(2);
+      expect(recovered).toHaveBeenCalledOnce();
+      expect(result.current.getStatus()).toBe('listening');
+    } finally {
+      visibility.mockRestore();
+    }
+  });
+
   it('rebuilds microphone capture when a mobile page is restored from cache', async () => {
     const { result } = await start();
     const socket = FakeSocket.latest;
@@ -304,9 +335,23 @@ describe('earbud microphone recovery', () => {
     await act(async () => {
       initialTrack.readyState = 'ended';
       initialTrack.dispatchEvent(new Event('ended'));
-      await vi.advanceTimersByTimeAsync(2000);
+      await vi.advanceTimersByTimeAsync(3000);
     });
-    expect(errors).toHaveBeenLastCalledWith('Microphone disconnected — tap to reconnect.');
+    expect(errors).toHaveBeenLastCalledWith('Voice paused — tap to reconnect.');
+  });
+
+  it('shows the one-tap fallback by the three-second budget when recovery hangs', async () => {
+    const { result, errors } = await start();
+    vi.mocked(navigator.mediaDevices.getUserMedia).mockImplementation(() => new Promise(() => {}));
+    await act(async () => {
+      initialTrack.readyState = 'ended';
+      initialTrack.dispatchEvent(new Event('ended'));
+      await vi.advanceTimersByTimeAsync(2749);
+    });
+    expect(errors).toHaveBeenLastCalledWith('Reconnecting voice…');
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(errors).toHaveBeenLastCalledWith('Voice paused — tap to reconnect.');
+    expect(result.current.getStatus()).toBe('error');
   });
 });
 

@@ -31,6 +31,7 @@ interface TestVoice {
   setAwaitingDirection: ReturnType<typeof vi.fn>; setThinking: ReturnType<typeof vi.fn>;
   resumeListening: ReturnType<typeof vi.fn>; playErrorBeep: ReturnType<typeof vi.fn>;
   playSuccessBeep: ReturnType<typeof vi.fn>; prefetchTTS: ReturnType<typeof vi.fn>;
+  unlockAudio: ReturnType<typeof vi.fn>; startListening: ReturnType<typeof vi.fn>;
 }
 
 const mocks = vi.hoisted(() => ({
@@ -75,6 +76,7 @@ beforeEach(() => {
     pauseListening: vi.fn(), mute: vi.fn(), unmute: vi.fn(),
     setThinking: vi.fn(), resumeListening: vi.fn(), playErrorBeep: vi.fn(),
     playSuccessBeep: vi.fn(), prefetchTTS: vi.fn(),
+    unlockAudio: vi.fn(async () => {}), startListening: vi.fn(async () => true),
   };
   mocks.state = {
     pickingRevision: 'revision-one',
@@ -140,6 +142,17 @@ describe('actual StockerApp transcript dispatch with mocked services', () => {
     expect(mocks.voice.stopListening).toHaveBeenCalledOnce();
     expect(view.getByText(/microphone is off\. Tap Continue/i)).toBeTruthy();
     expect(view.queryByText(/OK Stocker Continue/i)).toBeNull();
+  });
+
+  it('renders a large working voice-resume control after automatic recovery times out', async () => {
+    mocks.loading = false;
+    const view = render(React.createElement(StockerApp));
+    act(() => mocks.options.onError?.('Voice paused — tap to reconnect.'));
+    const resume = view.getByRole('button', { name: /Tap to Resume Voice/i });
+    await act(async () => { fireEvent.click(resume); });
+    expect(mocks.voice.unlockAudio).toHaveBeenCalledOnce();
+    expect(mocks.voice.startListening).toHaveBeenCalledOnce();
+    expect(view.queryByRole('button', { name: /Tap to Resume Voice/i })).toBeNull();
   });
 
   it('a failed server reset keeps local progress and binds to the confirmed target', async () => {

@@ -4,6 +4,8 @@ import React, { useState, useEffect, useRef } from 'react';
 // device-side voice behavior is observable WITHOUT the driver doing anything — no copy,
 // no screenshot. Fire-and-forget + batched so it never touches the voice pipeline timing.
 const DIAG_ENDPOINT = 'https://stockerai-api.onrender.com/api/diag';
+const DIAG_QUEUE_KEY_PREFIX = 'stocker-voice-diagnostic-queue-v2';
+const MAX_QUEUED_EVENTS = 400;
 import { authFetch } from '@/lib/authFetch';
 import { Activity, Wifi, Mic, Volume2, AlertCircle, CheckCircle2, XCircle } from 'lucide-react';
 
@@ -12,6 +14,7 @@ interface DiagnosticOverlayProps {
   isDeepgramConnected: boolean;
   isVisible: boolean;
   onClose: () => void;
+  queueOwner?: string;
 }
 
 interface DiagnosticState {
@@ -30,16 +33,54 @@ interface VoiceDiagnosticEntry {
   data: unknown;
 }
 
+interface QueuedVoiceDiagnostic {
+  sessionId: string;
+  entry: VoiceDiagnosticEntry;
+}
+
 interface VoiceDiagnosticDetail {
   type?: unknown;
   data?: unknown;
+}
+
+function queueStorageKey(queueOwner: string): string {
+  return `${DIAG_QUEUE_KEY_PREFIX}:${queueOwner}`;
+}
+
+function readQueuedDiagnostics(storageKey: string): QueuedVoiceDiagnostic[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(storageKey) || '[]');
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(item => item
+      && typeof item.sessionId === 'string'
+      && item.entry
+      && typeof item.entry.t === 'number'
+      && typeof item.entry.type === 'string')
+      .slice(-MAX_QUEUED_EVENTS);
+  } catch {
+    return [];
+  }
+}
+
+function persistQueuedDiagnostics(storageKey: string, events: QueuedVoiceDiagnostic[]) {
+  try {
+    localStorage.setItem(storageKey, JSON.stringify(events.slice(-MAX_QUEUED_EVENTS)));
+  } catch {
+    // Diagnostics must never block picking if storage is unavailable or full.
+  }
 }
 
 type WebkitAudioWindow = Window & typeof globalThis & {
   webkitAudioContext?: typeof AudioContext;
 };
 
-export function DiagnosticOverlay({ voiceStatus, isDeepgramConnected, isVisible, onClose }: DiagnosticOverlayProps) {
+export function DiagnosticOverlay({
+  voiceStatus,
+  isDeepgramConnected,
+  isVisible,
+  onClose,
+  queueOwner = 'anonymous',
+}: DiagnosticOverlayProps) {
   const [diagnostics, setDiagnostics] = useState<DiagnosticState>({
     audioContextState: 'unknown',
     micPermission: 'unknown',
@@ -61,10 +102,12 @@ export function DiagnosticOverlay({ voiceStatus, isDeepgramConnected, isVisible,
 
   // Buffer of events not yet shipped to the server + a stable id for this app load so the
   // backend logs can be filtered to one driver's walk.
-  const pendingRef = useRef<VoiceDiagnosticEntry[]>([]);
   const sessionTagRef = useRef<string>(
     `${new Date().toISOString().slice(11, 19)}-${Math.random().toString(36).slice(2, 7)}`
   );
+  const queueKeyRef = useRef(queueStorageKey(queueOwner));
+  const pendingRef = useRef<QueuedVoiceDiagnostic[]>(readQueuedDiagnostics(queueKeyRef.current));
+  const flushingRef = useRef(false);
 
   const copyLog = async () => {
     const header =
@@ -160,7 +203,11 @@ export function DiagnosticOverlay({ voiceStatus, isDeepgramConnected, isVisible,
       const entry = { t: Date.now(), type, data };
       setFullLog(prev => [...prev.slice(-799), entry]);
       // Queue it for auto-ship to the server (read remotely from Render logs).
-      pendingRef.current.push(entry);
+      pendingRef.current = [
+        ...pendingRef.current,
+        { sessionId: sessionTagRef.current, entry },
+      ].slice(-MAX_QUEUED_EVENTS);
+      persistQueuedDiagnostics(queueKeyRef.current, pendingRef.current);
       setDiagnostics(prev => {
         const updated = { ...prev };
 
@@ -201,28 +248,54 @@ export function DiagnosticOverlay({ voiceStatus, isDeepgramConnected, isVisible,
     return () => window.removeEventListener('voice-diagnostic', handleDiagnosticEvent);
   }, []);
 
-  // Auto-ship queued events to the server every 3s (fire-and-forget, errors swallowed —
-  // can never block or slow the voice pipeline). Read remotely from Render logs.
+  // Auto-ship queued events to the server every 3s. The queue is stored on the phone and
+  // removed only after the server confirms receipt, so a network drop or app background does
+  // not erase the exact recovery sequence we need for after-the-fact diagnosis.
   useEffect(() => {
     const flush = () => {
-      if (pendingRef.current.length === 0) return;
-      const events = pendingRef.current;
-      pendingRef.current = [];
+      if (pendingRef.current.length === 0 || flushingRef.current || !navigator.onLine) return;
+      const sourceSessionId = pendingRef.current[0].sessionId;
+      const queuedBatch: QueuedVoiceDiagnostic[] = [];
+      for (const queued of pendingRef.current) {
+        if (queued.sessionId !== sourceSessionId || queuedBatch.length >= 200) break;
+        queuedBatch.push(queued);
+      }
+      const events = queuedBatch.map(queued => queued.entry);
+      flushingRef.current = true;
       try {
         authFetch(DIAG_ENDPOINT, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            session_id: sessionTagRef.current,
+            session_id: sourceSessionId,
             user_agent: navigator.userAgent,
             events,
           }),
           keepalive: true,
-        }).catch(() => { /* offline / blocked — drop, never retry-storm */ });
-      } catch { /* never throw into the app */ }
+        }).then(response => {
+          if (!response.ok) throw new Error(`Diagnostic upload failed (${response.status})`);
+          pendingRef.current = pendingRef.current.slice(queuedBatch.length);
+          persistQueuedDiagnostics(queueKeyRef.current, pendingRef.current);
+        }).catch(() => {
+          // Keep the bounded local queue for the next online/foreground flush.
+        }).finally(() => {
+          flushingRef.current = false;
+        });
+      } catch {
+        flushingRef.current = false;
+      }
     };
     const id = setInterval(flush, 3000);
-    return () => { clearInterval(id); flush(); };
+    const onVisible = () => { if (!document.hidden) flush(); };
+    window.addEventListener('online', flush);
+    document.addEventListener('visibilitychange', onVisible);
+    flush();
+    return () => {
+      clearInterval(id);
+      window.removeEventListener('online', flush);
+      document.removeEventListener('visibilitychange', onVisible);
+      flush();
+    };
   }, []);
 
   if (!isVisible) return null;

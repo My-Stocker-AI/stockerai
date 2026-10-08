@@ -1452,7 +1452,11 @@ export default function StockerApp() {
   } = useEnvironmentDetection();
 
   const voice = useVoice({
-    onMicrophoneRecovered: () => setError(current => current === 'Microphone disconnected — tap to reconnect.' ? null : current),
+    onMicrophoneRecovered: () => setError(current => {
+      if (!current) return current;
+      const kind = classifyFailure(current);
+      return kind === 'reconnecting' || kind === 'needs-tap' ? null : current;
+    }),
     onUnrecognizedDirectionSpeech: () => {
       void voiceRef.current?.speak?.("I heard you, but I didn't catch top or bottom. Please say top or bottom again.");
     },
@@ -2815,10 +2819,12 @@ export default function StockerApp() {
 
       {/* Diagnostic Overlay - opened deliberately from Settings */}
       <DiagnosticOverlay
+        key={userId || 'anonymous'}
         voiceStatus={voice.status}
         isDeepgramConnected={voice.isDeepgramConnected}
         isVisible={showDiagnostics}
         onClose={() => setShowDiagnostics(false)}
+        queueOwner={userId || 'anonymous'}
       />
       {userId && (
         <ReportProblemDialog
@@ -3152,19 +3158,20 @@ export default function StockerApp() {
         </div>
 
         {/* Error */}
-        {error && (
-          <div
-            className={cn(
-              "bg-red-900/50 text-red-300 rounded-lg p-3 text-sm",
-              // A message that says "tap to reconnect" has to LOOK like something you tap.
-              classifyFailure(error) === 'needs-tap' &&
-                "cursor-pointer underline decoration-red-400/60 underline-offset-4 active:bg-red-900/70"
-            )}
+        {error && classifyFailure(error) === 'needs-tap' ? (
+          <button
+            type="button"
+            className="w-full rounded-xl border-2 border-red-400 bg-red-900/60 p-4 text-base font-semibold text-red-100 shadow-lg active:bg-red-800/80"
             onClick={handleErrorTap}
           >
+            <span className="block text-lg">Tap to Resume Voice</span>
+            <span className="mt-1 block text-sm font-normal text-red-200">{error}</span>
+          </button>
+        ) : error ? (
+          <div className="bg-red-900/50 text-red-300 rounded-lg p-3 text-sm">
             {error}
           </div>
-        )}
+        ) : null}
         </>
         )}
       </main>
