@@ -299,6 +299,32 @@ describe('actual StockerApp transcript dispatch with mocked services', () => {
     expect(mocks.execute.mock.calls[0][0][0].function.name).toBe('get_next_item');
   });
 
+  it.each(['Matt', 'Max', 'Net'])('advances locally for the observed one-word next mishearing: %s', async heard => {
+    render(React.createElement(StockerApp));
+    await say(heard);
+    expect(mocks.execute).toHaveBeenCalledOnce();
+    expect(mocks.execute.mock.calls[0][0][0].function.name).toBe('get_next_item');
+    expect(mocks.send).not.toHaveBeenCalled();
+  });
+
+  it('clarifies a noisy phrase beginning with next without opening a generic AI conversation', async () => {
+    render(React.createElement(StockerApp));
+    await say('Next autumn. Goddamn it.');
+    expect(mocks.execute).not.toHaveBeenCalled();
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(mocks.speak).toHaveBeenLastCalledWith('Next item?');
+    await say('yes');
+    expect(mocks.execute.mock.calls[0][0][0].function.name).toBe('get_next_item');
+  });
+
+  it('keeps unrelated command-like noise local instead of asking what it can help with', async () => {
+    render(React.createElement(StockerApp));
+    await say('warehouse chatter');
+    expect(mocks.execute).not.toHaveBeenCalled();
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(mocks.speak).toHaveBeenLastCalledWith("I didn't catch that. Can you say that again?");
+  });
+
   it('refuses a confirmation after the authoritative picking context changes', async () => {
     const view = render(React.createElement(StockerApp));
     await say('nexxt');
@@ -358,6 +384,22 @@ describe('actual StockerApp transcript dispatch with mocked services', () => {
     await say('bottom');
     expect(mocks.execute).toHaveBeenCalledOnce();
     expect(mocks.execute.mock.calls[0][0][0].function.name).toBe('start_machine');
+  });
+
+  it('uses a neutral direction retry when noise produces no words', async () => {
+    mocks.state.pendingMachineTransition = { nextMachineId: 'next-machine', nextMachineName: 'Machine 7', nextMachineIndex: 1 };
+    render(React.createElement(StockerApp));
+    act(() => mocks.options.onUnrecognizedDirectionSpeech?.());
+    expect(mocks.speak).toHaveBeenLastCalledWith(
+      "No problem. When you're ready, say top or bottom for Machine 7.",
+    );
+  });
+
+  it('shows a clear resume instruction after a phone or audio interruption', () => {
+    mocks.loading = false;
+    const view = render(React.createElement(StockerApp));
+    act(() => mocks.options.onExternalInterruption?.());
+    expect(view.getByText(/Paused for a phone or audio interruption/i)).toBeTruthy();
   });
 
   it('updates the microphone predicate when route context changes', () => {

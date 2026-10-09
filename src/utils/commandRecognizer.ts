@@ -62,6 +62,11 @@ const PHONETIC_WORD_CORRECTIONS: Record<string, string> = {
   'nixed': 'next',
   'nest': 'next',
   'net': 'next',
+  // Davy field evidence, 2026-10-07: isolated one-word "next" commands were returned as
+  // "Matt" and "Max". Corrections are token-scoped, so names inside longer phrases do not
+  // become route actions.
+  'matt': 'next',
+  'max': 'next',
 
   // "done" variants
   'dun': 'done',

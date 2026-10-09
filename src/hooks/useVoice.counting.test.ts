@@ -66,6 +66,7 @@ beforeEach(() => {
   initialTrack = new FakeTrack();
   FakeAudioContext.created = [];
   FakeSocket.created = 0;
+  Object.defineProperty(document, 'hidden', { configurable: true, value: false });
   Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: Object.assign(new EventTarget(), {
     getUserMedia: vi.fn(async () => streamFor(initialTrack.readyState === 'live' ? initialTrack : new FakeTrack())),
   }) });
@@ -352,6 +353,35 @@ describe('earbud microphone recovery', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(1); });
     expect(errors).toHaveBeenLastCalledWith('Voice paused — tap to reconnect.');
     expect(result.current.getStatus()).toBe('error');
+  });
+});
+
+describe('phone and audio interruptions', () => {
+  it('pauses route actions when the backgrounded app loses its microphone', async () => {
+    const interrupted = vi.fn();
+    const hook = renderHook(() => useVoice({ onExternalInterruption: interrupted }));
+    await act(async () => { expect(await hook.result.current.startListening()).toBe(true); });
+
+    Object.defineProperty(document, 'hidden', { configurable: true, value: true });
+    act(() => {
+      initialTrack.muted = true;
+      initialTrack.dispatchEvent(new Event('mute'));
+    });
+
+    expect(hook.result.current.getStatus()).toBe('paused');
+    expect(interrupted).toHaveBeenCalledOnce();
+  });
+
+  it('does not treat a notification sound as a call when the mic remains live', async () => {
+    const interrupted = vi.fn();
+    const hook = renderHook(() => useVoice({ onExternalInterruption: interrupted }));
+    await act(async () => { expect(await hook.result.current.startListening()).toBe(true); });
+
+    Object.defineProperty(document, 'hidden', { configurable: true, value: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    expect(hook.result.current.getStatus()).toBe('listening');
+    expect(interrupted).not.toHaveBeenCalled();
   });
 });
 

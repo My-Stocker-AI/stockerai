@@ -19,6 +19,8 @@ import {
 import { isBareNumber } from '@/utils/spokenNumber';
 import { resolveLocalIntent } from '@/utils/localCommandIntent';
 import { pickingContextKey, pickingQuestionFallback } from '@/utils/pickingConversation';
+import { isLikelyPickingQuestion } from '@/utils/pickingInput';
+import { directionRetryPrompt } from '@/utils/voicePrompts';
 import { ensureDirectionChoice } from '@/utils/spokenText';
 import { useStockerAI } from '@/hooks/useStockerAI';
 import { useStockerSession, type ConversationMessage, type CurrentItem, type MachineState } from '@/hooks/useStockerSession';
@@ -1077,7 +1079,7 @@ export default function StockerApp() {
 
         // Mid-transition the app is waiting on exactly one answer. Keep him pointed at it.
         if (routeState.pendingMachineTransition) {
-          const msg = `I didn't catch that. Say top or bottom for ${routeState.pendingMachineTransition.nextMachineName}.`;
+          const msg = directionRetryPrompt(routeState.pendingMachineTransition.nextMachineName);
           setAiResponse(msg);
           await v.speak(msg);
           processingRef.current = false;
@@ -1090,6 +1092,17 @@ export default function StockerApp() {
         if (reply.ask && reply.guess) {
           console.log('[CommandGuess] ? asking:', reply.guess.command, 'from', reply.guess.matched);
           pendingGuessRef.current = capturePendingConfirmation(reply.guess.command, commandContextKey);
+          setAiResponse(reply.phrase);
+          await v.speak(reply.phrase);
+          processingRef.current = false;
+          return;
+        }
+
+        // Unclear command-like speech is not an invitation to start an open-ended AI chat.
+        // Davy's one-word "Matt"/"Max" next mishearings previously reached the network and
+        // came back as "What can I help with?". Only a genuine question uses the semantic path;
+        // everything else gets the bounded local clarification and leaves progress untouched.
+        if (!isLikelyPickingQuestion(correctedTranscript)) {
           setAiResponse(reply.phrase);
           await v.speak(reply.phrase);
           processingRef.current = false;
@@ -1457,8 +1470,13 @@ export default function StockerApp() {
       const kind = classifyFailure(current);
       return kind === 'reconnecting' || kind === 'needs-tap' ? null : current;
     }),
+    onExternalInterruption: () => {
+      pendingGuessRef.current = invalidatePendingConfirmation(pendingGuessRef.current);
+      setAiResponse('Paused for a phone or audio interruption. Return to Stocker and tap Resume when you are ready.');
+    },
     onUnrecognizedDirectionSpeech: () => {
-      void voiceRef.current?.speak?.("I heard you, but I didn't catch top or bottom. Please say top or bottom again.");
+      const machineName = routeState.pendingMachineTransition?.nextMachineName || routeState.currentMachineName;
+      void voiceRef.current?.speak?.(directionRetryPrompt(machineName));
     },
     shouldIgnoreTranscript,
     commandContextKey,
@@ -1618,43 +1636,78 @@ export default function StockerApp() {
 
   // Proactive mic permission check on load
   useEffect(() => {
-    const checkMicPermission = async () => {
-      try {
-        // Check if permissions API is available
-        if (navigator.permissions) {
-          const result = await navigator.permissions.query({ name: 'microphone' as PermissionName });
-          let previousState = result.state;
-          setMicPermission(result.state as 'prompt' | 'granted' | 'denied');
+    let permissionStatus: PermissionStatus | null = null;
+    let previousState: PermissionState | null = null;
+    let disposed = false;
+    let permissionCheckInFlight = false;
 
-          // Listen for permission changes
-          result.onchange = () => {
-            const nextState = result.state as 'prompt' | 'granted' | 'denied';
-            setMicPermission(nextState);
-            if (nextState === 'denied') {
-              // Some Android builds leave the old capture track alive briefly after the
-              // permission switch. Stop it immediately so "mic off" really means off.
-              voiceRef.current?.stopListening?.();
-              setError('Microphone access is off. Turn it back on, then return to StockerAI.');
-            } else if (nextState === 'granted' && previousState === 'denied') {
-              // Returning from Android/Chrome settings should recover without a reload.
-              setError('Microphone restored — reconnecting…');
-              void voiceRef.current?.startListening?.().then(connected => {
-                setError(connected ? null : 'Voice paused — tap to reconnect.');
-              }).catch(() => setError('Voice paused — tap to reconnect.'));
-            }
-            previousState = result.state;
-          };
-        } else {
-          // Fallback - assume we need to prompt
-          setMicPermission('prompt');
+    const applyPermissionState = async (nextState: PermissionState) => {
+      if (disposed) return;
+      const priorState = previousState;
+      // Record the transition before awaiting a reconnect so focus/pageshow/visibility events
+      // arriving together cannot launch competing voice starts.
+      previousState = nextState;
+      setMicPermission(nextState as 'prompt' | 'granted' | 'denied');
+      if (nextState === 'denied') {
+        // Some Android builds leave the old capture track alive briefly after the permission
+        // switch. Stop it immediately so "mic off" really means off.
+        voiceRef.current?.stopListening?.();
+        setError('Microphone access is off. Turn it back on, then return to StockerAI.');
+      } else if (nextState === 'granted') {
+        setShowMicHelp(false);
+        if (priorState === 'denied') {
+          setError('Microphone restored — reconnecting…');
+          try {
+            const connected = await voiceRef.current?.startListening?.();
+            if (!disposed) setError(connected ? null : 'Voice paused — tap to reconnect.');
+          } catch {
+            if (!disposed) setError('Voice paused — tap to reconnect.');
+          }
         }
-      } catch {
-        // If query fails, assume prompt needed
-        setMicPermission('prompt');
       }
     };
 
-    checkMicPermission();
+    const checkMicPermission = async () => {
+      if (permissionCheckInFlight) return;
+      permissionCheckInFlight = true;
+      try {
+        if (!navigator.permissions) {
+          setMicPermission('prompt');
+          return;
+        }
+
+        const refreshedStatus = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+        if (permissionStatus && permissionStatus !== refreshedStatus) permissionStatus.onchange = null;
+        permissionStatus = refreshedStatus;
+        await applyPermissionState(permissionStatus.state);
+        permissionStatus.onchange = () => { void applyPermissionState(permissionStatus!.state); };
+      } catch {
+        setMicPermission('prompt');
+      } finally {
+        permissionCheckInFlight = false;
+      }
+    };
+
+    // Android/iOS do not consistently fire PermissionStatus.onchange after the user returns
+    // from phone settings. Re-query on every foreground/focus path so the first return to the
+    // app can restore voice without a page reload or a second settings trip.
+    const recheckOnReturn = () => {
+      if (document.hidden) return;
+      void checkMicPermission();
+    };
+
+    void checkMicPermission();
+    window.addEventListener('focus', recheckOnReturn);
+    window.addEventListener('pageshow', recheckOnReturn);
+    document.addEventListener('visibilitychange', recheckOnReturn);
+
+    return () => {
+      disposed = true;
+      if (permissionStatus) permissionStatus.onchange = null;
+      window.removeEventListener('focus', recheckOnReturn);
+      window.removeEventListener('pageshow', recheckOnReturn);
+      document.removeEventListener('visibilitychange', recheckOnReturn);
+    };
   }, []);
 
   // Reset urlRouteProcessed when route ID in URL changes
@@ -2220,12 +2273,7 @@ export default function StockerApp() {
   // it registered. So the tap is acknowledged on screen before the work starts, not after.
   //
   // Ordinary messages he cannot act on still just dismiss, exactly as before.
-  const handleErrorTap = useCallback(async () => {
-    const current = error || '';
-    if (classifyFailure(current) !== 'needs-tap') {
-      setError(null);
-      return;
-    }
+  const reconnectVoiceFromTap = useCallback(async () => {
     setError('Reconnecting…');            // acknowledge the tap FIRST — this is the ten seconds
     try {
       await voiceRef.current?.unlockAudio?.();   // this tap is the gesture iOS requires
@@ -2235,7 +2283,21 @@ export default function StockerApp() {
       console.error('[Voice] Tap-to-reconnect failed:', e);
       setError('Voice paused — tap to reconnect.');
     }
-  }, [error]);
+  }, []);
+
+  const handleErrorTap = useCallback(async () => {
+    const current = error || '';
+    if (classifyFailure(current) !== 'needs-tap') {
+      setError(null);
+      return;
+    }
+    await reconnectVoiceFromTap();
+  }, [error, reconnectVoiceFromTap]);
+
+  const handleMicPermissionRetry = useCallback(async () => {
+    setShowMicHelp(false);
+    await reconnectVoiceFromTap();
+  }, [reconnectVoiceFromTap]);
 
   const handleMuteToggle = () => {
     if (voice.status === 'muted') {
@@ -2689,16 +2751,16 @@ export default function StockerApp() {
                 <div className="w-6 h-6 rounded-full bg-blue-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
                   <span className="text-blue-400 font-bold">3</span>
                 </div>
-                <p className="text-gray-300">Refresh this page and try again</p>
+                <p className="text-gray-300">Return to StockerAI and tap Try Voice Again</p>
               </div>
             </div>
             <div className="flex gap-3">
               <Button
-                onClick={() => window.location.reload()}
+                onClick={handleMicPermissionRetry}
                 className="flex-1 bg-blue-600 hover:bg-blue-700"
               >
                 <RefreshCw className="h-4 w-4 mr-2" />
-                Refresh Page
+                Try Voice Again
               </Button>
               <Button
                 onClick={() => setShowMicHelp(false)}
