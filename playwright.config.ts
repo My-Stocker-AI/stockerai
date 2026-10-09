@@ -44,6 +44,21 @@ export default defineConfig({
         },
       },
     },
+    {
+      name: 's24-installed-simulation',
+      testMatch: '**/mobile-offphone.spec.ts',
+      use: {
+        viewport: { width: 412, height: 915 },
+        screen: { width: 412, height: 915 },
+        deviceScaleFactor: 3,
+        hasTouch: true,
+        isMobile: true,
+        userAgent: 'Mozilla/5.0 (Linux; Android 14; SM-S928U) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36',
+        launchOptions: {
+          args: ['--mute-audio', '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'],
+        },
+      },
+    },
   ],
 
   webServer: {
