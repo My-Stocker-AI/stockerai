@@ -125,6 +125,15 @@ describe('a long sentence with one meaning-word does not get acted on', () => {
   });
 });
 
+describe('field transcript with an explicit next word', () => {
+  it('asks the bounded next-item clarification instead of open-ended help', () => {
+    const reply = resolveUnknownReply('Next autumn. Goddamn it.');
+    expect(reply.ask).toBe(true);
+    expect(reply.phrase).toBe('Next item?');
+    expect(reply.guess?.command).toBe(PickingCommand.NEXT_ITEM);
+  });
+});
+
 describe('a multi-word phrase needs all of its words', () => {
   it('"machine" alone does not trigger skip', () => {
     const g = guessCommand('machine');

@@ -171,7 +171,11 @@ export function resolveUnknownReply(transcript: string): {
 } {
   const guess = guessCommand(transcript);
 
-  if (guess && guess.score >= GUESS_ASK_THRESHOLD) {
+  // Deepgram returned Davy's explicit command as "Next autumn. Goddamn it." A leading literal
+  // next is strong enough to ASK "Next item?", but never strong enough to mutate progress by
+  // itself. Keep the normal threshold for a command word buried in unrelated conversation.
+  const explicitLeadingNext = guess?.command === PickingCommand.NEXT_ITEM && /^\s*next\b/i.test(transcript);
+  if (guess && (guess.score >= GUESS_ASK_THRESHOLD || explicitLeadingNext)) {
     const prompt = CONFIRM_PROMPT[guess.command];
     if (prompt) return { ask: true, phrase: prompt, guess };
   }

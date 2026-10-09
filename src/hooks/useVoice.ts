@@ -8,7 +8,8 @@ import { accumulateTranscript } from './transcriptAccumulator';
 import { resolveEcho } from './echoFilter';
 import { WAKE_PHRASES } from '@/utils/wakePhrases';
 import { expandSpokenMeasurements } from '@/utils/spokenText';
-import { buildDeepgramKeywordParams } from './deepgramKeywords';
+import { buildDeepgramKeywordParams, DEEPGRAM_CRITICAL_COMMANDS } from './deepgramKeywords';
+import { createWakeLockController } from './wakeLockController';
 
 export type VoiceStatus = 'idle' | 'listening' | 'speaking' | 'thinking' | 'paused' | 'muted' | 'error';
 
@@ -62,7 +63,7 @@ const DEEPGRAM_TOKEN_URL = 'https://stocker-deepgram-stt.russ-731.workers.dev/to
 // Build marker — bump alongside package.json "version" and sw.js SW_VERSION on each deploy.
 // Emitted to the diagnostic pipe on startListening so Davy's Render logs show EXACTLY which
 // build his phone is running (kills the "tested stale code" trap).
-const BUILD_VERSION = 'v0.2.9-three-second-voice-recovery';
+const BUILD_VERSION = 'v0.2.10-field-reliability';
 
 // Wake phrases including common mishearings (from original PWA).
 // Moved to src/utils/wakePhrases.ts 2026-07-30 so the command matcher reads the SAME list —
@@ -79,6 +80,7 @@ function emitDiagnostic(type: string, data: unknown) {
 
 export interface UseVoiceOptions {
   onMicrophoneRecovered?: () => void;
+  onExternalInterruption?: () => void;
   onUnrecognizedDirectionSpeech?: () => void;
   /** Discard non-input before queueing, interrupting audio, or acknowledging it. */
   shouldIgnoreTranscript?: (transcript: string) => boolean;
@@ -102,6 +104,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
   const onErrorRef = useRef(onError);
   const onWakePhraseRef = useRef(onWakePhrase);
   const onUnrecognizedDirectionSpeechRef = useRef(options.onUnrecognizedDirectionSpeech);
+  const onExternalInterruptionRef = useRef(options.onExternalInterruption);
   const keywordsRef = useRef<string[]>(keywords || []);
   const preferredDeviceIdRef = useRef<string | undefined>(preferredDeviceId);
   const commandContextKeyRef = useRef(commandContextKey);
@@ -112,6 +115,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
   onErrorRef.current = onError;
   onWakePhraseRef.current = onWakePhrase;
   onUnrecognizedDirectionSpeechRef.current = options.onUnrecognizedDirectionSpeech;
+  onExternalInterruptionRef.current = options.onExternalInterruption;
   keywordsRef.current = keywords || [];
   preferredDeviceIdRef.current = preferredDeviceId;
   commandContextKeyRef.current = commandContextKey;
@@ -239,8 +243,18 @@ export function useVoice(options: UseVoiceOptions = {}) {
   // Stores { text: string, promise: Promise, timestamp: number }
   const ttsPrefetchCacheRef = useRef<{ text: string; promise: Promise<Blob>; timestamp: number } | null>(null);
 
-  // Wake Lock ref - prevents screen timeout during voice session
-  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
+  // One controller owns every wake-lock path. This prevents a browser-released sentinel from
+  // blocking reacquisition and keeps deliberate Pause/Stop releases from instantly relocking.
+  const wakeLockControllerRef = useRef<ReturnType<typeof createWakeLockController> | null>(null);
+  if (!wakeLockControllerRef.current) {
+    wakeLockControllerRef.current = createWakeLockController({
+      getManager: () => typeof navigator !== 'undefined' && 'wakeLock' in navigator
+        ? navigator.wakeLock
+        : undefined,
+      isHidden: () => typeof document !== 'undefined' && document.hidden,
+      onEvent: (event, detail) => emitDiagnostic('wake-lock', { event, detail }),
+    });
+  }
 
   const KEEPALIVE_MS = 8000;
 
@@ -846,7 +860,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
 
     // Build keywords list: common commands + dynamic route names + products
     // CRITICAL: top/bottom are highest priority (3x boost via separate parameter)
-    const criticalKeywords = ['top', 'bottom', 'beginning', 'end'];
+    const criticalKeywords = [...DEEPGRAM_CRITICAL_COMMANDS];
     const baseKeywords = [
       // Directions and positions
       'south', 'north', 'east', 'west',
@@ -1303,8 +1317,28 @@ export function useVoice(options: UseVoiceOptions = {}) {
       detachMicrophoneRef.current();
       const track = stream.getAudioTracks()[0];
       if (!track) return;
-      const ended = () => schedule(0);
-      const muted = () => schedule(VOICE_RECOVERY_SETTLE_MS); // Brief Bluetooth handoff settle, still inside the 3s budget.
+      const pauseForExternalInterruption = (kind: 'ended' | 'muted') => {
+        if (!document.hidden || statusRef.current === 'idle' || statusRef.current === 'paused' || statusRef.current === 'muted') {
+          return false;
+        }
+        // A phone call normally backgrounds the PWA and takes the microphone. A notification
+        // sound may briefly duck audio but does not mute/end the microphone, so it does not enter
+        // this branch. Preserve route position, stop speech, and require the visible Resume tap.
+        stopAudioRef.current();
+        applyCaptureHold('paused');
+        microphoneNeedsRecoveryRef.current = true;
+        setStatus('paused');
+        void wakeLockControllerRef.current?.stop('external-interruption');
+        emitDiagnostic('external-interruption', { kind, action: 'paused' });
+        onExternalInterruptionRef.current?.();
+        return true;
+      };
+      const ended = () => {
+        if (!pauseForExternalInterruption('ended')) schedule(0);
+      };
+      const muted = () => {
+        if (!pauseForExternalInterruption('muted')) schedule(VOICE_RECOVERY_SETTLE_MS);
+      }; // Brief Bluetooth handoff settle, still inside the 3s budget.
       const unmuted = () => {
         if (microphoneTimerRef.current) clearTimeout(microphoneTimerRef.current);
         microphoneTimerRef.current = null;
@@ -1327,7 +1361,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
       invalidateMicrophoneGeneration();
       if (microphoneTimerRef.current) clearTimeout(microphoneTimerRef.current);
     };
-  }, [invalidateMicrophoneGeneration, recoverMicrophone]);
+  }, [applyCaptureHold, invalidateMicrophoneGeneration, recoverMicrophone, setStatus]);
 
   // Scope 2 — capture the environment-tuning snapshot at a connection boundary. The
   // GUARD: if a connection is already open, do nothing — a setting change made mid-pick
@@ -1420,32 +1454,8 @@ export function useVoice(options: UseVoiceOptions = {}) {
       reconnectTimeoutRef.current = null;
     }
 
-    // CRITICAL: Request wake lock to prevent screen timeout during voice session
-    // Hands-free operation requires screen to stay awake for continuous picking
-    if ('wakeLock' in navigator) {
-      try {
-        wakeLockRef.current = await navigator.wakeLock.request('screen');
-        console.log('[Voice] Wake lock acquired - screen will stay awake');
-
-        // Re-acquire wake lock automatically when released (screen dim, power button, etc.)
-        wakeLockRef.current.addEventListener('release', async () => {
-          console.log('[Voice] Wake lock released — attempting re-acquisition');
-          if (shouldReconnectRef.current) {
-            try {
-              wakeLockRef.current = await navigator.wakeLock.request('screen');
-              console.log('[Voice] Wake lock re-acquired successfully');
-            } catch (e: unknown) {
-              console.warn('[Voice] Wake lock re-acquisition failed:', errorMessage(e, 'Unknown wake lock error'));
-            }
-          }
-        });
-      } catch (e: unknown) {
-        console.warn('[Voice] Wake lock failed (not critical):', errorMessage(e, 'Unknown wake lock error'));
-        // Not critical - continue without wake lock
-      }
-    } else {
-      console.warn('[Voice] Wake Lock API not supported - screen may timeout');
-    }
+    // Hands-free operation keeps the screen awake. Failure is non-fatal and diagnostic-only.
+    await wakeLockControllerRef.current?.start('voice-start');
 
     // Unlock audio for Safari (must happen on user gesture)
     await unlockAudio();
@@ -1548,16 +1558,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
       audioStreamRef.current = null;
     }
 
-    // Release wake lock when stopping voice session
-    if (wakeLockRef.current) {
-      try {
-        wakeLockRef.current.release();
-        wakeLockRef.current = null;
-        console.log('[Voice] Wake lock released - screen can timeout again');
-      } catch (e) {
-        console.warn('[Voice] Failed to release wake lock:', e);
-      }
-    }
+    void wakeLockControllerRef.current?.stop('voice-stop');
 
     // STOP FIX: Reset connection state flags
     isConnectedRef.current = false;
@@ -1580,16 +1581,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
     // while paused, so a picking word said out of habit still cannot fire a phantom pick.
     applyCaptureHold('paused');
 
-    // Release wake lock when pausing (allow screen timeout during breaks)
-    if (wakeLockRef.current) {
-      try {
-        wakeLockRef.current.release();
-        wakeLockRef.current = null;
-        console.log('[Voice] Wake lock released on pause');
-      } catch (e) {
-        console.warn('[Voice] Failed to release wake lock on pause:', e);
-      }
-    }
+    void wakeLockControllerRef.current?.stop('voice-pause');
 
     setLastInput('');
     setStatus('paused');
@@ -1599,15 +1591,7 @@ export function useVoice(options: UseVoiceOptions = {}) {
     // Clear the TTS kill-switch — backgrounding/lock latches stoppedRef=true via pagehide;
     // resuming must un-latch it or speech stays muted while the mic appears to work.
     stoppedRef.current = false;
-    // Re-acquire wake lock when resuming (keep screen awake again)
-    if ('wakeLock' in navigator && !wakeLockRef.current) {
-      try {
-        wakeLockRef.current = await navigator.wakeLock.request('screen');
-        console.log('[Voice] Wake lock re-acquired on resume');
-      } catch (e: unknown) {
-        console.warn('[Voice] Wake lock re-acquisition failed:', errorMessage(e, 'Unknown wake lock error'));
-      }
-    }
+    await wakeLockControllerRef.current?.start('voice-resume');
 
     // CRITICAL: Check if AudioContext is suspended (Safari auto-suspends after idle)
     // If suspended, we need a new user gesture to resume it
@@ -1737,6 +1721,9 @@ export function useVoice(options: UseVoiceOptions = {}) {
     // stopEverything() which latches stoppedRef=true; without this, the mic comes back but
     // speech stays permanently muted ("nothing out the speaker"). Resuming != stopped.
     stoppedRef.current = false;
+    // The on-screen Resume/Unmute buttons use this path, not resumeListening(). It must restore
+    // the wake lock too or the display starts sleeping after the first deliberate pause.
+    await wakeLockControllerRef.current?.start('voice-unmute');
     // iOS/Safari suspends the AudioContext after idle or a screen-lock. resumeListening
     // already checks for this; unmute must too — otherwise the recorder "resumes" while
     // the audio engine is still asleep: the UI says "listening" but nothing is recorded.
@@ -2470,18 +2457,8 @@ export function useVoice(options: UseVoiceOptions = {}) {
       // granted. Net effect before this: the screen stayed awake until the FIRST interruption,
       // then quietly began timing out for the remainder of the route.
       // Spec: .xf/specs/2026-07-30-voice-wake-lock-xffi.md
-      if (shouldReconnectRef.current && 'wakeLock' in navigator && !wakeLockRef.current) {
-        navigator.wakeLock
-          .request('screen')
-          .then((sentinel: WakeLockSentinel) => {
-            wakeLockRef.current = sentinel;
-            emitDiagnostic('wake-lock', 'reacquired-on-visible');
-          })
-          .catch((e: unknown) => {
-            // Rejected (Android can refuse) — the picker is NOT told here; that message is
-            // StockerApp's job per the wake-lock spec. Recorded so a real device run shows it.
-            emitDiagnostic('wake-lock', { outcome: 'rejected-on-visible', reason: errorMessage(e, String(e)) });
-          });
+      if (shouldReconnectRef.current) {
+        void wakeLockControllerRef.current?.refresh('visible');
       }
 
       // Validate the WHOLE path on return. iOS can leave the microphone track and WebSocket

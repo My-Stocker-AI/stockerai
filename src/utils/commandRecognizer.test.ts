@@ -56,6 +56,14 @@ describe('CommandRecognizer', () => {
     it('"Done!" with exclamation', () => {
       expect(r.recognize('Done!').command).toBe(PickingCommand.NEXT_ITEM);
     });
+
+    it.each(['Matt', 'Max', 'Net'])('corrects the observed one-word next mishearing "%s"', (input) => {
+      expect(r.recognize(input).command).toBe(PickingCommand.NEXT_ITEM);
+    });
+
+    it.each(['Matt Damon', 'maximum capacity'])('does not advance for a longer name or word: "%s"', (input) => {
+      expect(r.recognize(input).command).toBe(PickingCommand.UNKNOWN);
+    });
   });
 
   // ─── DIRECTION ─────────────────────────────────────────────────────────────
