@@ -2775,19 +2775,19 @@ export default function StockerApp() {
       )}
 
       {/* Header */}
-      <header className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
-        <div className="flex-1">
+      <header className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 px-4 py-3 border-b border-gray-800 sm:flex sm:justify-between sm:gap-0">
+        <div className="min-w-0 sm:flex-1">
           <span className="text-xs text-blue-400 font-semibold uppercase">Route</span>
-          <h1 className="text-lg font-semibold">{routeState.routeName || `Hi, ${userName}`}</h1>
+          <h1 className="text-lg font-semibold break-words">{routeState.routeName || `Hi, ${userName}`}</h1>
         </div>
-        <div className="flex-shrink-0 mx-4">
-          <div className="h-16 w-16 bg-white rounded-full shadow-lg shadow-teal-500/20 overflow-hidden">
+        <div className="flex-shrink-0 sm:mx-4">
+          <div className="h-14 w-14 sm:h-16 sm:w-16 bg-white rounded-full shadow-lg shadow-teal-500/20 overflow-hidden">
             <img src="/stocker-ai-logo.jpg" alt="Stocker AI" className="w-full h-full object-cover object-center" />
           </div>
         </div>
-        <div className="flex-1 flex items-center justify-end gap-2">
+        <div className="col-span-2 flex min-w-0 items-center justify-between gap-1 sm:flex-1 sm:justify-end sm:gap-2">
           {routeState.routeName && (
-            <span className="text-sm text-gray-400">
+            <span className="mr-auto whitespace-nowrap text-sm text-gray-400 sm:mr-0">
               Machine {routeState.machines.filter(m => m.status === 'completed').length}/{routeState.totalMachines}
             </span>
           )}
@@ -2797,17 +2797,17 @@ export default function StockerApp() {
             onClick={() => setShowProblemReport(true)}
             title="Send feedback"
             aria-label="Send feedback"
-            className="border-amber-700/70 px-2 text-amber-300 hover:bg-amber-950 hover:text-amber-200"
+            className="h-11 w-11 border-amber-700/70 px-0 text-amber-300 hover:bg-amber-950 hover:text-amber-200"
           >
             <MessageSquarePlus className="h-4 w-4" />
           </Button>
-          <Button variant="ghost" size="icon" onClick={() => setShowHelpSheet(true)} title="Voice Commands Help">
+          <Button variant="ghost" size="icon" className="h-11 w-11" onClick={() => setShowHelpSheet(true)} title="Voice Commands Help">
             <HelpCircle className="h-5 w-5 text-gray-400" />
           </Button>
-          <Button variant="ghost" size="icon" onClick={() => setShowSettings(true)} title="Settings — AI voice volume">
+          <Button variant="ghost" size="icon" className="h-11 w-11" onClick={() => setShowSettings(true)} title="Settings — AI voice volume">
             <Settings className="h-5 w-5 text-gray-400" />
           </Button>
-          <Button variant="ghost" size="icon" onClick={handleBackToDashboard} title="Back to Dashboard">
+          <Button variant="ghost" size="icon" className="h-11 w-11" onClick={handleBackToDashboard} title="Back to Dashboard">
             <ArrowLeft className="h-5 w-5 text-gray-400" />
           </Button>
         </div>

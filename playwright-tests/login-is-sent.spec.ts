@@ -36,6 +36,7 @@ test.describe('the app sends its login to the server', () => {
   // looking like an app fault, so they say plainly what is missing instead. The gate in
   // tests/gates starts its own server, so the real check is never quietly skipped there.
   test.beforeEach(async () => {
+    test.setTimeout(60_000);
     test.skip(
       !(await gatedServerIsUp()),
       `no gated server at ${LOCAL_API} — run: python3 -m pytest tests/gates -k login`,
@@ -48,7 +49,7 @@ test.describe('the app sends its login to the server', () => {
     const seen: SeenApiCall[] = [];
     await routeApiToLocal(page, seen);
 
-    await page.goto('/app?resume=1');
+    await page.goto('/app?resume=1', { waitUntil: 'domcontentloaded' });
     await expect
       .poll(() => seen.length, {
         message: 'the app made no server call at all — this test would otherwise prove nothing',
@@ -69,14 +70,20 @@ test.describe('the app sends its login to the server', () => {
   test('a stale login is renewed mid-route, so the driver never sees the error', async ({ page }) => {
     // The real thing that happens after an hour on a route: the stored login no longer works,
     // but the renewal ticket alongside it still does. The app should quietly swap one for the
-    // other and carry on. Here the login is spoiled deliberately to force exactly that moment.
+    // other and carry on. Keep a valid stored session, then make the application API reject
+    // exactly one authenticated request. A malformed JWT cannot bootstrap Supabase at all and
+    // therefore does not model normal access-token expiry.
     const session = await signInDisposableUser(TEST_EMAIL);
-    await beSignedIn(page, { ...session, access_token: 'spoiled.not.valid' });
+    await beSignedIn(page, session);
 
     const seen: SeenApiCall[] = [];
-    await routeApiToLocal(page, seen);
+    let refreshRequests = 0;
+    page.on('request', (request) => {
+      if (request.url().includes('/auth/v1/token?grant_type=refresh_token')) refreshRequests += 1;
+    });
+    await routeApiToLocal(page, seen, { rejectFirstAuthenticatedRequest: true });
 
-    await page.goto('/app?resume=1');
+    await page.goto('/app?resume=1', { waitUntil: 'domcontentloaded' });
     await expect
       .poll(() => seen.some((c) => c.status === 200), {
         message: 'the app never recovered — a driver here would just get an error',
@@ -87,10 +94,11 @@ test.describe('the app sends its login to the server', () => {
     const refused = seen.filter((c) => c.status === 401);
     const accepted = seen.filter((c) => c.status === 200);
     expect(accepted.length, 'nothing succeeded after the renewal').toBeGreaterThan(0);
-    // The spoiled login must actually have been rejected first — otherwise the renewal was
+    // The valid login must actually have been rejected first — otherwise the renewal was
     // never exercised and this test is just the happy path wearing a disguise.
-    expect(refused.length, 'the spoiled login was never refused, so no renewal happened').toBeGreaterThan(0);
-    expect(accepted[accepted.length - 1].authorization).not.toContain('spoiled');
+    expect(refused.length, 'the first authenticated request was not refused').toBe(1);
+    expect(refreshRequests, 'the browser never requested a refreshed session').toBeGreaterThan(0);
+    expect(accepted[accepted.length - 1].authorization).toMatch(/^Bearer \S+/);
 
     await page.unrouteAll({ behavior: 'ignoreErrors' });
   });

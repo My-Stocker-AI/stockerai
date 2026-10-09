@@ -63,7 +63,8 @@ def test_signup_creates_complete_company_and_admin_atomically(signup_accounts):
     ).eq("user_id", owner["id"]).single().execute().data
     accounts.append(membership["account_id"])
     account = db.table("accounts").select(
-        "name,driver_count,subscription_status,is_platform_account"
+        "name,driver_count,subscription_status,is_platform_account,"
+        "billing_onboarding_required,trial_ends_at"
     ).eq("id", membership["account_id"]).single().execute().data
     profile = db.table("profiles").select("first_name,last_name,email").eq(
         "id", owner["id"]
@@ -78,8 +79,12 @@ def test_signup_creates_complete_company_and_admin_atomically(signup_accounts):
     assert account == {
         "name": "Atomic's Company",
         "driver_count": 4,
-        "subscription_status": "trialing",
+        # Creating a login cannot start a trial. Stripe establishes the seven-day
+        # trial only after checkout stores a payment method.
+        "subscription_status": None,
         "is_platform_account": False,
+        "billing_onboarding_required": True,
+        "trial_ends_at": None,
     }
     assert profile == {"first_name": "Atomic", "last_name": "Tester", "email": owner["email"]}
 

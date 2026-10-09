@@ -31,9 +31,63 @@ export interface FixtureFixtures {
   routeShape: RouteShape;
   fixtureRoute: SeededRoute;
   localNetwork: void;
+  silentBrowserAudio: void;
+  installedAppSimulation: void;
 }
 
 export const test = base.extend<FixtureFixtures>({
+  installedAppSimulation: [async ({ context }, provide, testInfo) => {
+    if (testInfo.project.name === 's24-installed-simulation') {
+      await context.addInitScript(() => {
+        const nativeMatchMedia = window.matchMedia.bind(window);
+        Object.defineProperty(window, 'matchMedia', {
+          configurable: true,
+          value: (query: string) => {
+            const result = nativeMatchMedia(query);
+            if (query !== '(display-mode: standalone)') return result;
+            return new Proxy(result, {
+              get(target, property) {
+                if (property === 'matches') return true;
+                const value = Reflect.get(target, property, target);
+                return typeof value === 'function' ? value.bind(target) : value;
+              },
+            });
+          },
+        });
+      });
+    }
+    await provide();
+  }, { auto: true }],
+  silentBrowserAudio: [async ({ context }, provide) => {
+    await context.addInitScript(() => {
+      const silentSpeech = {
+        speaking: false,
+        pending: false,
+        paused: false,
+        onvoiceschanged: null,
+        cancel() {},
+        pause() {},
+        resume() {},
+        getVoices() { return []; },
+        addEventListener() {},
+        removeEventListener() {},
+        dispatchEvent() { return true; },
+        speak(utterance: SpeechSynthesisUtterance) {
+          utterance.dispatchEvent(new Event('start'));
+          queueMicrotask(() => utterance.dispatchEvent(new Event('end')));
+        },
+      } as unknown as SpeechSynthesis;
+
+      // Chromium's --mute-audio flag does not reliably silence the operating-system
+      // speech synthesizer on every host. Replace it before application code starts so
+      // every browser acceptance test is silent while preserving speech lifecycle events.
+      Object.defineProperty(window, 'speechSynthesis', {
+        configurable: true,
+        value: silentSpeech,
+      });
+    });
+    await provide();
+  }, { auto: true }],
   localNetwork: [async ({ context }, provide) => {
     await context.route('**/*', async route => {
       const url = new URL(route.request().url());

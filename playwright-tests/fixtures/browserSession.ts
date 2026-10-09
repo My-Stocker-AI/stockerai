@@ -59,7 +59,12 @@ export async function beSignedIn(page: Page, session: BrowserSession): Promise<v
 }
 
 /** Routes production API URLs to the loopback API and optionally records every result. */
-export async function routeApiToLocal(page: Page, seen: SeenApiCall[] = []): Promise<void> {
+export async function routeApiToLocal(
+  page: Page,
+  seen: SeenApiCall[] = [],
+  options: { rejectFirstAuthenticatedRequest?: boolean } = {},
+): Promise<void> {
+  let rejectNextAuthenticatedRequest = options.rejectFirstAuthenticatedRequest === true;
   await page.route(`${LIVE_API}/api/**`, async (route) => {
     const request = route.request();
     const target = request.url().replace(LIVE_API, LOCAL_API);
@@ -72,6 +77,22 @@ export async function routeApiToLocal(page: Page, seen: SeenApiCall[] = []): Pro
           'access-control-allow-headers': 'authorization, content-type',
           'access-control-allow-methods': 'GET, POST, PATCH, DELETE, OPTIONS',
         },
+      });
+      return;
+    }
+
+    if (rejectNextAuthenticatedRequest) {
+      rejectNextAuthenticatedRequest = false;
+      seen.push({
+        url: request.url().replace(LIVE_API, ''),
+        authorization: await request.headerValue('authorization'),
+        status: 401,
+      });
+      await route.fulfill({
+        status: 401,
+        contentType: 'application/json',
+        headers: { 'access-control-allow-origin': APP_ORIGIN },
+        body: '{"detail":"synthetic expired access token"}',
       });
       return;
     }
