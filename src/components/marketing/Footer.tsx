@@ -7,7 +7,13 @@ const Footer = () => {
         <div className="flex flex-col md:flex-row justify-between items-center gap-8">
           {/* Logo */}
           <Link to="/" className="flex items-center justify-center gap-2">
-            <img src="/icon-192.png" alt="Stocker AI" className="h-12 w-12 rounded-lg" />
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white">
+              <img
+                src="/stocker-ai-logo-square.jpg"
+                alt="Stocker AI"
+                className="block h-full w-full object-cover object-center"
+              />
+            </div>
             <span className="text-lg font-bold">Stocker AI</span>
           </Link>
 
